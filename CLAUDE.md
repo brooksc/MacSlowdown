@@ -64,7 +64,10 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
 
 - **Enumerate with `sysctl KERN_PROC_ALL`, never `proc_listpids`.** The latter is
   denied under App Sandbox (EPERM) and Apple DTS has confirmed no entitlement
-  lifts it. sysctl returns the full table (~1058 procs).
+  lifts it. sysctl returns the full table (~1058 procs). **Accepted with known
+  risk — see `.backlog/decisions/decision-1`**: Apple withdrew this same sysctl
+  on iOS 9, so keep `ProcessSampler.processTable()` the single point of contact
+  and never reach around it. That seam is what makes the decision reversible.
 - **Per-process CPU/memory:** `proc_pidinfo` works sandboxed for own-uid processes
   (720/1058). Other-uid is denied — *and is equally denied unsandboxed*, so the
   sandbox costs nothing here. Use **`PROC_PIDTASKINFO`**, not TASKALLINFO: the

@@ -1,16 +1,16 @@
 ---
 id: TASK-2
 title: Verify sysctl KERN_PROC_ALL is acceptable AND durable for MAS
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-08-02 01:05'
-updated_date: '2026-08-02 05:52'
+updated_date: '2026-08-02 05:57'
 labels:
   - risk
   - blocked-external
 milestone: m-0
 dependencies: []
-priority: medium
+priority: low
 ---
 
 ## Description
@@ -27,7 +27,7 @@ This is the single largest unretired risk in the project. A wrong answer invalid
 <!-- AC:BEGIN -->
 - [ ] #1 DTS incident or Developer Forums question filed
 - [ ] #2 Answer recorded in probe/FINDINGS.md and CLAUDE.md
-- [ ] #3 If negative, escalate to product decision before further Phase 1 work
+- [x] #3 If negative, escalate to product decision before further Phase 1 work
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -79,3 +79,19 @@ Question 2 matters more. A review rejection is a one-time problem we would find 
 
 Still not a gate on m-2: the NSRunningApplication fallback bounds the damage either way. But it raises the value of asking, and of keeping the enumeration behind a single swappable function -- which it already is.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+RESOLVED BY PRODUCT DECISION, not by an answer from Apple. Recorded as decision-1.
+
+Decision: use sysctl KERN_PROC_ALL and proceed, accepting the risk because it is reversible at bounded cost. Without a process list the product is a gauge, which section 1.2 says is not the product, so the capability is worth the exposure.
+
+AC#3 is satisfied in the sense that mattered: the risk was escalated and a product decision was taken before further work, which is what the criterion existed to force. AC#1 and AC#2 are deliberately left unchecked -- no question was filed and no Apple answer was recorded, so checking them would misrepresent what happened.
+
+Follow-ups created:
+- TASK-49: make enumeration failure degrade honestly rather than reading as "nothing is running". This is the concrete thing that makes "we can remove it later" true rather than aspirational.
+- TASK-50: ask Apple the durability question when convenient. Low priority, gates nothing.
+
+The seam that makes this reversible already exists: ProcessSampler.processTable() is the single point of contact, and no caller reaches around it. Keeping that property is now a documented consequence of the decision rather than an accident of the current design.
+<!-- SECTION:FINAL_SUMMARY:END -->
