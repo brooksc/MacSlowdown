@@ -1,16 +1,46 @@
 import Darwin
 import Foundation
 
-/// How a figure came to be known (FR-038).
+/// How a conclusion came to be known (FR-038).
 ///
-/// Every number the app shows carries this, so a user or support recipient can
-/// judge it. It is part of the data, not presentation: a calculated remainder must
-/// never be presented as though it were read from a counter.
-public enum Evidence: String, Sendable {
+/// Every figure and every statement the app makes carries one of these, so a user
+/// or support recipient can judge it. It is part of the data, not presentation: a
+/// calculated remainder must never be presented as though it were read from a
+/// counter, and a hypothesis must never be presented as either.
+public enum Evidence: String, Sendable, CaseIterable, Codable {
     /// Read directly from a kernel counter.
     case measured
     /// Derived arithmetically from measured values.
     case calculated
+    /// An interpretation of the measurements. Always carries a confidence level,
+    /// because it could be wrong.
+    case heuristic
+    /// Supplied by the user, e.g. marking a workload as expected.
+    case userProvided
+
+    public var label: String {
+        switch self {
+        case .measured: "Measured"
+        case .calculated: "Calculated"
+        case .heuristic: "Likely"
+        case .userProvided: "You told us"
+        }
+    }
+
+    /// Only a heuristic can be wrong in a way a confidence level describes.
+    public var requiresConfidence: Bool { self == .heuristic }
+}
+
+/// How much weight a heuristic conclusion deserves (FR-013).
+public enum Confidence: String, Sendable, CaseIterable, Codable {
+    case low, moderate, high
+    public var label: String {
+        switch self {
+        case .low: "low confidence"
+        case .moderate: "moderate confidence"
+        case .high: "high confidence"
+        }
+    }
 }
 
 public struct AttributedFigure: Sendable {
