@@ -1,0 +1,181 @@
+import Foundation
+
+/// How confident we are that a process belongs to the family it was placed in.
+///
+/// FR-003 requires uncertain associations to be labeled; FR-038 requires every
+/// conclusion to carry its evidence class. Grouping is a heuristic over public
+/// metadata, so the distinction is part of the data, not a UI afterthought.
+public enum FamilyMembership: Sendable, Equatable {
+    /// The code signature corroborates the path: the process's signed identifier
+    /// shares the application's identifier prefix.
+    case certain
+    /// The executable lives inside the bundle, but the signature does not
+    /// corroborate it. Real example from the Tier 0 spike: `node_repl` and
+    /// `codex-code-mode` executing from inside ChatGPT.app. Attributing them to
+    /// ChatGPT is defensible but not certain.
+    case uncertain(reason: String)
+    /// The user placed this process here (FR-039).
+    case userAssigned
+
+    public var isCertain: Bool { self == .certain }
+}
+
+public struct FamilyMember: Sendable {
+    public let record: ProcessRecord
+    public let resolved: ResolvedIdentity
+    public let membership: FamilyMembership
+}
+
+/// A user-meaningful application, or a standalone process.
+///
+/// Only about 15% of the process table belongs to an application bundle. Daemons
+/// and command-line tools are standalone processes in their own right — modelling
+/// them as families-of-one would misrepresent the system and clutter the app view.
+public struct ProcessFamily: Sendable, Identifiable {
+    public let id: String
+    public let displayName: String
+    /// `nil` for a standalone process.
+    public let bundlePath: String?
+    /// Individual PID records, always preserved beneath the aggregate (FR-003).
+    public let members: [FamilyMember]
+
+    public var isStandalone: Bool { bundlePath == nil }
+    public var hasUncertainMembers: Bool {
+        members.contains { if case .uncertain = $0.membership { true } else { false } }
+    }
+    /// Members whose CPU and memory the sandbox denies us. They stay visible by
+    /// name; their usage belongs in the unattributed bucket.
+    public var notMeasurableCount: Int { members.count(where: { !$0.record.isMeasurable }) }
+}
+
+/// User corrections to grouping (FR-039). Grouping is reversible by construction:
+/// nothing is destroyed, the override simply changes where a process is placed.
+public struct GroupingOverrides: Sendable {
+    /// Processes the user pulled out of their inferred family.
+    public var detached: Set<ProcessIdentity>
+    /// Processes the user placed into a specific family, by bundle path.
+    public var attached: [ProcessIdentity: String]
+
+    public init(detached: Set<ProcessIdentity> = [], attached: [ProcessIdentity: String] = [:]) {
+        self.detached = detached
+        self.attached = attached
+    }
+
+    public static let none = GroupingOverrides()
+}
+
+public enum FamilyGrouper {
+    /// Groups processes into application families.
+    ///
+    /// Grouping keys on the **outermost `.app` in the executable path**, not the
+    /// signed bundle identifier: helpers report their own identifier
+    /// (`net.imput.helium.helper.renderer`), not the parent's, so the signature
+    /// identifies a process without grouping it. The signature is used instead to
+    /// decide how confident the association is.
+    public static func group(
+        _ inputs: [(record: ProcessRecord, resolved: ResolvedIdentity)],
+        overrides: GroupingOverrides = .none
+    ) -> [ProcessFamily] {
+        var bundled: [String: [FamilyMember]] = [:]
+        var standalone: [ProcessFamily] = []
+
+        for input in inputs {
+            let identity = input.record.identity
+
+            if let forced = overrides.attached[identity] {
+                bundled[forced, default: []].append(
+                    FamilyMember(record: input.record, resolved: input.resolved,
+                                 membership: .userAssigned))
+                continue
+            }
+
+            let bundlePath = overrides.detached.contains(identity) ? nil : input.resolved.appBundlePath
+            guard let bundlePath else {
+                standalone.append(standaloneFamily(input.record, input.resolved))
+                continue
+            }
+
+            bundled[bundlePath, default: []].append(
+                FamilyMember(record: input.record, resolved: input.resolved,
+                             membership: .certain)  // refined below, once the family's own id is known
+            )
+        }
+
+        let applications = bundled.map { path, members in
+            ProcessFamily(
+                id: path,
+                displayName: displayName(forBundle: path),
+                bundlePath: path,
+                members: classify(members, bundlePath: path)
+            )
+        }
+
+        return (applications + standalone).sorted { $0.displayName < $1.displayName }
+    }
+
+    /// Convenience over a live snapshot.
+    public static func group(
+        snapshot: ProcessSnapshot,
+        resolver: ProcessIdentityResolver,
+        overrides: GroupingOverrides = .none
+    ) -> [ProcessFamily] {
+        group(
+            snapshot.records.values.map { ($0, resolver.identity(for: $0.identity)) },
+            overrides: overrides
+        )
+    }
+
+    // MARK: - Confidence
+
+    /// Decides per-member confidence once the family's own identifier is known.
+    ///
+    /// The family's identifier comes from its main executable — the one directly in
+    /// `Contents/MacOS`. A member whose signed identifier shares that prefix is a
+    /// genuine helper. A member executing from inside the bundle whose signature
+    /// says otherwise is flagged: it may be a legitimate subprocess or an unrelated
+    /// binary that merely lives there.
+    static func classify(_ members: [FamilyMember], bundlePath: String) -> [FamilyMember] {
+        let mainExecutablePrefix = bundlePath + "/Contents/MacOS/"
+        let familyID = members.first {
+            ($0.resolved.executablePath?.hasPrefix(mainExecutablePrefix) ?? false)
+        }?.resolved.bundleID
+
+        return members.map { member in
+            if case .userAssigned = member.membership { return member }
+            guard let familyID, let memberID = member.resolved.bundleID else {
+                // No signature to corroborate with. The path is still evidence, but
+                // weaker on its own.
+                return FamilyMember(
+                    record: member.record, resolved: member.resolved,
+                    membership: member.resolved.bundleID == nil
+                        ? .uncertain(reason: "matched by path only; no code signature")
+                        : .certain)
+            }
+            if memberID == familyID || memberID.hasPrefix(familyID + ".") {
+                return member  // certain
+            }
+            return FamilyMember(
+                record: member.record, resolved: member.resolved,
+                membership: .uncertain(
+                    reason: "runs from inside the bundle but is signed as \(memberID)"))
+        }
+    }
+
+    // MARK: - Naming
+
+    static func displayName(forBundle path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        return name.hasSuffix(".app") ? String(name.dropLast(4)) : name
+    }
+
+    private static func standaloneFamily(
+        _ record: ProcessRecord, _ resolved: ResolvedIdentity
+    ) -> ProcessFamily {
+        ProcessFamily(
+            id: "pid:\(record.identity.pid):\(record.identity.startTime)",
+            displayName: record.command,
+            bundlePath: nil,
+            members: [FamilyMember(record: record, resolved: resolved, membership: .certain)]
+        )
+    }
+}
