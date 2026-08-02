@@ -257,6 +257,21 @@ The property is read identically, so the risk is low, but it is unverified.
 FR-019 can therefore be implemented fully rather than "omitted if not reliably
 available", and its Medium-High confidence rating can be raised.
 
+## Aggregate disk I/O via IOKit — AVAILABLE sandboxed
+
+Not covered by Tier 0; verified separately for FR-009. Measured in a signed,
+sandboxed `.app` launched via `open`:
+
+```
+IOServiceGetMatchingServices  kr=0
+devices=3  bytesRead=1701567834112  bytesWritten=761366163456
+```
+
+`IOBlockStorageDriver` statistics are readable with no entitlement beyond
+`app-sandbox`, so machine-wide disk throughput is available. Per-process I/O
+remains unavailable (`proc_pid_rusage` is denied), which is why FR-009 was
+narrowed to aggregate-only in spec v1.2.
+
 ## Open risk: App Review
 
 `proc_listpids` is explicitly denied under the sandbox and Apple DTS has stated
