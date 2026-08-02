@@ -9,8 +9,21 @@ continuously observes system resource conditions, detects *sustained*
 degradation, attributes it to application families, preserves bounded evidence
 before/during/after the event, and explains it without overstating causation.
 
-Greenfield. As of this writing the repo contains only `requirements.md` — no
-source, no build system, no commits.
+Greenfield, pre-Phase-1. Feasibility is proven (`probe/FINDINGS.md`) but no app
+code exists yet — the repo holds the spec, the feasibility probes, and the
+backlog. Build system not yet scaffolded.
+
+## Working practice
+
+- Work is tracked in Backlog (`.backlog/`, MCP server `backlog`). Check
+  `task_list` before starting; move a task to In Progress when you begin and
+  record findings in its notes when you finish. Milestones are tracked with
+  `m0-feasibility` … `m4-advanced-context` labels.
+- Probes and findings live in `probe/`. When a spike settles a question, append
+  it to `probe/FINDINGS.md` and reflect any durable rule here.
+- Build sandboxed test binaries with `probe/build-sandboxed.sh` — it needs only
+  `swiftc` + `codesign`, no Xcode project. Sandbox behavior must always be
+  verified in a signed `.app`; an unsandboxed binary proves nothing about it.
 
 ## Authority
 
@@ -62,6 +75,19 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
   shows footprint, so our numbers will legitimately differ — label it.
 - Cache `proc_pidpath` by (pid, start time); re-reading every sweep costs ~5 ms
   and breaks the FR-030 budget at 1 s cadence. sysctl + taskinfo alone is 1.8 ms.
+- **Identity: path is the anchor, signature is enrichment.** `proc_pidpath`
+  works for 1042/1063 procs sandboxed (unaffected by the sandbox);
+  `SecCodeCopyGuestWithAttributes` works for 810/1063. Group by the **outermost
+  `.app`** in the executable path — the signed bundle ID does *not* group,
+  because helpers report their own identifier, not the parent's.
+- **Only ~15% of processes belong to an application family** (154/1063 live in a
+  `.app`). Standalone daemons and CLI tools are a first-class case in the data
+  model, not a family-of-one.
+- **Identity resolution costs ~760 ms per full sweep** — ~400× the metrics
+  sweep, and the dominant cost in the system. Resolve once per process lifetime,
+  cached by `(pid, start time)`. Never per-sweep.
+- Security-framework `OSStatus` failures decode as `kPOSIXErrorBase` (100000)
+  plus errno: 100001 = EPERM, 100002 = ENOENT, 100013 = EACCES.
 - **The binding limit is uid, not the sandbox.** Other-uid processes
   (`WindowServer`, `mds_stores`, `backupd`, `coreaudiod`, `launchd`) are denied
   identically sandboxed and unsandboxed; only root sees them. ~40 percentage

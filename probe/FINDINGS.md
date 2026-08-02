@@ -149,6 +149,62 @@ for. Note also that Activity Monitor shows this data via a privileged helper
 FR-037 defers and marks Escalated. This supports the existing MAS-first decision:
 the middle tier is a metrics upgrade, not a different product.
 
+## TASK-3: application-family identity (FR-003)
+
+**Verdict: FR-003 is feasible sandboxed.** Path is the primary anchor; code
+signature is enrichment, not the foundation.
+
+| Identity source | Unsandboxed | Sandboxed | Notes |
+|---|---|---|---|
+| `proc_pidpath` | 1042/1063 | **1042/1063** | Unaffected by sandbox; works other-uid |
+| Outermost `.app` from path | 153/1063 | **154/1063** | Only ~15% of procs live in a bundle |
+| Code signature bundle ID | 1041/1063 | **810/1063** | 231 lost to EPERM under sandbox |
+| Code signature team ID | 75/1063 | **67/1063** | Third-party only; Apple binaries have none |
+| `NSRunningApplication` | 119 apps | 119 apps | GUI only, no helpers |
+
+`SecCodeCopyGuestWithAttributes(kSecGuestAttributePid)` **works sandboxed** and
+returns identity for 212/338 *other-uid* processes — i.e. we can name processes
+whose CPU we cannot read. Failures decode as `kPOSIXErrorBase` (100000) plus
+errno: `100001` = EPERM (231), `100002` = ENOENT (21, exited), `100013` = EACCES.
+
+**Helper grouping works, and works identically sandboxed.** Grouping by
+outermost `.app` in the executable path:
+
+```
+Helium.app      -> 24 processes    1Password.app -> 4
+ChatGPT.app     -> 15 processes    Xcode-beta.app -> 4
+Dock.app        ->  5 processes    XProtect.app  -> 4
+```
+
+### Three consequences for the data model
+
+1. **The signed bundle ID does NOT group.** Helpers report their own identifier
+   (`net.imput.helium.helper.renderer`), not the parent's (`net.imput.helium`).
+   Grouping must key on the outermost `.app` path, not the signature. Use the
+   signature for *identity* and policy stability, the path for *family*.
+2. **Application-family covers only ~15% of processes.** 154/1063 live inside a
+   `.app`; the rest are daemons and CLI tools with no family. The §6 data model
+   must treat "standalone process" as a first-class case, not a degenerate
+   family-of-one.
+3. **Identity resolution costs 760 ms per full sweep** — roughly 400x the 1.8 ms
+   metrics sweep. It MUST be cached by `(pid, start time)` and resolved once per
+   process lifetime. Never per-sweep. This is the dominant cost in the system.
+
+### Policy identity across app updates (FR-016)
+
+Where a signature is available, `teamID + bundleID` is the stable key and
+survives app updates and path changes. Where it is not (Apple platform binaries,
+231 sandboxed denials), fall back to the outermost `.app` path. Both must be
+recorded so a policy can survive one source becoming unavailable.
+
+### Known false-grouping risk
+
+`ChatGPT.app` absorbed 15 processes including `node_repl` and
+`codex-code-mode-*` — subprocesses whose executables live inside the bundle.
+Attributing them to ChatGPT is arguably correct but not certain. This is exactly
+the case FR-003 requires to be "labeled and reversible", and FR-039 to be
+user-correctable.
+
 ## Open risk: App Review
 
 `proc_listpids` is explicitly denied under the sandbox and Apple DTS has stated
