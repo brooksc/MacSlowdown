@@ -1,10 +1,10 @@
 ---
 id: TASK-2
-title: 'Open DTS incident: is sysctl KERN_PROC_ALL sanctioned for MAS?'
+title: Verify sysctl KERN_PROC_ALL is acceptable AND durable for MAS
 status: Parked
 assignee: []
 created_date: '2026-08-02 01:05'
-updated_date: '2026-08-02 05:49'
+updated_date: '2026-08-02 05:52'
 labels:
   - risk
   - blocked-external
@@ -54,4 +54,28 @@ The cost of that fallback is helpers: Chrome's 23 renderers and Xcode's swift-fr
 Risk recalibrated to MEDIUM. sysctl is public API, we request no entitlements, and entitlement requests are where rejections actually cluster. No precedent of a rejection for this was found; the earlier concern came from a forum caution, not evidence. Rejection would also not arrive as 'you used sysctl' -- App Review cites guidelines, not syscalls.
 
 Still worth asking, because it is cheap. No longer treated as a gate on m-2.
+
+WEB RESEARCH, 2026-08-01. Two findings, pulling in opposite directions.
+
+EVIDENCE THE CAPABILITY SHIPS ON MAS:
+- iStat Menus 7 is on the Mac App Store and its listing advertises 'a list of the apps using the most CPU'. Bjango's documented MAS limitations (v6-era) are weather, fan control, CPU frequency and helper-required sensors -- per-process CPU is NOT among them.
+- Pulse (paid, MAS) lists 'top processes' among its metrics.
+So per-process CPU visibility demonstrably passes App Review in some form.
+
+BUT neither confirms the MECHANISM. iStat Menus' MAS build requires a separately downloaded Helper app for some stats, so its process list may come from the helper rather than from a sandboxed sysctl call. This is an existence proof for the feature, not for our implementation.
+
+Counterpoint: Better Resource Monitor is MAS, open source (MIT), explicitly 'fully sandboxed, no privileged helper, no private APIs' -- and offers aggregate metrics only, no per-process list. Absence of a feature is not proof it is blocked, but it is the one app whose sandbox posture matches ours exactly, and it does not do what we do.
+
+NEW AND MORE IMPORTANT RISK -- DURABILITY, NOT REVIEW:
+Apple deliberately closed this exact API on iOS. A developer reported KERN_PROC_ALL working through iOS 8 and returning 'Operation not permitted' from iOS 9 beta 3; the resolution was that Apple 'basically removed that sysctl option', with the stated rationale that apps 'are not permitted to see what other apps are running'.
+
+That is Apple stating intent about the precise call we depend on, and the rationale applies verbatim to us. macOS has not followed -- it has always permitted more introspection, and ps, top and Activity Monitor exist for users -- but the sandbox already gates sysctl per-node (sysctl-read denials are a documented violation type), so gating kern.proc would require no new machinery.
+
+So the question to ask Apple should be BOTH:
+1. Is sysctl KERN_PROC_ALL acceptable for a sandboxed MAS app? (No rejection precedent found.)
+2. Is it expected to remain available on macOS, given it was withdrawn on iOS 9 for this exact use?
+
+Question 2 matters more. A review rejection is a one-time problem we would find out about at submission; a future OS closing the API breaks shipped installs, and A-01 already commits us to macOS 26 and 27 with later versions to follow.
+
+Still not a gate on m-2: the NSRunningApplication fallback bounds the damage either way. But it raises the value of asking, and of keeping the enumeration behind a single swappable function -- which it already is.
 <!-- SECTION:NOTES:END -->
