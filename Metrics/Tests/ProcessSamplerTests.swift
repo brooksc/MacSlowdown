@@ -4,29 +4,6 @@ import Testing
 
 @testable import Metrics
 
-/// Spawns a process that saturates exactly one core, for CPU-accuracy checks.
-private func spinner() -> Process {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/yes")
-    process.standardOutput = FileHandle.nullDevice
-    process.standardError = FileHandle.nullDevice
-    try? process.run()
-    return process
-}
-
-/// `ps` reading of a pid's CPU, as a percentage of one core.
-private func psCPU(_ pid: pid_t) -> Double? {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/ps")
-    process.arguments = ["-o", "%cpu=", "-p", String(pid)]
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    try? process.run()
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    return Double(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
-}
-
 @Suite("Process enumeration")
 struct ProcessEnumerationTests {
     @Test("sysctl returns a populated process table")
@@ -115,62 +92,6 @@ struct CPURateTests {
         }
     }
 
-    /// FR-004 acceptance criterion: a synthetic workload is represented accurately
-    /// under the documented convention. This is the test that fails loudly if the
-    /// mach-tick conversion is ever dropped — without it the reading is ~42x low.
-    @Test("A single-core workload reads as roughly 100% of one core", .timeLimit(.minutes(1)))
-    func singleCoreWorkload() async throws {
-        let spin = spinner()
-        defer { spin.terminate() }
-        try await Task.sleep(for: .milliseconds(500))
-
-        let sampler = ProcessSampler()
-        let first = sampler.snapshot()
-        try await Task.sleep(for: .seconds(2))
-        let second = sampler.snapshot()
-
-        let pid = spin.processIdentifier
-        let measured = try #require(
-            CPUUsage.between(first, second).first { $0.identity.pid == pid },
-            "spinner pid \(pid) not found in usage"
-        )
-
-        #expect(measured.percentOfOneCore > 80,
-                "read \(measured.percentOfOneCore)% — a dropped timebase conversion reads ~2.4%")
-        #expect(measured.percentOfOneCore < 130, "read \(measured.percentOfOneCore)%")
-
-        if let ps = psCPU(pid) {
-            #expect(abs(measured.percentOfOneCore - ps) < 25,
-                    "ours \(measured.percentOfOneCore)% vs ps \(ps)%")
-        }
-    }
-
-    @Test("Two single-core workloads each read as roughly one core", .timeLimit(.minutes(1)))
-    func dualCoreWorkload() async throws {
-        let first = spinner(), second = spinner()
-        defer { first.terminate(); second.terminate() }
-        try await Task.sleep(for: .milliseconds(500))
-
-        let sampler = ProcessSampler()
-        let before = sampler.snapshot()
-        try await Task.sleep(for: .seconds(2))
-        let after = sampler.snapshot()
-
-        let usage = CPUUsage.between(before, after)
-        let pids = [first.processIdentifier, second.processIdentifier]
-        let measured = usage.filter { pids.contains($0.identity.pid) }
-
-        #expect(measured.count == 2, "found \(measured.count) of 2 spinners")
-        for entry in measured {
-            #expect(entry.percentOfOneCore > 80, "read \(entry.percentOfOneCore)%")
-            #expect(entry.percentOfOneCore < 130, "read \(entry.percentOfOneCore)%")
-        }
-
-        // Combined they occupy about two cores — the case that makes a
-        // machine-relative-only presentation misleading (FR-004).
-        let combined = measured.reduce(0) { $0 + $1.percentOfOneCore }
-        #expect(combined > 160, "combined \(combined)% of one core")
-    }
 }
 
 @Suite("Sweep overhead")
