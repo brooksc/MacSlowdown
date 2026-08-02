@@ -29,6 +29,10 @@ struct OverheadHarnessTests {
     ///     swiftc -O -parse-as-library -o /tmp/overhead Metrics/Sources/*.swift \
     ///         overhead-main.swift -framework Security
     ///
+    /// The same applies to resident memory: the reading covers the whole test
+    /// host, which exceeds the app's 100 MB budget on its own. Growth across the
+    /// run is ours and is asserted instead.
+    ///
     /// Most recent standalone measurement, Apple M2, release build, 2s cadence:
     ///     cpu 0.493% of one core, memory 16.4 MB, disk 0.09 MB/hour,
     ///     sweep 5.54 ms median — all inside budget.
@@ -48,8 +52,14 @@ struct OverheadHarnessTests {
         let report = measurement.summary
 
         #expect(measurement.sweeps >= 5, "only \(measurement.sweeps) sweeps completed")
-        #expect(measurement.withinMemoryBudget, "memory over budget.\n\(report)")
         #expect(measurement.withinDiskBudget, "disk over budget.\n\(report)")
+
+        // Resident memory has the same shared-process problem as CPU: the figure
+        // includes every other suite's allocations, and the test host alone
+        // exceeds the app's 100 MB budget. What IS ours is the growth across the
+        // run, which is asserted separately below and in the leak test.
+        #expect(measurement.residentGrowthBytes < 50 * 1_048_576,
+                "resident grew \(measurement.residentGrowthBytes / 1_048_576) MB.\n\(report)")
 
         // Loose bound only — see the note above on why a strict CPU assertion is
         // not meaningful in a shared test process. A real regression (a per-sweep
