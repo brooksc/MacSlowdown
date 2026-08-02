@@ -9,7 +9,22 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-IDENTITY="${IDENTITY:-Apple Development: brooksc@brooksc.com (QW4TUQ3SLY)}"
+# Discovered from the login keychain rather than hardcoded, so no personal
+# signing identity lives in the repository. Override with IDENTITY=... to pick a
+# specific certificate when more than one is present.
+IDENTITY="${IDENTITY:-$(
+	security find-identity -v -p codesigning 2>/dev/null \
+		| awk -F'"' '/Apple Development/ { print $2; exit }'
+)}"
+
+if [ -z "$IDENTITY" ]; then
+	echo "error: no 'Apple Development' code-signing identity found in the keychain." >&2
+	echo "       Set IDENTITY=\"<certificate name>\" to choose one explicitly." >&2
+	echo "       Available identities:" >&2
+	security find-identity -v -p codesigning >&2
+	exit 1
+fi
+
 BUNDLE_ID="com.brooksc.MacSlowdown.Probe"
 OUT="${1:-./build}"
 APP="$OUT/Probe.app"
