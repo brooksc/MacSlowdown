@@ -94,6 +94,14 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
   cached by `(pid, start time)`. Never per-sweep.
 - Security-framework `OSStatus` failures decode as `kPOSIXErrorBase` (100000)
   plus errno: 100001 = EPERM, 100002 = ENOENT, 100013 = EACCES.
+- **Window titles are unavailable** without Screen Recording permission (measured:
+  1/8 windows expose `kCGWindowName`, and that one is our own). Per-tab and
+  per-document context is out. `kCGWindowOwnerName` **is** available for every
+  window with no permission, which covers foreground/visible state.
+- **Test TCC-sensitive capabilities via `open`, never by exec'ing from a shell.**
+  macOS attributes permissions to the *responsible process*, so a binary launched
+  from a terminal inherits the terminal's grants. The window-title probe reported
+  8/8 titles that way and 1/8 when launched properly.
 - **The binding limit is uid, not the sandbox.** Other-uid processes
   (`WindowServer`, `mds_stores`, `backupd`, `coreaudiod`, `launchd`) are denied
   identically sandboxed and unsandboxed; only root sees them. ~40 percentage
