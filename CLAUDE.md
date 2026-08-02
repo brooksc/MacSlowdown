@@ -26,6 +26,12 @@ attribution and bounded history, plus the FR-030 overhead harness. Run it with
   `non-mas`, `out-of-scope`. Parked and out-of-scope work carries no milestone.
 - Probes and findings live in `probe/`. When a spike settles a question, append
   it to `probe/FINDINGS.md` and reflect any durable rule here.
+- **Commit and push after every major update.** The remote is a private GitHub
+  repo and exists as a backup, so work that only lives on this machine is work
+  that can be lost. "Major update" means a completed task, a resolved spike, a
+  decision record, or a spec amendment — not every intermediate edit. Push at
+  the end of a milestone without being asked; ask before pushing anything that
+  would be visible outside the private repo.
 - Build sandboxed test binaries with `probe/build-sandboxed.sh` — it needs only
   `swiftc` + `codesign`, no Xcode project. Sandbox behavior must always be
   verified in a signed `.app`; an unsandboxed binary proves nothing about it.
