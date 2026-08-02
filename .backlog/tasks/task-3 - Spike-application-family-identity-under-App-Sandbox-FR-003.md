@@ -6,8 +6,8 @@ assignee: []
 created_date: '2026-08-02 01:05'
 updated_date: '2026-08-02 01:24'
 labels:
-  - m1-core-monitor
   - spike
+milestone: m-1
 dependencies: []
 priority: high
 ---

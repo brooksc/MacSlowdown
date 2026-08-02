@@ -5,9 +5,9 @@ status: To Do
 assignee: []
 created_date: '2026-08-02 01:05'
 labels:
-  - m0-feasibility
   - risk
   - blocked-external
+milestone: m-0
 dependencies: []
 priority: high
 ---

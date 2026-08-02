@@ -5,8 +5,8 @@ status: To Do
 assignee: []
 created_date: '2026-08-02 01:06'
 labels:
-  - m1-core-monitor
   - infra
+milestone: m-1
 dependencies: []
 priority: high
 ---

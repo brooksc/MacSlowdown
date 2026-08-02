@@ -5,8 +5,8 @@ status: To Do
 assignee: []
 created_date: '2026-08-02 01:07'
 labels:
-  - m2-incident-diagnosis
   - core
+milestone: m-2
 dependencies: []
 priority: medium
 ---

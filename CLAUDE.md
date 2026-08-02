@@ -17,8 +17,12 @@ backlog. Build system not yet scaffolded.
 
 - Work is tracked in Backlog (`.backlog/`, MCP server `backlog`). Check
   `task_list` before starting; move a task to In Progress when you begin and
-  record findings in its notes when you finish. Milestones are tracked with
-  `m0-feasibility` … `m4-advanced-context` labels.
+  record findings in its notes when you finish.
+- **Milestones use Backlog's native `milestone` field** (`m-0` … `m-4`, mapping
+  to the spec's phases), not labels. Filter with `task_list --milestone`.
+  Labels are for type and state only: `core`, `ui`, `infra`, `spike`,
+  `decision`, `risk`, `parked`, `blocked-by-sandbox`, `blocked-external`,
+  `non-mas`, `out-of-scope`. Parked and out-of-scope work carries no milestone.
 - Probes and findings live in `probe/`. When a spike settles a question, append
   it to `probe/FINDINGS.md` and reflect any durable rule here.
 - Build sandboxed test binaries with `probe/build-sandboxed.sh` — it needs only

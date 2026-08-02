@@ -4,9 +4,10 @@ title: Tier 0 sandbox feasibility probe
 status: Done
 assignee: []
 created_date: '2026-08-02 01:05'
+updated_date: '2026-08-02 01:27'
 labels:
-  - m0-feasibility
   - spike
+milestone: m-0
 dependencies: []
 priority: high
 ---
