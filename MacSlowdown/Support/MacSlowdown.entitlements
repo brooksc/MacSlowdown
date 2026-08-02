@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The only entitlement this app requests.
+	     probe/FINDINGS.md establishes that everything MacSlowdown needs is
+	     reachable under a plain App Sandbox with no exceptions: sysctl
+	     KERN_PROC_ALL for enumeration, proc_pidinfo for per-process CPU and
+	     resident memory, host_statistics64, thermal state and volume capacity.
+	     Requesting anything further is where App Review rejections cluster. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+</dict>
+</plist>

@@ -12,3 +12,6 @@ Derived/
 # editor swap files
 *.swp
 *.swo
+
+# local build output
+.build/
