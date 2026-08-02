@@ -64,10 +64,12 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
 - **Enumerate with `sysctl KERN_PROC_ALL`, never `proc_listpids`.** The latter is
   denied under App Sandbox (EPERM) and Apple DTS has confirmed no entitlement
   lifts it. sysctl returns the full table (~1058 procs).
-- **Per-process CPU/memory:** `proc_pidinfo(PROC_PIDTASKALLINFO)` works sandboxed
-  for own-uid processes (720/1058). Other-uid is denied — *and is equally denied
-  unsandboxed*, so the sandbox costs nothing here. Prefer TASKALLINFO over
-  separate BSDINFO+TASKINFO calls; it halves the syscalls.
+- **Per-process CPU/memory:** `proc_pidinfo` works sandboxed for own-uid processes
+  (720/1058). Other-uid is denied — *and is equally denied unsandboxed*, so the
+  sandbox costs nothing here. Use **`PROC_PIDTASKINFO`**, not TASKALLINFO: the
+  sysctl enumeration already supplies name, uid, ppid and start time, so
+  TASKALLINFO's bsdinfo half is 136 redundant bytes per process for the same
+  syscall count.
 - **`proc_pid_rusage` is fully blocked** (self only). That means **no**
   phys_footprint, **no** per-process disk I/O, **no** per-process wakeups.
 - **CPU times are mach ticks, not nanoseconds.** Scale by `mach_timebase_info`
