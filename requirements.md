@@ -1,8 +1,16 @@
 # MacSlowdown — Product Definition and Functional Requirements
 
 **Document status:** Greenfield product specification  
-**Version:** 1.1  
+**Version:** 1.2  
 **Last updated:** August 1, 2026
+
+> **Revision note (1.2):** amended to reflect capabilities measured against a
+> sandboxed Mac App Store build rather than assumed. Sources are recorded in
+> `probe/FINDINGS.md`. Changes: FR-009 narrowed to aggregate disk I/O; FR-019
+> confirmed and strengthened; FR-043 fixed to resident memory; FR-046 narrowed to
+> lifecycle and relaunch signals; FR-048 moved out of scope for this release; a
+> new FR-055 requires unattributed system activity to be shown; §6 makes
+> standalone processes first-class; §7 and §10 updated to measured fact.
 
 > **Purpose:** This document is the authoritative product-definition and implementation specification for **MacSlowdown**, a greenfield macOS performance-monitoring and diagnostic application intended first for distribution through the Mac App Store. It defines the user problem, product boundaries, user outcomes, functional requirements, nonfunctional requirements, release phases, and open product and engineering decisions.
 
@@ -227,22 +235,22 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Open questions or assumptions | Public API stability and terminology.                                                                    |
 | Human-review status           | Review required                                                                                          |
 
-## FR-009 — The system shall monitor aggregate disk read and write throughput and, where permitted, per-process I/O deltas.
+## FR-009 — The system shall monitor aggregate disk read and write throughput.
 
 | **Field**                     | **Specification**                                                                                               |
 |-------------------------------|-----------------------------------------------------------------------------------------------------------------|
 | Requirement ID                | FR-009                                                                                                          |
-| Requirement statement | The system shall monitor aggregate disk read and write throughput and, where permitted, per-process I/O deltas. |
+| Requirement statement | The system shall monitor aggregate disk read and write throughput. Per-process I/O is **not available** to a sandboxed build and is excluded. |
 | User or system objective      | Detect I/O-driven slowdowns and contributors.                                                                   |
 | Preconditions                 | Public process and disk counters are accessible.                                                                |
 | Trigger                       | Sampling interval completes.                                                                                    |
-| Expected behavior             | Compute rates from monotonic counters; distinguish unavailable data.                                            |
-| Expected outcome              | User can see whether disk activity is elevated and who contributes.                                             |
-| Acceptance criteria           | Synthetic read/write workloads are ranked correctly; cumulative bytes are not mislabeled as current rate.       |
-| Confidence level              | Medium                                                                                                          |
-| Design freedom                | May omit per-process detail in restricted builds.                                                               |
-| Open questions or assumptions | Sandbox access and APFS caching interpretation.                                                                 |
-| Human-review status           | Review required                                                                                                 |
+| Expected behavior             | Compute rates from monotonic counters; state plainly that per-application disk activity is unavailable rather than omitting it silently. |
+| Expected outcome              | User can see whether disk activity is elevated, and understands why it cannot be attributed to an application.  |
+| Acceptance criteria           | Cumulative bytes are not mislabeled as current rate; the absence of per-application attribution is stated in the interface. |
+| Confidence level              | High for aggregate; per-process measured as unavailable                                                         |
+| Design freedom                | Presentation of the aggregate figure is open.                                                                   |
+| Open questions or assumptions | `proc_pid_rusage` is denied under App Sandbox (measured: 1 of 1058 processes, ourselves), which removes per-process I/O entirely. APFS caching interpretation remains open. |
+| Human-review status           | Approved — amended in v1.2 from measurement                                                                     |
 
 ## FR-010 — The system shall monitor public thermal-pressure state and record changes during incidents.
 
@@ -402,17 +410,17 @@ user-directed remediation. The initial release is a Mac App Store application an
 | **Field**                     | **Specification**                                                                                                    |
 |-------------------------------|----------------------------------------------------------------------------------------------------------------------|
 | Requirement ID                | FR-019                                                                                                               |
-| Requirement statement | The system shall detect active audio use where public APIs permit and avoid disruptive recommendations during active audio use. |
-| User or system objective      | Prevent playback, meetings and recording from stuttering.                                                            |
-| Preconditions                 | Audio-activity signal is available.                                                                                  |
+| Requirement statement | The system shall detect active audio use per application and avoid disruptive recommendations and notifications during it. |
+| User or system objective      | Prevent playback, meetings and recording from being interrupted.                                                     |
+| Preconditions                 | None beyond App Sandbox. Measured available with no microphone permission and no additional entitlement.              |
 | Trigger                       | A recommendation or notification concerns an audio-active application.                                                                |
-| Expected behavior             | Defer disruptive recommendations and explain the risk of interrupting active playback, meetings, or recording.                                                     |
+| Expected behavior             | Distinguish output (playback) from input (microphone), defer disruptive recommendations, and explain the risk of interrupting active playback, meetings, or recording. |
 | Expected outcome              | Active media remains usable.                                                                                         |
-| Acceptance criteria           | Test audio workload receives no suspension or quit action; any guidance is explicit and non-destructive.              |
-| Confidence level              | Medium-High                                                                                                          |
-| Design freedom                | Audio detection may be omitted if not reliably available.                                                            |
-| Open questions or assumptions | Privacy and API feasibility.                                                                                         |
-| Human-review status           | Review required                                                                                                      |
+| Acceptance criteria           | Test audio workload receives no suspension or quit action; any guidance is explicit and non-destructive; input and output activity are distinguished rather than conflated. |
+| Confidence level              | High — measured, not assumed                                                                                         |
+| Design freedom                | Presentation is open. Detection is no longer optional: the capability exists.                                        |
+| Open questions or assumptions | `kAudioHardwarePropertyProcessObjectList` (macOS 14.2+) yields a pid plus IsRunning / IsRunningInput / IsRunningOutput per audio process. Output verified against live playback; **input not yet exercised**. No privacy concern: no audio content is read, only whether a device is in use. |
+| Human-review status           | Approved — strengthened in v1.2 from measurement                                                                     |
 
 ## Deferred requirement FR-020 — The system may support configurable per-application CPU ceilings only in builds and contexts where the capability is lawful, safe and technically supported.
 
@@ -814,13 +822,13 @@ user-directed remediation. The initial release is a Mac App Store application an
 | User or system objective      | Identify applications whose helpers collectively consume or steadily accumulate memory. |
 | Preconditions                 | Process-family grouping and memory measurements are available. |
 | Trigger                       | Sampling interval completes or an incident enters investigation mode. |
-| Expected behavior             | Store available resident, footprint, compressed, or other clearly defined measurements; present only metrics supported on the target system and explain their meaning. |
+| Expected behavior             | Store **resident size** and track its change over time. Physical footprint is unavailable to a sandboxed build and shall not be presented. Because Activity Monitor's "Memory" column reports footprint, the interface shall state that the two measures legitimately differ. |
 | Expected outcome              | User can see both current application-family memory and whether it is growing. |
-| Acceptance criteria           | Aggregates equal the included process values within rounding tolerance; PID replacement does not erase application-family history; unavailable metric types are not fabricated. |
+| Acceptance criteria           | Aggregates equal the included process values within rounding tolerance; PID replacement does not erase application-family history; unavailable metric types are not fabricated; the difference from Activity Monitor is explained rather than left to surprise the user. |
 | Confidence level              | High |
-| Design freedom                | Metric selection and visualization are implementation choices subject to public API validation. |
-| Open questions or assumptions | Preferred memory metric for cross-version consistency. |
-| Human-review status           | Review required |
+| Design freedom                | Visualization is open; the metric is settled. |
+| Open questions or assumptions | Resolved by elimination: `proc_pid_rusage` is denied under App Sandbox, so `ri_phys_footprint` is unobtainable and `pti_resident_size` is the only per-process memory measure available. This closes the §10 question on the primary memory metric. |
+| Human-review status           | Approved — amended in v1.2 from measurement |
 
 ## FR-044 — The system may identify suspected abnormal memory growth without claiming a confirmed leak.
 
@@ -856,22 +864,22 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Open questions or assumptions | Treatment of very short-lived helpers and orphaned processes. |
 | Human-review status           | Approved |
 
-## FR-046 — The system shall detect observable application unresponsiveness or repeated failure where public interfaces permit.
+## FR-046 — The system shall detect repeated application failure through observable lifecycle signals.
 
 | **Field**                     | **Specification** |
 |-------------------------------|-------------------|
 | Requirement ID                | FR-046 |
-| Requirement statement | The system shall incorporate publicly observable unresponsive state, repeated relaunch, or similar failure signals into incident analysis without claiming access to unavailable internal state. |
-| User or system objective      | Explain foreground hangs that may occur without aggregate resource saturation. |
-| Preconditions                 | A supported public signal is available and reliable enough for the target macOS release. |
-| Trigger                       | Unresponsive-state transition, repeated relaunch pattern, or user report attached to an incident. |
-| Expected behavior             | Record the signal and correlate it with resource history, foreground state, and lifecycle events. |
-| Expected outcome              | User can distinguish a hung application from a system-wide CPU or memory incident. |
-| Acceptance criteria           | Unsupported direct responsiveness metrics are not inferred; the UI separates system observations from user-reported symptoms. |
-| Confidence level              | Medium |
-| Design freedom                | Supported signal set may vary by OS and distribution build. |
-| Open questions or assumptions | Reliability of public unresponsive-state reporting and whether crash-log access is in scope. |
-| Human-review status           | Review required |
+| Requirement statement | The system shall incorporate repeated relaunch and other observable lifecycle failure signals into incident analysis. Application unresponsiveness is **not observable** to a sandboxed build and shall not be claimed. |
+| User or system objective      | Explain application failures that occur without aggregate resource saturation. |
+| Preconditions                 | Process lifecycle observation is active. |
+| Trigger                       | Repeated relaunch pattern, unexpected exit, or user report attached to an incident. |
+| Expected behavior             | Record the signal and correlate it with resource history and foreground state. Never describe an application as hung, frozen or unresponsive. |
+| Expected outcome              | User can distinguish a repeatedly failing application from a system-wide CPU or memory incident. |
+| Acceptance criteria           | No interface text claims an application was unresponsive or hung; a relaunch loop appears as related events rather than unrelated incidents; the UI separates system observations from user-reported symptoms. |
+| Confidence level              | High for lifecycle signals; unresponsiveness measured as unavailable |
+| Design freedom                | Presentation of relaunch patterns is open. |
+| Open questions or assumptions | Measured: no public API reports hang state — `NSRunningApplication` describes a beachballing app identically to a healthy one, Accessibility is untrusted under the sandbox, and `/Library/Logs/DiagnosticReports` is unreadable (the home-relative path redirects into our own container). Crash-log access is therefore also out of scope. |
+| Human-review status           | Approved — narrowed in v1.2 from measurement |
 
 ## FR-047 — The system shall record power-source and energy context for incidents.
 
@@ -890,22 +898,22 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Open questions or assumptions | Whether a separate battery-drain incident type is included in the first release. |
 | Human-review status           | Approved |
 
-## FR-048 — The system may monitor excessive wakeups and sleep-prevention behavior where measurable.
+## Out-of-scope requirement FR-048 — Excessive wakeups and sleep-prevention monitoring.
 
 | **Field**                     | **Specification** |
 |-------------------------------|-------------------|
 | Requirement ID                | FR-048 |
-| Requirement statement | The system may collect supported wakeup, timer, or sleep-prevention indicators and associate sustained abnormal activity with application families. |
+| Requirement statement | **Removed from this release.** Wakeup and sleep-prevention indicators require `proc_pid_rusage`, which is denied under App Sandbox, so the data does not exist for a Mac App Store build. |
 | User or system objective      | Explain background heat, battery drain, and low-level CPU activity that may not appear as continuous saturation. |
-| Preconditions                 | Public, stable, and distribution-compatible metrics are available. |
+| Preconditions                 | Not satisfiable under App Sandbox. |
 | Trigger                       | Sampling interval or relevant system assertion change. |
 | Expected behavior             | Display clearly defined measurements and label any attribution limitations. |
 | Expected outcome              | User can identify applications that repeatedly wake the system or prevent expected idle behavior. |
-| Acceptance criteria           | Feature is omitted rather than approximated when metrics are not reliable; the product does not equate all wakeups with harmful behavior. |
-| Confidence level              | Medium |
-| Design freedom                | May ship only in a direct-distribution capability tier. |
-| Open questions or assumptions | Public API availability and acceptable collection overhead. |
-| Human-review status           | Review required |
+| Acceptance criteria           | The feature is omitted, per the spec's own instruction to omit rather than approximate. No interface element implies wakeup data exists. |
+| Confidence level              | Measured as unavailable |
+| Design freedom                | Not applicable. Would require a distribution model outside this specification. |
+| Open questions or assumptions | `ri_interrupt_wkups` and related counters live in `proc_pid_rusage`, denied sandboxed (measured 1/1058, ourselves). Revisit only if the distribution model changes. |
+| Human-review status           | Approved — moved out of scope in v1.2 from measurement |
 
 ## FR-049 — The system shall record machine and operating-system context with each incident.
 
@@ -1009,13 +1017,32 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Open questions or assumptions | Whether manual symptom input should be supported. |
 | Human-review status           | Approved |
 
+## FR-055 — The system shall account for all measured system activity, including the portion it cannot attribute.
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-055 |
+| Requirement statement | Wherever the system presents contributors to a resource condition, it shall also present the measured portion that cannot be attributed to any observable process, so that the parts always account for the whole. |
+| User or system objective      | Prevent the user from concluding that the listed applications explain the machine's behaviour when a substantial share is unattributable. |
+| Preconditions                 | Aggregate and per-process measurements are both available for the interval. |
+| Trigger                       | Any presentation of contributors, live or within an incident. |
+| Expected behavior             | Show the remainder as a first-class entry, classified as a calculated value rather than a measured one; name the protected processes observed running during the interval, which is a measured fact; explain that per-process usage for those processes is not reported to App Store applications. |
+| Expected outcome              | Contributor lists visibly sum, and the user understands both what is unattributable and why. |
+| Acceptance criteria           | Attributed plus unattributed equals the measured total within tolerance, including under load; the remainder is never negative; truncating a contributor list does not break the sum; copy claims no cause and implies no fault or waste. |
+| Confidence level              | High |
+| Design freedom                | Presentation is open, but the remainder may not be visually de-emphasised into insignificance. |
+| Open questions or assumptions | Measured: processes owned by other users — `WindowServer`, `mds_stores`, `backupd`, `coreaudiod`, `launchd` — are denied identically whether or not the app is sandboxed, since the binding limit is uid rather than the sandbox. Roughly 40 percentage points of busy CPU is typically unattributable. Users may compare against Activity Monitor, which sees these processes through a privileged helper. |
+| Human-review status           | Approved — added in v1.2 |
+
 # 6. Conceptual data requirements
 
 | **Entity**            | **Minimum conceptual fields**                                                                                                               | **Notes**                                                               |
 |-----------------------|---------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
 | Sample                | timestamp; cadence; aggregate CPU; memory pressure; swap/paging deltas; disk deltas; thermal state; data-availability flags                 | Use monotonic source counters where applicable.                         |
 | Process sample        | PID; process start identity; application-family ID; CPU; memory footprint; I/O deltas; foreground/hidden state; eligibility and confidence  | PID alone is insufficient because it can be reused.                     |
-| Application family    | stable local identifier; bundle/signing/executable evidence; display name; member processes; attribution confidence; user corrections       | No proprietary grouping assumption.                                     |
+| Application family    | stable local identifier; bundle/signing/executable evidence; display name; member processes; attribution confidence; user corrections       | Keyed on the outermost application bundle in the executable path. The signed identifier identifies a process but does not group it, because helpers report their own identifier rather than the parent's. |
+| Standalone process    | process identity; display name; executable path; signing evidence where available                                                          | **First-class, not a family of one.** Only about 15% of processes belong to any application bundle; daemons and command-line tools are the majority and must be modelled directly. |
+| Unattributable activity | interval; measured total; attributed total; calculated remainder; protected processes observed running                                    | Required by FR-055. The remainder is a calculated value and must never be stored or shown as a measurement. |
 | Incident              | ID; start/trigger/recovery/end; active conditions; severity; evidence window; contributors; conclusions; confidence; versions; user actions | Immutable raw evidence plus append-only interpretations preferred.      |
 | Policy                | scope; target identity; conditions; thresholds; actions; safety classification; enabled state; provenance; last modified                    | Policies must be reversible and auditable.                              |
 | Profile               | ID; name; policy set; activation precedence; manual override state                                                                          | Names and organization are user-defined.                                |
@@ -1027,7 +1054,11 @@ user-directed remediation. The initial release is a Mac App Store application an
 | **Capability** | **Initial Mac App Store status** | **Implementation direction** |
 |---|---|---|
 | Aggregate CPU, memory pressure, swap/paging, disk I/O, storage capacity, and thermal state | In scope, subject to public API behavior | Prototype and validate on macOS 26 and 27. |
-| Per-process CPU, memory, and I/O | In scope where public APIs and App Sandbox permit | Clearly label unavailable or partial data. |
+| Per-process CPU and resident memory | In scope, measured working | Available for processes owned by the user (~68% of the table). Enumerate with `sysctl KERN_PROC_ALL`; `proc_listpids` is denied. |
+| Per-process I/O, memory footprint, wakeups | **Not available** | `proc_pid_rusage` is denied sandboxed. Excluded from FR-009 and FR-048; FR-043 uses resident size. |
+| Per-application audio activity | In scope, measured working | `kAudioHardwarePropertyProcessObjectList`, no microphone permission required. |
+| Application hang or unresponsive state | **Not available** | No public API. FR-046 delivers repeated-relaunch detection only. |
+| Window titles, per-tab or per-document context | **Not available** | Requires Screen Recording permission; disproportionate for this product and excluded. |
 | Application-family grouping and incident attribution | In scope | Use public metadata and confidence-scored heuristics. |
 | Notifications, retained incident history, export, and user policies | In scope | Keep data local by default and obtain normal system permissions. |
 | Activate or reveal an application; open system tools; copy diagnostics | In scope where supported | Verify action success and remain non-destructive. |
@@ -1071,10 +1102,10 @@ user-directed remediation. The initial release is a Mac App Store application an
 
 | **Phase**                      | **Included scope**                                                                                                        | **Exit criteria**                                                                                          |
 |--------------------------------|---------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| Phase 1 — Core monitor         | Status surface, process inventory, CPU and application-family memory display, grouping, lifecycle events, bounded history, search, machine context, and overhead instrumentation. | Measurements validated; idle overhead budget met; accessible UI; contributors survive PID changes. |
-| Phase 2 — Incident diagnosis   | Memory pressure, swap/paging, disk I/O, storage capacity, low-storage detection, thermal and power context, unresponsiveness signals, incident lifecycle, incident-data retention, notifications, guided investigation, and reports. | Controlled slowdowns and low-storage scenarios produce coherent incidents with acceptable false-positive rates. |
+| Phase 1 — Core monitor         | Status surface, process inventory, CPU and application-family resident-memory display, grouping, standalone processes, unattributable activity (FR-055), lifecycle events, bounded history, search, machine context, and overhead instrumentation. | Measurements validated; idle overhead budget met; accessible UI; contributors survive PID changes. |
+| Phase 2 — Incident diagnosis   | Memory pressure, swap/paging, aggregate disk I/O, storage capacity, low-storage detection, thermal and power context, relaunch-failure signals, audio-activity deferral, incident lifecycle, incident-data retention, notifications, guided investigation, and reports. | Controlled slowdowns and low-storage scenarios produce coherent incidents with acceptable false-positive rates. |
 | Phase 3 — Safe response and guidance | Activate, reveal, open system tools, ignore/expected policies, mute, export, safe automation, and post-action verification. | Actions are non-destructive, verified, permission-aware, and followed by measurable outcome reporting. |
-| Phase 4 — Advanced context | Explainable baselines, optional network/GPU/wakeup context, profiles, richer comparisons, and contextual guidance compatible with the Mac App Store. | API, privacy, accessibility, performance, and App Store feasibility are validated on macOS 26 and 27. |
+| Phase 4 — Advanced context | Explainable baselines, optional network and GPU context, profiles, richer comparisons, and contextual guidance compatible with the Mac App Store. | API, privacy, accessibility, performance, and App Store feasibility are validated on macOS 26 and 27. |
 | Deferred — Non–App Store controls | Privileged helpers, CPU ceilings, suspension, reprioritization, efficient-core preference, automatic quitting, and other process-control capabilities. | No initial implementation. Requires a separate product decision and specification. |
 
 # 10. Open product and engineering decisions
@@ -1101,13 +1132,26 @@ user-directed remediation. The initial release is a Mac App Store application an
 
 - Whether storage exhaustion forecasting and folder-level growth attribution are included, and what permissions they require.
 
-- Which memory metric is primary for application-family comparison across supported macOS versions.
 
-- Whether GPU, per-process network, wakeup, sleep-prevention, raw temperature, or fan metrics are sufficiently public, stable, low-overhead, and App Store-compatible.
+- Whether GPU, per-process network, raw temperature, or fan metrics are sufficiently public, stable, low-overhead, and App Store-compatible. (Wakeups and sleep-prevention are settled: unavailable — see FR-048.)
 
 - Whether baseline learning is enabled by default, its learning period, and how users inspect or reset it.
 
-- Whether crash logs, hang reports, or other diagnostic artifacts are in scope; no such access is assumed by this specification.
+- ~~Whether crash logs, hang reports, or other diagnostic artifacts are in scope.~~ **Settled in v1.2:** unreadable from the sandbox, so out of scope.
+
+Answered in v1.2 by measurement, recorded in `probe/FINDINGS.md`:
+
+- Primary memory metric: resident size, by elimination.
+- Per-process disk I/O, footprint and wakeups: unavailable.
+- Per-application audio: available, without a microphone permission.
+- Application unresponsiveness: unavailable; repeated relaunch is available.
+- Window titles and per-tab context: unavailable without Screen Recording.
+
+Still open and now the largest single risk: whether App Review accepts
+`sysctl KERN_PROC_ALL` for process enumeration, given that `proc_listpids` is
+explicitly denied and Apple has stated no entitlement lifts it. The product
+requests no entitlements beyond App Sandbox, but no Apple statement blesses the
+alternative. This cannot be settled by testing.
 
 # 11. Implementation authority
 
