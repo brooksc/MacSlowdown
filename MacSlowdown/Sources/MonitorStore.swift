@@ -70,6 +70,20 @@ final class MonitorStore {
     /// Whether the process table could be read at all. An empty inventory means
     /// opposite things depending on this.
     private(set) var enumeration: EnumerationOutcome = .succeeded
+    /// The incident currently open, if any (FR-011).
+    private(set) var openIncident: Incident?
+    /// Incidents that have closed, most recent first. Bounded.
+    private(set) var recentIncidents: [Incident] = []
+    /// Current sampling cadence, exposed so the user can inspect it (FR-031).
+    private(set) var cadence: SamplingCadence?
+    private(set) var memoryPressure: MemoryPressureLevel = .normal
+    private(set) var thermalState: ThermalState = .nominal
+
+    /// An evidence-based account of the open incident, or the most recent one.
+    var currentSummary: IncidentSummary? {
+        guard let incident = openIncident ?? recentIncidents.first else { return nil }
+        return IncidentSummarizer.summarize(incident: incident, attribution: attribution)
+    }
     private(set) var lastUpdate: Date?
     private(set) var isRunning = false
     let machine = MachineContext.current()
@@ -111,24 +125,41 @@ final class MonitorStore {
     private let sampler = ProcessSampler()
     private let resolver = ProcessIdentityResolver()
     private let history: MetricsHistory
-    private let cadence: Duration
+    private let baseCadence: Duration
     private var task: Task<Void, Never>?
 
+    private let detector: IncidentDetector
+    private var detectorState = IncidentDetector.State()
+    private let cadenceController: CadenceController
+    private var cadenceState = CadenceController.State()
+    private let pressureMonitor = MemoryPressureMonitor()
+
+    /// Kept small: FR-005 bounds retained evidence, and the UI shows recent
+    /// history rather than an archive.
+    private static let retainedIncidents = 20
+
     init(cadence: Duration = MetricsHistory.defaultCadence,
-         history: MetricsHistory = MetricsHistory()) {
-        self.cadence = cadence
+         history: MetricsHistory = MetricsHistory(),
+         policy: IncidentPolicy = .default) {
+        self.baseCadence = cadence
         self.history = history
+        self.detector = IncidentDetector(policy: policy)
+        self.cadenceController = CadenceController(normalInterval: cadence)
     }
 
     func start() {
         guard task == nil else { return }
         isRunning = true
+        // A dispatch source catches pressure transitions between samples, which
+        // the cadence alone could not guarantee within FR-007's 2 seconds.
+        pressureMonitor.start()
         task = Task { [weak self] in await self?.run() }
     }
 
     func stop() {
         task?.cancel()
         task = nil
+        pressureMonitor.stop()
         isRunning = false
     }
 
@@ -139,7 +170,7 @@ final class MonitorStore {
         var lastSampleAt = clock.now
 
         while !Task.isCancelled {
-            try? await Task.sleep(for: cadence)
+            try? await Task.sleep(for: self.cadence?.interval ?? baseCadence)
             if Task.isCancelled { return }
 
             let snapshot = sampler.snapshot()
@@ -150,7 +181,8 @@ final class MonitorStore {
             // sample on time; surface that rather than presenting a late reading
             // as current.
             let elapsed = now - lastSampleAt
-            let overdue = elapsed.totalSeconds > cadence.totalSeconds * 2
+            let expected = self.cadence?.interval ?? baseCadence
+            let overdue = elapsed.totalSeconds > expected.totalSeconds * 2
             lastSampleAt = now
 
             guard let earlierHost = previousHost, let host else {
@@ -171,6 +203,40 @@ final class MonitorStore {
             enumeration = snapshot.enumeration
             freshness = overdue ? .stale(age: elapsed) : .current
             lastUpdate = Date()
+
+            // MARK: Incident detection (FR-011)
+
+            memoryPressure = pressureMonitor.level
+            thermalState = .current
+            let observation = SystemObservation(
+                at: Date(),
+                cpuBusyFraction: result.totalBusyPercentOfOneCore
+                    / (Double(machine.logicalCores) * 100),
+                memoryPressure: memoryPressure,
+                thermalState: thermalState)
+
+            let event = detector.observe(observation, state: &detectorState)
+            switch event {
+            case .opened(let incident), .updated(let incident):
+                openIncident = incident
+            case .closed(let incident):
+                openIncident = nil
+                recentIncidents.insert(incident, at: 0)
+                if recentIncidents.count > Self.retainedIncidents {
+                    recentIncidents.removeLast(recentIncidents.count - Self.retainedIncidents)
+                }
+            case nil:
+                break
+            }
+
+            // MARK: Adaptive cadence (FR-031)
+
+            let breaching = IncidentCondition.allCases.contains {
+                observation.breaches($0, policy: detector.policy)
+            }
+            self.cadence = cadenceController.cadence(
+                at: Date(), incidentOpen: openIncident != nil,
+                conditionBreaching: breaching, state: &cadenceState)
 
             history.record(result)
             resolver.prune(keeping: Set(snapshot.records.keys))

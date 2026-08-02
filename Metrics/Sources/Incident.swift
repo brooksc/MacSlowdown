@@ -102,7 +102,7 @@ public struct SystemObservation: Sendable {
         self.lowStorage = lowStorage
     }
 
-    func breaches(_ condition: IncidentCondition, policy: IncidentPolicy) -> Bool {
+    public func breaches(_ condition: IncidentCondition, policy: IncidentPolicy) -> Bool {
         switch condition {
         case .cpuSaturation: cpuBusyFraction >= policy.cpuBusyFractionThreshold
         case .memoryPressure: memoryPressure >= .warning
@@ -159,8 +159,9 @@ public struct IncidentDetector: Sendable {
     /// Mutable detector state, kept explicit so the type stays a value and tests
     /// can drive it deterministically.
     public struct State: Sendable {
+        public init() {}
         var breachStart: [IncidentCondition: Date] = [:]
-        var current: Incident?
+        public internal(set) var current: Incident?
         /// Kept after closing so a new breach inside the merge window can rejoin
         /// the previous episode rather than starting a second one.
         var lastClosed: Incident?

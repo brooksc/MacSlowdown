@@ -81,6 +81,13 @@ public enum OverheadHarness {
         let sampler = ProcessSampler()
         let resolver = ProcessIdentityResolver()
         let clock = ContinuousClock()
+        // Incident detection runs on the hot path in the shipping app, so it runs
+        // here too — a budget measured without it would flatter us.
+        let detector = IncidentDetector()
+        var detectorState = IncidentDetector.State()
+        let cadenceController = CadenceController(normalInterval: cadence)
+        var cadenceState = CadenceController.State()
+        let lifecycle = LifecycleTracker()
 
         let startedAt = clock.now
         let cpuAtStart = selfCPUTicks()
@@ -110,6 +117,22 @@ public enum OverheadHarness {
                 for contributor in attribution.contributors.prefix(history.topContributorCount) {
                     _ = resolver.identity(for: contributor.identity)
                 }
+
+                // Detection, summarisation and cadence selection, as the app does.
+                let observation = SystemObservation(
+                    at: Date(),
+                    cpuBusyFraction: attribution.totalBusyPercentOfOneCore
+                        / (Double(MachineTopology.logicalCoreCount) * 100),
+                    memoryPressure: MemorySignals.currentPressureLevel(),
+                    thermalState: .current)
+                if case .opened(let incident)? = detector.observe(
+                    observation, state: &detectorState) {
+                    _ = IncidentSummarizer.summarize(incident: incident, attribution: attribution)
+                }
+                _ = cadenceController.cadence(
+                    at: Date(), incidentOpen: detectorState.current != nil,
+                    conditionBreaching: false, state: &cadenceState)
+                _ = lifecycle.events(from: previous, to: snapshot)
             }
 
             resolver.prune(keeping: Set(snapshot.records.keys))
