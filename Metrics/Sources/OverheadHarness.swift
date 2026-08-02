@@ -58,6 +58,11 @@ public enum FR030Budget {
 /// regression anywhere in that chain shows up here.
 public enum OverheadHarness {
     /// Our own resident size, read the same way we read any other process.
+    ///
+    /// NOTE: this and `selfCPUTicks` measure the whole process. That is correct for
+    /// the shipping app, where the process is only us, but inside a parallel test
+    /// run it also counts other suites' work. Treat standalone runs as the
+    /// authoritative FR-030 measurement.
     public static func selfResidentBytes() -> UInt64 {
         guard case .measured(let metrics) = ProcessSampler.metrics(for: getpid()) else { return 0 }
         return metrics.residentBytes
