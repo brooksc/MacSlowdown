@@ -1,21 +1,25 @@
+import Metrics
 import SwiftUI
 
 /// Compact persistent status surface (FR-001).
 ///
-/// Render-only: it reads from the store and opens windows. No sampling or state
-/// transitions happen here.
+/// Render-only. It reads from the store and opens windows; it never samples or
+/// computes.
 struct MenuBarContentView: View {
     @Environment(\.openWindow) private var openWindow
+    let store: MonitorStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("MacSlowdown")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            header
 
-            Text("Monitoring is not running yet.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let attribution = store.attribution {
+                breakdown(attribution)
+            } else {
+                Text("Taking the first reading…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
 
             Divider()
 
@@ -25,12 +29,81 @@ struct MenuBarContentView: View {
             }
             .keyboardShortcut("o")
 
-            Button("Quit MacSlowdown") {
-                NSApp.terminate(nil)
-            }
-            .keyboardShortcut("q")
+            Button("Quit MacSlowdown") { NSApp.terminate(nil) }
+                .keyboardShortcut("q")
         }
         .padding(14)
-        .frame(width: 280, alignment: .leading)
+        .frame(width: 320, alignment: .leading)
+    }
+
+    private var header: some View {
+        // Symbol, word and value together — severity is never carried by colour
+        // alone (FR-034).
+        HStack(spacing: 8) {
+            Image(systemName: store.severity.symbolName)
+                .imageScale(.large)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(store.severity.label)
+                    .font(.headline)
+                if case .stale(let age) = store.freshness {
+                    Text("Last complete reading, \(Int(age.totalSeconds))s ago")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Overall condition: \(store.severity.label)")
+    }
+
+    @ViewBuilder
+    private func breakdown(_ attribution: CPUAttribution) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("Total CPU") {
+                Text(CPUPresentation.percentOfOneCore(attribution.totalBusyPercentOfOneCore))
+                    .monospacedDigit()
+            }
+
+            let leading = Array(attribution.contributors.prefix(3))
+            ForEach(Array(leading.enumerated()), id: \.offset) { _, usage in
+                LabeledContent(usage.command) {
+                    Text(CPUPresentation.percentOfOneCore(usage.percentOfOneCore))
+                        .monospacedDigit()
+                }
+                .font(.callout)
+            }
+
+            // Everything measured but not shown individually. Without this the
+            // visible rows would not sum to the total, which is the same failure
+            // the unattributed row exists to prevent — just from truncation rather
+            // than from permissions.
+            let remainder = attribution.attributedPercentOfOneCore
+                - leading.reduce(0) { $0 + $1.percentOfOneCore }
+            if remainder > 0.5 {
+                LabeledContent("Other applications") {
+                    Text(CPUPresentation.percentOfOneCore(remainder)).monospacedDigit()
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+
+            // Always present, so the list visibly accounts for the whole machine
+            // rather than silently failing to sum.
+            LabeledContent {
+                Text(CPUPresentation.percentOfOneCore(attribution.unattributedPercentOfOneCore))
+                    .monospacedDigit()
+            } label: {
+                Label("Unattributed system activity", systemImage: "lock")
+                    .labelStyle(.titleAndIcon)
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .help(attribution.explanation)
+
+            Text(CPUPresentation.convention())
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

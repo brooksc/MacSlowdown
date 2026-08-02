@@ -1,10 +1,10 @@
 ---
 id: TASK-12
 title: 'Process inventory view with search, filter, sort (FR-002, FR-027)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 01:06'
-updated_date: '2026-08-02 01:07'
+updated_date: '2026-08-02 03:44'
 labels:
   - ui
 milestone: m-1

@@ -1,9 +1,10 @@
 ---
 id: TASK-13
 title: Decide CPU display convention incl. P/E core asymmetry (FR-004)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 01:06'
+updated_date: '2026-08-02 03:44'
 labels:
   - decision
 milestone: m-1

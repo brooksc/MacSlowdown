@@ -86,9 +86,17 @@ public struct CPUAttribution: Sendable {
             return "All busy CPU in this interval was attributed to processes we can measure."
         }
         let share = Int((unattributedShare * 100).rounded())
-        let names = protectedProcesses.prefix(3).map(\.command).joined(separator: ", ")
-        var text = "\(share)% of busy CPU came from system processes macOS does not report "
-        text += "per-process usage for to App Store apps. "
+        // Names come from p_comm, which the kernel truncates to 16 bytes, so
+        // distinct processes can share a name. Dedupe rather than repeating one.
+        var seen = Set<String>()
+        let names = protectedProcesses
+            .map(\.command)
+            .filter { seen.insert($0).inserted }
+            .prefix(3)
+            .joined(separator: ", ")
+
+        var text = "\(share)% of busy CPU came from system processes whose per-process "
+        text += "usage macOS does not report to App Store apps. "
         text += "The figure is the measured difference between total CPU and everything "
         text += "we are permitted to read, not an estimate."
         if !names.isEmpty {

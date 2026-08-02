@@ -1,9 +1,10 @@
 ---
 id: TASK-11
 title: Menu bar status surface and severity model (FR-001)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 01:06'
+updated_date: '2026-08-02 03:44'
 labels:
   - ui
 milestone: m-1

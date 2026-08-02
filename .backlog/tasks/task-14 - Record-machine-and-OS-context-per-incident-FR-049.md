@@ -1,9 +1,10 @@
 ---
 id: TASK-14
 title: Record machine and OS context per incident (FR-049)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 01:06'
+updated_date: '2026-08-02 03:44'
 labels:
   - core
 milestone: m-1

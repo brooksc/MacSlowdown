@@ -1,8 +1,8 @@
+import Metrics
 import SwiftUI
 
-/// Shell for the main window. The Now / Apps & processes / Incidents / Storage
-/// surfaces land in later tasks; this establishes the sidebar structure only.
 struct MainWindowView: View {
+    let store: MonitorStore
     @State private var selection: Section = .now
 
     enum Section: String, CaseIterable, Identifiable {
@@ -10,7 +10,6 @@ struct MainWindowView: View {
         case apps = "Apps & Processes"
 
         var id: String { rawValue }
-
         var symbol: String {
             switch self {
             case .now: "gauge.with.dots.needle.33percent"
@@ -22,19 +21,117 @@ struct MainWindowView: View {
     var body: some View {
         NavigationSplitView {
             List(Section.allCases, selection: $selection) { section in
-                Label(section.rawValue, systemImage: section.symbol)
-                    .tag(section)
+                Label(section.rawValue, systemImage: section.symbol).tag(section)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } detail: {
-            ContentUnavailableView(
-                selection.rawValue,
-                systemImage: selection.symbol,
-                description: Text("Not implemented yet.")
-            )
+            switch selection {
+            case .now: NowView(store: store)
+            case .apps: ProcessInventoryView(store: store)
+            }
         }
-        .navigationTitle("MacSlowdown")
         .onAppear { ActivationPolicy.mainWindowOpened() }
         .onDisappear { ActivationPolicy.mainWindowClosed() }
+    }
+}
+
+/// Current condition at a glance, with the numbers underneath.
+struct NowView: View {
+    let store: MonitorStore
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if case .stale(let age) = store.freshness {
+                    staleBanner(age: age)
+                }
+
+                if let attribution = store.attribution {
+                    condition(attribution)
+                    figures(attribution)
+                    Text(attribution.explanation)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ContentUnavailableView(
+                        "Taking the first reading",
+                        systemImage: "gauge.with.dots.needle.33percent",
+                        description: Text("CPU is measured between two samples, so the first "
+                                          + "figure appears after one interval."))
+                }
+
+                machineFooter
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle("Now")
+    }
+
+    /// FR-032/FR-002: a late reading is shown as the last complete one, with its
+    /// age. Nothing is estimated forward.
+    private func staleBanner(age: Duration) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("These readings are catching up").font(.headline)
+                Text("The system was too busy to sample on time, so this is the last "
+                     + "reading we trust, from \(Int(age.totalSeconds)) seconds ago — "
+                     + "not a guess at what is happening now.")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: "clock.arrow.circlepath")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func condition(_ attribution: CPUAttribution) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: store.severity.symbolName).imageScale(.large)
+            VStack(alignment: .leading) {
+                Text(store.severity.label).font(.title2).bold()
+                Text(CPUPresentation.machineRelative(attribution.totalBusyPercentOfOneCore))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Every figure with its evidence class, so a calculated remainder is never
+    /// shown as though it were read from a counter (FR-038).
+    private func figures(_ attribution: CPUAttribution) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+            ForEach(Array(attribution.figures.enumerated()), id: \.offset) { _, figure in
+                GridRow {
+                    Text(figure.label)
+                    Text(CPUPresentation.percentOfOneCore(figure.percentOfOneCore))
+                        .monospacedDigit()
+                    Text(figure.evidence.rawValue.capitalized)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var machineFooter: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("\(store.machine.hardwareModel) · \(store.machine.architecture) · "
+                 + "\(store.machine.logicalCores) cores · "
+                 + String(format: "%.0f GB", store.machine.physicalMemoryGB))
+            Text(store.machine.osVersion)
+            Text(CPUPresentation.convention())
+            if let note = CPUPresentation.topologyNote() {
+                Text(note).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }

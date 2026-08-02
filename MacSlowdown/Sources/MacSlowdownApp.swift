@@ -3,20 +3,25 @@ import SwiftUI
 @main
 struct MacSlowdownApp: App {
     /// Scene wiring and dependency injection only — no business logic here.
+    @State private var store = MonitorStore()
+
     var body: some Scene {
         MenuBarExtra {
-            MenuBarContentView()
+            MenuBarContentView(store: store)
         } label: {
-            // Severity is never conveyed by colour alone (FR-034), so the menu bar
-            // label leads with shape. A template symbol is a placeholder until the
-            // designed icon system lands.
-            Image(systemName: "gauge.with.dots.needle.33percent")
-                .accessibilityLabel("MacSlowdown")
+            // The label changes shape with severity, not only colour (FR-034).
+            //
+            // Monitoring starts here rather than on a window: the menu bar item is
+            // the only always-present surface, and FR-001's whole point is noticing
+            // degradation without opening anything.
+            Image(systemName: store.severity.symbolName)
+                .accessibilityLabel("MacSlowdown: \(store.severity.label)")
+                .task { store.start() }
         }
         .menuBarExtraStyle(.window)
 
         Window("MacSlowdown", id: MainWindow.id) {
-            MainWindowView()
+            MainWindowView(store: store)
         }
         .defaultSize(width: 900, height: 600)
     }
