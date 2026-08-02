@@ -8,12 +8,16 @@ struct MainWindowView: View {
     enum Section: String, CaseIterable, Identifiable {
         case now = "Now"
         case apps = "Apps & Processes"
+        case incidents = "Incidents"
+        case storage = "Storage"
 
         var id: String { rawValue }
         var symbol: String {
             switch self {
             case .now: "gauge.with.dots.needle.33percent"
             case .apps: "square.grid.2x2"
+            case .incidents: "list.bullet.rectangle"
+            case .storage: "internaldrive"
             }
         }
     }
@@ -28,6 +32,8 @@ struct MainWindowView: View {
             switch selection {
             case .now: NowView(store: store)
             case .apps: ProcessInventoryView(store: store)
+            case .incidents: IncidentsView(store: store)
+            case .storage: StorageView(store: store)
             }
         }
         .onAppear { ActivationPolicy.mainWindowOpened() }
@@ -51,6 +57,7 @@ struct NowView: View {
 
                 if let attribution = store.attribution {
                     condition(attribution)
+                    SystemSignalsView(store: store)
                     figures(attribution)
                     Text(attribution.explanation)
                         .font(.callout)

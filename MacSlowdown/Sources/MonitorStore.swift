@@ -78,6 +78,24 @@ final class MonitorStore {
     private(set) var cadence: SamplingCadence?
     private(set) var memoryPressure: MemoryPressureLevel = .normal
     private(set) var thermalState: ThermalState = .nominal
+    private(set) var power: PowerContext = PowerSignals.current()
+    private(set) var pagingRates: PagingRates = .zero
+    private(set) var diskRates: DiskRates = .zero
+
+    /// Aggregate disk throughput, with the per-application limitation stated
+    /// alongside it rather than left as a silent omission (FR-009).
+    var diskThroughput: String {
+        let read = ByteCountFormatStyle().format(Int64(diskRates.readBytesPerSecond))
+        let write = ByteCountFormatStyle().format(Int64(diskRates.writeBytesPerSecond))
+        return "\(read)/s read · \(write)/s write"
+    }
+
+    /// Swap activity, described without implying memory can be freed (FR-036).
+    var swapActivity: String {
+        pagingRates.isSwapping
+            ? "macOS is moving memory to and from disk"
+            : "No swapping"
+    }
 
     /// An evidence-based account of the open incident, or the most recent one.
     var currentSummary: IncidentSummary? {
@@ -133,6 +151,8 @@ final class MonitorStore {
     private let cadenceController: CadenceController
     private var cadenceState = CadenceController.State()
     private let pressureMonitor = MemoryPressureMonitor()
+    private var previousPaging: PagingCounters?
+    private var previousDisk: DiskCounters?
 
     /// Kept small: FR-005 bounds retained evidence, and the UI shows recent
     /// history rather than an archive.
@@ -208,6 +228,24 @@ final class MonitorStore {
 
             memoryPressure = pressureMonitor.level
             thermalState = .current
+            power = PowerSignals.current()
+
+            // Rates only ever from deltas over the measured interval.
+            let seconds = elapsed.totalSeconds
+            if let counters = SwapSignals.pagingCounters() {
+                if let previous = previousPaging,
+                   let rates = SwapSignals.rates(from: previous, to: counters, seconds: seconds) {
+                    pagingRates = rates
+                }
+                previousPaging = counters
+            }
+            if let counters = DiskSignals.counters() {
+                if let previous = previousDisk,
+                   let rates = DiskSignals.rates(from: previous, to: counters, seconds: seconds) {
+                    diskRates = rates
+                }
+                previousDisk = counters
+            }
             let observation = SystemObservation(
                 at: Date(),
                 cpuBusyFraction: result.totalBusyPercentOfOneCore
