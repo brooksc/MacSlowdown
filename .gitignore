@@ -1,0 +1,10 @@
+.DS_Store
+build/
+*.profraw
+*.o
+*.dSYM/
+
+# Tuist
+Derived/
+*.xcodeproj
+*.xcworkspace
