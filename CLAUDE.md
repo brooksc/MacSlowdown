@@ -62,6 +62,12 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
   shows footprint, so our numbers will legitimately differ — label it.
 - Cache `proc_pidpath` by (pid, start time); re-reading every sweep costs ~5 ms
   and breaks the FR-030 budget at 1 s cadence. sysctl + taskinfo alone is 1.8 ms.
+- **The binding limit is uid, not the sandbox.** Other-uid processes
+  (`WindowServer`, `mds_stores`, `backupd`, `coreaudiod`, `launchd`) are denied
+  identically sandboxed and unsandboxed; only root sees them. ~40 percentage
+  points of busy CPU is therefore unattributable in the MAS build. Surface this
+  as an explicit "unattributed system activity" category — never let contributor
+  lists silently fail to sum (FR-013, FR-038).
 
 ## Correctness rules that are easy to get wrong
 
@@ -153,3 +159,32 @@ blessing it. This cannot be settled by testing — it needs a DTS incident.
   and persistence.
 - Target: macOS 26 and 27, Apple Silicon. Intel not required.
 - `nice` long-running build/test commands so the GUI stays responsive.
+
+<!-- BACKLOG.MD MCP GUIDELINES START -->
+
+<CRITICAL_INSTRUCTION>
+
+## BACKLOG WORKFLOW INSTRUCTIONS
+
+This project uses Backlog.md MCP for all task and project management activities.
+
+**CRITICAL GUIDANCE**
+
+- If your client supports MCP resources, read `backlog://workflow/overview` to understand when and how to use Backlog for this project.
+- If your client only supports tools or the above request fails, call `backlog.get_backlog_instructions()` to load the tool-oriented overview. Use the `instruction` selector when you need `task-creation`, `task-execution`, or `task-finalization`.
+
+- **First time working here?** Read the overview resource IMMEDIATELY to learn the workflow
+- **Already familiar?** You should have the overview cached ("## Backlog.md Overview (MCP)")
+- **When to read it**: BEFORE creating tasks, or when you're unsure whether to track work
+
+These guides cover:
+- Decision framework for when to create tasks
+- Search-first workflow to avoid duplicates
+- Links to detailed guides for task creation, execution, and finalization
+- MCP tools reference
+
+You MUST read the overview resource to understand the complete workflow. The information is NOT summarized here.
+
+</CRITICAL_INSTRUCTION>
+
+<!-- BACKLOG.MD MCP GUIDELINES END -->

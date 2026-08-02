@@ -8,3 +8,7 @@ build/
 Derived/
 *.xcodeproj
 *.xcworkspace
+
+# editor swap files
+*.swp
+*.swo

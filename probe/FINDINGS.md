@@ -98,6 +98,57 @@ FR-010, FR-041, FR-042, FR-045, FR-047, FR-049 and the whole incident model.
 **Still unproven:** FR-019 (audio), FR-046 (unresponsiveness), FR-051 (network),
 FR-052 (GPU). Not tested here; all remain Tier 3.
 
+## Attribution gap: what we are blind to
+
+The binding limit is not the sandbox — it is **uid**. Processes owned by other
+users are denied identically whether sandboxed or not. Verified byte-identical
+across both modes: `WindowServer` (uid 88), `mds`/`mds_stores` (0/308),
+`backupd` (0), `coreaudiod` (202), `syspolicyd` (0), `launchd` (0), `hidd` (261)
+are all DENIED. Only user-owned workers (`mdworker_shared`, `photoanalysisd`,
+`bird`, `cloudd` at uid 501) are visible.
+
+Measured share of busy CPU that cannot be attributed to any visible process:
+
+| Mode | Denied procs | Unattributed CPU |
+|---|---|---|
+| Sandboxed (MAS) | 338 / 1058 | **53.1%** |
+| Unsandboxed, same user | 338 / 1058 | (same coverage) |
+| **root** | **0** | **12.9%** |
+
+The 12.9% under root is this measurement's noise floor, not a permission limit:
+processes that start or exit mid-window have no baseline sample and are skipped.
+So the permission-driven blind spot is roughly **40 percentage points** of busy
+CPU, and the 53% figure is an upper bound. The two runs were taken at different
+machine loads (27.3% vs 16.1%), so this is directional rather than a controlled
+comparison.
+
+Practical consequence: attribution is strong for user-application slowdowns
+(a synthetic spinner reads 100.0%) and absent for system-driven ones — Spotlight
+indexing, Time Machine, WindowServer, audio. Those are common real causes of
+unexplained slowdowns, so this is a headline-promise gap, not a footnote.
+
+Design implication: surface **"unattributed system activity"** as a first-class,
+labeled category rather than letting contributor lists silently fail to sum.
+This is what FR-038 evidence classification and FR-013 confidence labeling are
+for. Note also that Activity Monitor shows this data via a privileged helper
+(`sysmond`), so users will compare and notice the difference.
+
+## Capability by distribution tier
+
+| Capability | MAS (sandboxed) | Developer ID, unsandboxed | Developer ID + root helper |
+|---|---|---|---|
+| Enumeration, own-uid CPU + RSS | ✅ 720/1058 | ✅ same 720 | ✅ all |
+| Memory footprint (FR-043) | ❌ | ✅ | ✅ |
+| Per-process disk I/O (FR-009) | ❌ | ✅ | ✅ |
+| Per-process wakeups (FR-048) | ❌ | ✅ | ✅ |
+| System procs (WindowServer, mds, backupd) | ❌ | ❌ | ✅ |
+| Process control (FR-020–024) | ❌ | ❌ | ✅ |
+
+**Unsandboxing alone does not close the attribution gap** — it only restores
+`proc_pid_rusage`. The gap closes only at the root tier, which is exactly what
+FR-037 defers and marks Escalated. This supports the existing MAS-first decision:
+the middle tier is a metrics upgrade, not a different product.
+
 ## Open risk: App Review
 
 `proc_listpids` is explicitly denied under the sandbox and Apple DTS has stated
