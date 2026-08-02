@@ -94,6 +94,70 @@ struct CPUWorkloadTests {
         #expect(combined > 160, "combined \(combined)% of one core")
     }
 
+    /// FR-032: the tool has to keep working during the problem it exists to
+    /// diagnose. Saturates every core, then checks that sampling still completes,
+    /// still produces usable attribution, and recovers afterwards.
+    @Test("Sampling survives full CPU saturation and recovers", .timeLimit(.minutes(2)))
+    func survivesSaturation() async throws {
+        let cores = MachineTopology.logicalCoreCount
+        // One spinner per core, plus two, so nothing is left idle for us.
+        let load = (0..<(cores + 2)).map { _ in spinner() }
+        defer { load.forEach { $0.terminate() } }
+        try await Task.sleep(for: .seconds(1))
+
+        let sampler = ProcessSampler()
+        var durations: [Double] = []
+        var attributions: [CPUAttribution] = []
+
+        for _ in 0..<4 {
+            let hostBefore = HostCPU.sample()
+            let before = sampler.snapshot()
+            try await Task.sleep(for: .milliseconds(700))
+            let after = sampler.snapshot()
+            let hostAfter = HostCPU.sample()
+            durations.append(after.sweepDuration.totalSeconds)
+
+            if let hostBefore, let hostAfter {
+                attributions.append(CPUAttributionCalculator.attribution(
+                    from: before, to: after, hostEarlier: hostBefore, hostLater: hostAfter))
+            }
+        }
+
+        // AC#1: status updates continue under saturation.
+        #expect(attributions.count == 4, "only \(attributions.count) of 4 samples completed")
+
+        // AC#2: sweeps still complete, and degrade rather than failing. Even a
+        // fully saturated machine must not push a sweep past a sane bound.
+        let worst = durations.max() ?? 0
+        #expect(worst < 1.0, "slowest sweep took \(worst * 1000)ms under saturation")
+
+        // Readings stay coherent: the machine is genuinely busy and the parts still
+        // account for the whole.
+        for attribution in attributions {
+            let sum = attribution.attributedPercentOfOneCore
+                + attribution.unattributedPercentOfOneCore
+            #expect(abs(sum - attribution.totalBusyPercentOfOneCore) < 0.001)
+            #expect(attribution.totalBusyPercentOfOneCore > Double(cores) * 50,
+                    "machine should be heavily loaded, got \(attribution.totalBusyPercentOfOneCore)%")
+        }
+
+        // AC#4: recovery after the load clears, with no restart or intervention.
+        load.forEach { $0.terminate() }
+        try await Task.sleep(for: .seconds(2))
+
+        let hostBefore = try #require(HostCPU.sample())
+        let before = sampler.snapshot()
+        try await Task.sleep(for: .seconds(1))
+        let after = sampler.snapshot()
+        let hostAfter = try #require(HostCPU.sample())
+        let recovered = CPUAttributionCalculator.attribution(
+            from: before, to: after, hostEarlier: hostBefore, hostLater: hostAfter)
+
+        #expect(!recovered.contributors.isEmpty, "sampling did not resume after load cleared")
+        #expect(after.sweepDuration.totalSeconds < 0.1,
+                "sweep did not return to normal: \(after.sweepDuration.totalSeconds * 1000)ms")
+    }
+
     /// A real workload must land in the attributed column, not the unattributed
     /// remainder — and the parts must still account for the whole under load.
     @Test("A real workload raises the attributed share", .timeLimit(.minutes(2)))

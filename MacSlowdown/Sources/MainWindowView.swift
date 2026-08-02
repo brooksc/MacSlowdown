@@ -87,6 +87,9 @@ struct NowView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Readings are catching up. Showing the last complete "
+                            + "reading from \(Int(age.totalSeconds)) seconds ago.")
     }
 
     private func condition(_ attribution: CPUAttribution) -> some View {
@@ -114,6 +117,13 @@ struct NowView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                // Read as one sentence including the evidence class, so a
+                // VoiceOver user gets the same caveat a sighted user sees.
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "\(figure.label): "
+                    + "\(CPUPresentation.percentOfOneCore(figure.percentOfOneCore)) of one core, "
+                    + "\(figure.evidence.rawValue)")
             }
         }
         .padding(12)

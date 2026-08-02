@@ -99,6 +99,12 @@ struct MenuBarContentView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .help(attribution.explanation)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(
+                "Unattributed system activity: "
+                + "\(CPUPresentation.percentOfOneCore(attribution.unattributedPercentOfOneCore)) "
+                + "of one core")
+            .accessibilityHint(attribution.explanation)
 
             Text(CPUPresentation.convention())
                 .font(.caption)

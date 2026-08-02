@@ -9,9 +9,10 @@ continuously observes system resource conditions, detects *sustained*
 degradation, attributes it to application families, preserves bounded evidence
 before/during/after the event, and explains it without overstating causation.
 
-Greenfield, pre-Phase-1. Feasibility is proven (`probe/FINDINGS.md`) but no app
-code exists yet — the repo holds the spec, the feasibility probes, and the
-backlog. Build system not yet scaffolded.
+Phase 1 (m-1, core monitor) is built. Tuist project, sandboxed menu bar app,
+`Metrics` framework with the sampler, identity resolver, family grouping,
+attribution and bounded history, plus the FR-030 overhead harness. Run it with
+`./run-menubar.sh`; test with `tuist xcodebuild test -scheme AllTests`.
 
 ## Working practice
 

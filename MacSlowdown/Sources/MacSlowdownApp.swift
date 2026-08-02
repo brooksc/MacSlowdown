@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 @main
@@ -38,23 +39,48 @@ struct MacSlowdownApp: App {
 
 struct SettingsView: View {
     @Binding var showMenuBarItem: Bool
+    @State private var loginItem = LoginItem()
 
     var body: some View {
         Form {
-            Toggle("Show in menu bar", isOn: $showMenuBarItem)
-                .onChange(of: showMenuBarItem) { _, shown in
-                    ActivationPolicy.menuBarItemVisibilityChanged(isVisible: shown)
+            Section {
+                Toggle("Show in menu bar", isOn: $showMenuBarItem)
+                    .onChange(of: showMenuBarItem) { _, shown in
+                        ActivationPolicy.menuBarItemVisibilityChanged(isVisible: shown)
+                    }
+                Text(showMenuBarItem
+                     ? "Monitoring continues whether or not the status item is shown."
+                     : "MacSlowdown keeps a Dock icon while the menu bar item is hidden, "
+                       + "so you can still reach this window.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section {
+                Toggle("Start at login", isOn: Binding(
+                    get: { loginItem.isEnabled },
+                    set: { loginItem.setEnabled($0) }
+                ))
+                .disabled(loginItem.state == .requiresApproval)
+
+                Text(loginItem.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if loginItem.state == .requiresApproval {
+                    Button("Open Login Items in System Settings") {
+                        SMAppService.openSystemSettingsLoginItems()
+                    }
                 }
-            Text(showMenuBarItem
-                 ? "Monitoring continues whether or not the status item is shown."
-                 : "MacSlowdown keeps a Dock icon while the menu bar item is hidden, "
-                   + "so you can still reach this window.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(20)
-        .frame(width: 380)
+        .frame(width: 420)
+        // Read the live system state whenever this appears, so a change made in
+        // System Settings is reflected rather than whatever we last set (FR-033).
+        .onAppear { loginItem.refresh() }
     }
 }
 

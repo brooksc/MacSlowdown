@@ -41,6 +41,9 @@ struct ProcessInventoryView: View {
             TableColumn("CPU") { row in
                 Text(CPUPresentation.percentOfOneCore(row.percentOfOneCore))
                     .monospacedDigit()
+                    .accessibilityLabel(
+                        "\(row.family.displayName): "
+                        + "\(CPUPresentation.percentOfOneCore(row.percentOfOneCore)) of one core")
             }
             TableColumn("Resident memory") { row in
                 Text(row.residentBytes == 0
