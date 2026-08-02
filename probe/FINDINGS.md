@@ -205,6 +205,58 @@ Attributing them to ChatGPT is arguably correct but not certain. This is exactly
 the case FR-003 requires to be "labeled and reversible", and FR-039 to be
 user-correctable.
 
+## TASK-27: application unresponsiveness (FR-046) — NOT AVAILABLE
+
+Measured sandboxed, launched via `open`:
+
+| Route | Result |
+|---|---|
+| `NSRunningApplication` | No responsiveness state at all. Exposes `isActive`, `isHidden`, `isTerminated`, `ownsMenuBar`, `activationPolicy` — **a beachballing app reports identically to a healthy one**. |
+| Accessibility API | `AXIsProcessTrusted` = false. Sandboxed apps cannot obtain it. |
+| System hang reports | `/Library/Logs/DiagnosticReports` **unreadable**. `~/Library/...` redirects into our own container, so the real directory is unreachable even by path. |
+| Process lifecycle (`sysctl`) | **Available** — name, pid, ppid, start time for every process. |
+
+**A hang that does not exit is undetectable.** There is no public signal for it, and
+the system's own hang detector writes somewhere the sandbox cannot read.
+
+**FR-046 is partially satisfiable.** The requirement reads "publicly observable
+unresponsive state, **repeated relaunch**, or similar failure signals", so the
+relaunch half is deliverable: repeated exit-and-restart is fully visible through
+lifecycle tracking. Direct hang detection is not, and per the spec's own
+instruction the app must omit it rather than approximate.
+
+**Design implication:** screen 1f's "Final Cut Pro stopped responding" cannot be
+detected. The nearest honest equivalent is "Final Cut Pro quit and relaunched
+three times", which is a different — and narrower — claim.
+
+## TASK-28: audio activity (FR-019) — AVAILABLE, per-process
+
+Better than the spec assumed. `kAudioHardwarePropertyProcessObjectList` (macOS
+14.2+) works sandboxed with **no microphone permission and no entitlement beyond
+`app-sandbox`**.
+
+Verified by playing audio and re-measuring, so this is not a zero-reading
+mistaken for a working API:
+
+```
+idle:     28 objects, 0 running,  DeviceIsRunningSomewhere = 0
+playing:  28 objects, 1 running,  DeviceIsRunningSomewhere = 1
+          ACTIVE: afplay [26397] running=1 input=0 output=1
+```
+
+Per audio process we get the pid — resolvable to a name — plus
+`kAudioProcessPropertyIsRunning`, `IsRunningInput` and `IsRunningOutput`. The
+input/output split matters: **output** covers playback, **input** covers
+microphone use, which is what "don't interrupt a call" needs.
+`kAudioDevicePropertyDeviceIsRunningSomewhere` gives a device-level fallback.
+
+**Caveat:** output was verified against real playback; **input was not**.
+Triggering it would mean starting a microphone capture on the user's machine.
+The property is read identically, so the risk is low, but it is unverified.
+
+FR-019 can therefore be implemented fully rather than "omitted if not reliably
+available", and its Medium-High confidence rating can be raised.
+
 ## Open risk: App Review
 
 `proc_listpids` is explicitly denied under the sandbox and Apple DTS has stated

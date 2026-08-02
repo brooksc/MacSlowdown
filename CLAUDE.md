@@ -103,6 +103,17 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
   macOS attributes permissions to the *responsible process*, so a binary launched
   from a terminal inherits the terminal's grants. The window-title probe reported
   8/8 titles that way and 1/8 when launched properly.
+- **Application hangs are undetectable.** No public API exposes unresponsive
+  state; `NSRunningApplication` reports a beachballing app identically to a
+  healthy one, Accessibility is untrusted, and the system's hang reports in
+  `/Library/Logs/DiagnosticReports` are unreadable (`~/Library/...` redirects
+  into our own container). FR-046 is deliverable only as **repeated relaunch**
+  detection via lifecycle tracking — never claim hang detection.
+- **Per-process audio IS available**, with no microphone permission and no extra
+  entitlement: `kAudioHardwarePropertyProcessObjectList` (macOS 14.2+) gives a
+  pid plus `IsRunning` / `IsRunningInput` / `IsRunningOutput` per audio process.
+  Input covers microphone use, output covers playback. Verified against real
+  playback, not just a zero reading.
 - **The binding limit is uid, not the sandbox.** Other-uid processes
   (`WindowServer`, `mds_stores`, `backupd`, `coreaudiod`, `launchd`) are denied
   identically sandboxed and unsandboxed; only root sees them. ~40 percentage
