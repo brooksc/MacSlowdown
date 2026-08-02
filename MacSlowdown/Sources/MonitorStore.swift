@@ -59,6 +59,11 @@ enum Severity: Int, Comparable, CaseIterable {
 @MainActor
 @Observable
 final class MonitorStore {
+    /// Shared because the app delegate starts monitoring at launch, independently
+    /// of any view. Tying the sampling loop to a view's lifecycle meant that
+    /// hiding the menu bar item stopped monitoring altogether.
+    static let shared = MonitorStore()
+
     private(set) var attribution: CPUAttribution?
     private(set) var families: [ProcessFamily] = []
     private(set) var freshness: Freshness = .current

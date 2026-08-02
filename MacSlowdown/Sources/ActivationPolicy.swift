@@ -18,6 +18,16 @@ enum ActivationPolicy {
     }
 
     static func mainWindowClosed() {
-        NSApp.setActivationPolicy(.accessory)
+        // Hiding the menu bar item removes the only always-visible surface, so the
+        // app must keep a Dock icon or it becomes unreachable while still running.
+        let menuBarHidden = !UserDefaults.standard.bool(forKey: "showMenuBarItem")
+            && UserDefaults.standard.object(forKey: "showMenuBarItem") != nil
+        NSApp.setActivationPolicy(menuBarHidden ? .regular : .accessory)
+    }
+
+    static func menuBarItemVisibilityChanged(isVisible: Bool) {
+        if !isVisible {
+            NSApp.setActivationPolicy(.regular)
+        }
     }
 }

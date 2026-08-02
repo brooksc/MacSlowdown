@@ -5,6 +5,11 @@ import SwiftUI
 struct ProcessInventoryView: View {
     let store: MonitorStore
     @State private var query = ""
+    /// Selection is keyed by family id (bundle path, or pid+start time for a
+    /// standalone process), not by row index. Rows reorder every sample as usage
+    /// changes, so an index-based selection would jump to a different application
+    /// on each refresh (FR-027).
+    @State private var selection: ProcessFamily.ID?
 
     private var rows: [MonitorStore.FamilyRow] {
         let ranked = store.rankedFamilies
@@ -15,7 +20,7 @@ struct ProcessInventoryView: View {
     }
 
     var body: some View {
-        Table(rows) {
+        Table(rows, selection: $selection) {
             TableColumn("Application") { row in
                 HStack(spacing: 6) {
                     Text(row.family.displayName)
