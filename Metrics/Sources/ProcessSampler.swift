@@ -8,7 +8,26 @@ import Foundation
 /// DTS has confirmed no entitlement lifts it. sysctl is a separately gated
 /// operation that returns the full table. See probe/FINDINGS.md.
 public struct ProcessSampler: Sendable {
-    public init() {}
+    /// The single point of contact with the process table.
+    ///
+    /// decision-1 accepts a known risk on `sysctl KERN_PROC_ALL` on the basis that
+    /// it is reversible. This closure is the seam that makes that true: swapping
+    /// the enumeration strategy means replacing one value, and nothing downstream
+    /// reaches around it. It also lets tests simulate denial without a kernel.
+    typealias Enumerator = @Sendable () -> Result<[TableEntry], EnumerationFailure>
+
+    struct EnumerationFailure: Error { let errno: Int32 }
+
+    private let enumerate: Enumerator
+
+    public init() {
+        self.enumerate = { Self.systemProcessTable() }
+    }
+
+    /// Test seam.
+    init(enumerator: @escaping Enumerator) {
+        self.enumerate = enumerator
+    }
 
     /// One complete pass. Never throws: a process that vanishes mid-sweep or denies
     /// access is recorded with the reason, not dropped.
@@ -17,22 +36,30 @@ public struct ProcessSampler: Sendable {
         let start = clock.now
         var records: [ProcessIdentity: ProcessRecord] = [:]
 
-        let table = Self.processTable()
-        records.reserveCapacity(table.count)
-        for entry in table {
-            records[entry.identity] = ProcessRecord(
-                identity: entry.identity,
-                command: entry.command,
-                uid: entry.uid,
-                ppid: entry.ppid,
-                metrics: Self.metrics(for: entry.identity.pid)
-            )
+        var outcome = EnumerationOutcome.succeeded
+        switch enumerate() {
+        case .success(let table):
+            records.reserveCapacity(table.count)
+            for entry in table {
+                records[entry.identity] = ProcessRecord(
+                    identity: entry.identity,
+                    command: entry.command,
+                    uid: entry.uid,
+                    ppid: entry.ppid,
+                    metrics: Self.metrics(for: entry.identity.pid)
+                )
+            }
+        case .failure(let failure):
+            // Deliberately not swallowed into an empty list: an empty inventory
+            // reads as "nothing is running", which would be false.
+            outcome = .failed(errno: failure.errno)
         }
 
         return ProcessSnapshot(
             records: records,
             takenAt: start,
-            sweepDuration: clock.now - start
+            sweepDuration: clock.now - start,
+            enumeration: outcome
         )
     }
 
@@ -48,13 +75,17 @@ public struct ProcessSampler: Sendable {
     /// Full process table via `sysctl KERN_PROC_ALL`.
     ///
     /// The table can grow between sizing and reading, so this retries rather than
-    /// truncating. Returns empty only if sysctl genuinely fails.
-    static func processTable(attempts: Int = 3) -> [TableEntry] {
+    /// truncating. Reports failure rather than returning an empty list, so callers
+    /// can tell "nothing to report" from "refused".
+    static func systemProcessTable(attempts: Int = 3) -> Result<[TableEntry], EnumerationFailure> {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
 
         for _ in 0..<attempts {
             var needed = 0
-            guard sysctl(&mib, 4, nil, &needed, nil, 0) == 0, needed > 0 else { return [] }
+            errno = 0
+            guard sysctl(&mib, 4, nil, &needed, nil, 0) == 0, needed > 0 else {
+                return .failure(EnumerationFailure(errno: errno))
+            }
 
             // Slack for processes spawned between the sizing call and the read.
             var size = needed + (needed / 8)
@@ -64,11 +95,12 @@ public struct ProcessSampler: Sendable {
             }
             if result != 0 {
                 if errno == ENOMEM { continue }  // table grew again; resize and retry
-                return []
+                return .failure(EnumerationFailure(errno: errno))
             }
-            return decode(buffer: buffer, byteCount: size)
+            return .success(decode(buffer: buffer, byteCount: size))
         }
-        return []
+        // Every attempt lost the resize race. Not a denial, but not a result either.
+        return .failure(EnumerationFailure(errno: ENOMEM))
     }
 
     private static func decode(buffer: [UInt8], byteCount: Int) -> [TableEntry] {

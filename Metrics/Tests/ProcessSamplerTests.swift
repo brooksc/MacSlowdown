@@ -7,8 +7,8 @@ import Testing
 @Suite("Process enumeration")
 struct ProcessEnumerationTests {
     @Test("sysctl returns a populated process table")
-    func tableIsPopulated() {
-        let table = ProcessSampler.processTable()
+    func tableIsPopulated() throws {
+        let table = try ProcessSampler.systemProcessTable().get()
         #expect(table.count > 50, "got \(table.count) processes")
     }
 

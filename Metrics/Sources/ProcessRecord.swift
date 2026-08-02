@@ -74,9 +74,41 @@ public struct ProcessRecord: Sendable {
     public var isMeasurable: Bool { measurements != nil }
 }
 
+/// Whether we were able to read the process table at all.
+///
+/// Distinguishing "the table was empty" from "the call failed" matters because
+/// they mean opposite things to a user: the first says nothing is running, the
+/// second says we are not allowed to look. Presenting the second as the first
+/// would be exactly the unsupported claim FR-002 and FR-038 forbid.
+///
+/// This is not a hypothetical failure mode. Apple withdrew
+/// `sysctl KERN_PROC_ALL` on iOS 9 with the rationale that apps "are not
+/// permitted to see what other apps are running"; macOS has not followed, but the
+/// sandbox already gates sysctl per node. See `.backlog/decisions/decision-1`.
+public enum EnumerationOutcome: Sendable, Equatable {
+    case succeeded
+    case failed(errno: Int32)
+
+    public var didFail: Bool { self != .succeeded }
+
+    /// Plain-language explanation for the interface. States what is unavailable
+    /// and what still works, without speculating about the cause.
+    public var explanation: String? {
+        guard case .failed = self else { return nil }
+        return "This Mac is not reporting its list of running processes to "
+            + "MacSlowdown, so applications cannot be listed or measured. "
+            + "Total CPU, memory pressure, thermal state and storage are "
+            + "unaffected and are still being recorded."
+    }
+}
+
 /// One complete pass over the process table.
 public struct ProcessSnapshot: Sendable {
     public let records: [ProcessIdentity: ProcessRecord]
+    /// Whether enumeration succeeded. An empty `records` with `.succeeded` means
+    /// the machine genuinely has nothing to report; with `.failed` it means we
+    /// were refused.
+    public let enumeration: EnumerationOutcome
     /// Monotonic instant the sweep began. Rates use this, never wall clock, which
     /// can jump.
     public let takenAt: ContinuousClock.Instant
@@ -87,11 +119,13 @@ public struct ProcessSnapshot: Sendable {
     public init(
         records: [ProcessIdentity: ProcessRecord],
         takenAt: ContinuousClock.Instant,
-        sweepDuration: Duration
+        sweepDuration: Duration,
+        enumeration: EnumerationOutcome = .succeeded
     ) {
         self.records = records
         self.takenAt = takenAt
         self.sweepDuration = sweepDuration
+        self.enumeration = enumeration
     }
 
     public var measurableCount: Int { records.values.count(where: \.isMeasurable) }

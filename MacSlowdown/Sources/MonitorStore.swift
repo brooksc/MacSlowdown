@@ -67,6 +67,9 @@ final class MonitorStore {
     private(set) var attribution: CPUAttribution?
     private(set) var families: [ProcessFamily] = []
     private(set) var freshness: Freshness = .current
+    /// Whether the process table could be read at all. An empty inventory means
+    /// opposite things depending on this.
+    private(set) var enumeration: EnumerationOutcome = .succeeded
     private(set) var lastUpdate: Date?
     private(set) var isRunning = false
     let machine = MachineContext.current()
@@ -165,6 +168,7 @@ final class MonitorStore {
             contributionIndex = Dictionary(
                 result.contributors.map { ($0.identity, $0.percentOfOneCore) },
                 uniquingKeysWith: { first, _ in first })
+            enumeration = snapshot.enumeration
             freshness = overdue ? .stale(age: elapsed) : .current
             lastUpdate = Date()
 

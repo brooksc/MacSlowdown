@@ -20,6 +20,23 @@ struct ProcessInventoryView: View {
     }
 
     var body: some View {
+        Group {
+            if let explanation = store.enumeration.explanation {
+                // Never render an empty table here: a blank list would say
+                // "nothing is running" when the truth is that we were refused.
+                ContentUnavailableView {
+                    Label("Applications can't be listed", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(explanation)
+                }
+            } else {
+                table
+            }
+        }
+        .navigationTitle("Apps & Processes")
+    }
+
+    private var table: some View {
         Table(rows, selection: $selection) {
             TableColumn("Application") { row in
                 HStack(spacing: 6) {
@@ -57,7 +74,6 @@ struct ProcessInventoryView: View {
         }
         .searchable(text: $query, prompt: "Search applications")
         .safeAreaInset(edge: .bottom) { footer }
-        .navigationTitle("Apps & Processes")
     }
 
     private var footer: some View {

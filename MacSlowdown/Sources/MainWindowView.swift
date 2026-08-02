@@ -42,6 +42,9 @@ struct NowView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                if let explanation = store.enumeration.explanation {
+                    enumerationBanner(explanation)
+                }
                 if case .stale(let age) = store.freshness {
                     staleBanner(age: age)
                 }
@@ -67,6 +70,28 @@ struct NowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("Now")
+    }
+
+    /// FR-002: if the process table cannot be read, say so. An empty inventory
+    /// would read as "nothing is running", which would be false — the truth is
+    /// that we are not permitted to look. Aggregate metrics are unaffected and
+    /// stay on screen.
+    private func enumerationBanner(_ explanation: String) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Applications can't be listed on this Mac").font(.headline)
+                Text(explanation)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: "exclamationmark.triangle")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Applications cannot be listed on this Mac. \(explanation)")
     }
 
     /// FR-032/FR-002: a late reading is shown as the last complete one, with its
