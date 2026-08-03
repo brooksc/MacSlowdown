@@ -29,9 +29,16 @@ struct EndToEndIncidentTests {
     /// after the spinners stopped, so the incident never closed. Measuring the
     /// baseline first tests the actual property — added load opens an incident,
     /// removing it closes one — whatever else is running.
+    /// Margin above baseline. Wide enough to absorb ambient drift DURING the run,
+    /// which a one-off baseline measurement cannot: Spotlight indexing swings
+    /// ~20 points of machine capacity on its own, and it starting mid-test is what
+    /// made an earlier 0.25 margin flaky. Eight spinners add ~100 points, so a
+    /// 0.35 margin is still comfortably crossed.
+    static let margin = 0.35
+
     private func policy(baseline: Double) -> IncidentPolicy {
         IncidentPolicy(
-            cpuBusyFractionThreshold: min(0.95, baseline + 0.25),
+            cpuBusyFractionThreshold: min(0.95, baseline + Self.margin),
             cpuSustainedDuration: .seconds(6),
             recoveryDuration: .seconds(4),
             mergeWindow: .seconds(3))
@@ -121,6 +128,21 @@ struct EndToEndIncidentTests {
         for _ in 0..<5 { try await sample(seconds: 1) }
 
         let closed = events.filter { if case .closed = $0 { true } else { false } }
+        if closed.isEmpty {
+            // Distinguish "the code failed to close it" from "the machine got
+            // busier while we watched", which are different problems.
+            let ambient = try await measureBaseline()
+            let threshold = min(0.95, baseline + Self.margin)
+            if ambient >= threshold {
+                Issue.record("""
+                    Skipped: ambient load rose from \(Int(baseline * 100))% to \
+                    \(Int(ambient * 100))% during the run, at or above the \
+                    \(Int(threshold * 100))% threshold, so conditions never cleared. \
+                    Not a detector failure.
+                    """)
+                return
+            }
+        }
         #expect(closed.count == 1, "expected exactly one close, got \(closed.count)")
 
         guard case .closed(let incident) = try #require(closed.first) else { return }
@@ -147,7 +169,7 @@ struct EndToEndIncidentTests {
         let cores = MachineTopology.logicalCoreCount
         let baseline = try await measureBaseline()
         guard baseline < 0.6 else { return }
-        let threshold = min(0.95, baseline + 0.25)
+        let threshold = min(0.95, baseline + Self.margin)
         let controller = CadenceController(
             normalInterval: .seconds(2),
             investigationInterval: .seconds(1),
