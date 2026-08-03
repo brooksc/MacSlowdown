@@ -169,6 +169,9 @@ final class MonitorStore {
     private let cadenceController: CadenceController
     private var cadenceState = CadenceController.State()
     private let pressureMonitor = MemoryPressureMonitor()
+    private let notificationGate = NotificationGate()
+    private var notificationState = NotificationGate.State()
+    let notifications = NotificationDelivery()
     private var previousPaging: PagingCounters?
     private var previousDisk: DiskCounters?
     private var previousOwn: UInt64?
@@ -295,6 +298,20 @@ final class MonitorStore {
             switch event {
             case .opened(let incident), .updated(let incident):
                 openIncident = incident
+                // The gate decides; delivery only carries out an approved decision.
+                let decision = notificationGate.decide(
+                    incident: incident,
+                    leadingContributor: result.contributors.first?.command,
+                    mute: mute,
+                    context: InterruptionContext(
+                        audioActive: AudioSignals.isAnyProcessPlaying(),
+                        audioApplication: AudioSignals.firstActiveProcessName()),
+                    state: &notificationState)
+                Task { [notifications] in
+                    await notifications.deliver(
+                        decision: decision, incident: incident,
+                        leadingContributor: result.contributors.first?.command)
+                }
             case .closed(let incident):
                 openIncident = nil
                 recentIncidents.insert(incident, at: 0)

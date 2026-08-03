@@ -186,3 +186,27 @@ struct LowStorageDetectorTests {
         ]))
     }
 }
+
+@Suite("Audio activity")
+struct AudioSignalsTests {
+    /// FR-019: audio activity is the signal that defers an alert during a call or
+    /// playback. Measured available under the sandbox in TASK-28; this asserts the
+    /// call path stays available rather than asserting a value, because whether
+    /// anything is playing depends on the machine.
+    @Test("Reading audio activity succeeds and is self-consistent")
+    func readingIsConsistent() {
+        let active = AudioSignals.isAnyProcessPlaying()
+        let name = AudioSignals.firstActiveProcessName()
+        // A name can only exist when something is active. The reverse is allowed:
+        // an active process whose name we could not read is reported without one
+        // rather than being dropped.
+        if name != nil { #expect(active) }
+    }
+
+    @Test("A named audio process is a real name, never a placeholder")
+    func nameIsReal() {
+        guard let name = AudioSignals.firstActiveProcessName() else { return }
+        #expect(!name.isEmpty)
+        #expect(!name.contains("\0"))
+    }
+}

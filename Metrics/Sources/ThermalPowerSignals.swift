@@ -1,4 +1,7 @@
 import Foundation
+import AudioToolbox
+import CoreAudio
+import Darwin
 import IOKit.ps
 
 /// The system's thermal assessment (FR-010).
@@ -111,5 +114,68 @@ public enum PowerSignals {
             isCharging: description[kIOPSIsChargingKey] as? Bool,
             lowPowerModeEnabled: lowPower
         )
+    }
+}
+
+/// Per-application audio activity (FR-019).
+///
+/// Measured available in TASK-28 with no microphone permission and no entitlement
+/// beyond app-sandbox. Used to defer notifications during playback, meetings or
+/// recording rather than interrupting them.
+public enum AudioSignals {
+    private static func processObjects() -> [AudioObjectID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr,
+            size > 0 else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr
+        else { return [] }
+        return ids
+    }
+
+    private static func flag(
+        _ object: AudioObjectID, _ selector: AudioObjectPropertySelector
+    ) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr
+        else { return false }
+        return value != 0
+    }
+
+    /// Whether any process is currently playing audio or capturing from the mic.
+    public static func isAnyProcessPlaying() -> Bool {
+        processObjects().contains { flag($0, kAudioProcessPropertyIsRunning) }
+    }
+
+    /// The name of an audio-active process, for explaining why an alert waited.
+    public static func firstActiveProcessName() -> String? {
+        for object in processObjects() where flag(object, kAudioProcessPropertyIsRunning) {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioProcessPropertyPID, mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            var pid: pid_t = -1
+            var size = UInt32(MemoryLayout<pid_t>.size)
+            guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &pid) == noErr,
+                  pid > 0 else { continue }
+            var info = proc_bsdinfo()
+            let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
+            if proc_pidinfo(pid, 3, 0, &info, infoSize) == infoSize {
+                let name = withUnsafeBytes(of: &info.pbi_name) {
+                    String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+                }
+                if !name.isEmpty { return name }
+            }
+        }
+        return nil
     }
 }

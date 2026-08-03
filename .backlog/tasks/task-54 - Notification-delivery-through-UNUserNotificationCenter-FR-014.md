@@ -1,9 +1,10 @@
 ---
 id: TASK-54
 title: Notification delivery through UNUserNotificationCenter (FR-014)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 18:15'
+updated_date: '2026-08-03 06:37'
 labels:
   - core
   - phase1-catchup
