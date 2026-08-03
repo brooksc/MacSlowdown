@@ -107,7 +107,11 @@ struct IncidentDetailView: View {
     private var investigationSteps: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Working through it").font(.headline)
-            ForEach(investigation.steps) { step in
+            // The first stage restates the findings already shown above, which
+            // read as a bug when both are on screen. The remaining stages are the
+            // part that adds something: what was involved, whether it was
+            // expected, what can be done, and what changed.
+            ForEach(investigation.steps.filter { $0.stage != .whatHappened }) { step in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(step.question).font(.subheadline).bold()
                     ForEach(Array(step.findings.enumerated()), id: \.offset) { _, conclusion in

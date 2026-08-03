@@ -140,3 +140,66 @@ struct CPUAttributionTests {
         #expect(percentages == sorted)
     }
 }
+
+/// FR-055's invariant must hold even when the two measurements disagree.
+///
+/// Regression guard for a real defect: the host aggregate and the per-process
+/// counters are read at slightly different instants, so under saturation the
+/// attributed sum can exceed the host total. Clamping the remainder at zero left
+/// attributed + unattributed > total, which broke the invariant precisely when
+/// the machine was in the state the product exists to explain.
+@Suite("Attribution reconciles disagreeing measurements")
+struct AttributionReconciliationTests {
+    /// Both snapshots need a controlled interval between them: stamping them at
+    /// the same instant divides the tick delta by ~zero and produces a nonsense
+    /// rate, which is a fixture bug rather than a product one.
+    private func snapshots(attributedTicks: UInt64) -> (ProcessSnapshot, ProcessSnapshot) {
+        let identity = ProcessIdentity(pid: 999, startTime: 1)
+        let start = ContinuousClock.now
+        func snapshot(_ ticks: UInt64, at instant: ContinuousClock.Instant) -> ProcessSnapshot {
+            ProcessSnapshot(
+                records: [identity: ProcessRecord(
+                    identity: identity, command: "busy", uid: 501, ppid: 1,
+                    metrics: .measured(ProcessMetrics(cpuTicks: ticks, residentBytes: 1 << 20)))],
+                takenAt: instant, sweepDuration: .milliseconds(1))
+        }
+        return (snapshot(0, at: start),
+                snapshot(attributedTicks, at: start.advanced(by: .seconds(1))))
+    }
+
+    @Test("Parts still sum when attributed exceeds the host total")
+    func partsSumWhenAttributedExceedsHost() {
+        // Host reports almost idle; per-process counters report a great deal.
+        // ~10 cores' worth of work in one second: far more than the host reports.
+        let (before, after) = snapshots(attributedTicks: UInt64(10e9 / MachTime.nanosPerTick))
+        let attribution = CPUAttributionCalculator.attribution(
+            from: before, to: after,
+            hostEarlier: HostCPUSample(busy: 100, total: 10_000),
+            hostLater: HostCPUSample(busy: 101, total: 20_000),
+            logicalCoreCount: 8)
+
+        let sum = attribution.attributedPercentOfOneCore
+            + attribution.unattributedPercentOfOneCore
+        #expect(abs(sum - attribution.totalBusyPercentOfOneCore) < 0.001,
+                "parts \(sum) vs total \(attribution.totalBusyPercentOfOneCore)")
+        #expect(attribution.unattributedPercentOfOneCore >= 0)
+        // No measurement is discarded: the total is at least what we observed.
+        #expect(attribution.totalBusyPercentOfOneCore >= attribution.attributedPercentOfOneCore)
+    }
+
+    @Test("A quiet machine still reports a positive remainder")
+    func quietMachineKeepsRemainder() {
+        // ~0.1 of one core in one second, well under the host's 320%.
+        let (before, after) = snapshots(attributedTicks: UInt64(0.1e9 / MachTime.nanosPerTick))
+        let attribution = CPUAttributionCalculator.attribution(
+            from: before, to: after,
+            hostEarlier: HostCPUSample(busy: 0, total: 0),
+            hostLater: HostCPUSample(busy: 4_000, total: 10_000),
+            logicalCoreCount: 8)
+
+        #expect(attribution.unattributedPercentOfOneCore > 0)
+        let sum = attribution.attributedPercentOfOneCore
+            + attribution.unattributedPercentOfOneCore
+        #expect(abs(sum - attribution.totalBusyPercentOfOneCore) < 0.001)
+    }
+}

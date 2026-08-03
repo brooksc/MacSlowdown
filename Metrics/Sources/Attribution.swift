@@ -151,13 +151,21 @@ public enum CPUAttributionCalculator {
         let attributed = contributors.reduce(0) { $0 + $1.percentOfOneCore }
 
         let busyFraction = HostCPU.busyFraction(from: hostEarlier, to: hostLater) ?? 0
-        let totalBusy = busyFraction * Double(logicalCoreCount) * 100
+        let hostTotal = busyFraction * Double(logicalCoreCount) * 100
 
-        // Clamped at zero: sampling the host and the process table at slightly
-        // different instants can make the attributed sum marginally exceed the
-        // host total. A negative remainder would be a measurement artefact, not a
-        // finding, and must never be shown.
-        let unattributed = max(0, totalBusy - attributed)
+        // The host aggregate and the per-process counters are read at slightly
+        // different instants, so under heavy load the attributed sum can marginally
+        // exceed the host total. Clamping the remainder at zero was not enough:
+        // it left attributed + unattributed > total, breaking the FR-055 invariant
+        // that the parts account for the whole. This was caught by the saturation
+        // test, not by review.
+        //
+        // Both figures are measurements, so when they disagree the sum of the parts
+        // is a lower bound on the whole — a machine cannot be less busy than the
+        // work we positively observed. Taking the larger keeps every measurement,
+        // discards none, and makes the invariant hold by construction.
+        let totalBusy = max(hostTotal, attributed)
+        let unattributed = totalBusy - attributed
 
         let protected = later.records.values
             .filter { $0.metrics == .notPermitted }
