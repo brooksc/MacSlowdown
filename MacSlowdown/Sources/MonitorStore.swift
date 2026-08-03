@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Metrics
 import Observation
@@ -81,6 +82,23 @@ final class MonitorStore {
     private(set) var power: PowerContext = PowerSignals.current()
     private(set) var pagingRates: PagingRates = .zero
     private(set) var diskRates: DiskRates = .zero
+    /// Our own cost, measured the same way we measure anything else.
+    ///
+    /// The headless OverheadHarness reports ~16 MB, but that runs no SwiftUI. The
+    /// real app measured 92 MB against FR-030's 100 MB budget, so the figure the
+    /// budget actually applies to has to come from the app itself.
+    private(set) var ownResidentBytes: UInt64 = 0
+    private(set) var ownCPUPercentOfOneCore: Double = 0
+    private(set) var mute: MuteState = .notMuted
+
+    /// FR-030 self-report, as the design's Now screen shows it.
+    var selfCost: String {
+        let memory = ByteCountFormatStyle().format(Int64(ownResidentBytes))
+        return String(format: "MacSlowdown itself: %.1f%% CPU, %@",
+                      ownCPUPercentOfOneCore, memory as NSString)
+    }
+
+    var isWithinMemoryBudget: Bool { ownResidentBytes <= FR030Budget.residentBytes }
 
     /// Aggregate disk throughput, with the per-application limitation stated
     /// alongside it rather than left as a silent omission (FR-009).
@@ -153,6 +171,7 @@ final class MonitorStore {
     private let pressureMonitor = MemoryPressureMonitor()
     private var previousPaging: PagingCounters?
     private var previousDisk: DiskCounters?
+    private var previousOwn: UInt64?
 
     /// Kept small: FR-005 bounds retained evidence, and the UI shows recent
     /// history rather than an archive.
@@ -175,6 +194,14 @@ final class MonitorStore {
         pressureMonitor.start()
         task = Task { [weak self] in await self?.run() }
     }
+
+    /// FR-015: muting suppresses interruption only. Monitoring continues, which is
+    /// why this touches `mute` and nothing else.
+    func mute(forMinutes minutes: Int) {
+        mute = MuteState(until: Date().addingTimeInterval(Double(minutes) * 60))
+    }
+
+    func clearMute() { mute = .notMuted }
 
     func stop() {
         task?.cancel()
@@ -220,6 +247,17 @@ final class MonitorStore {
             contributionIndex = Dictionary(
                 result.contributors.map { ($0.identity, $0.percentOfOneCore) },
                 uniquingKeysWith: { first, _ in first })
+            // We are in our own snapshot, so measuring ourselves costs nothing extra.
+            let ownIdentity = snapshot.records.values.first { $0.identity.pid == getpid() }
+            if let metrics = ownIdentity?.measurements {
+                ownResidentBytes = metrics.residentBytes
+                if let previousOwn, metrics.cpuTicks >= previousOwn {
+                    let deltaNanos = MachTime.nanos(fromTicks: metrics.cpuTicks - previousOwn)
+                    ownCPUPercentOfOneCore = deltaNanos / (elapsed.totalSeconds * 1e9) * 100
+                }
+                previousOwn = metrics.cpuTicks
+            }
+
             enumeration = snapshot.enumeration
             freshness = overdue ? .stale(age: elapsed) : .current
             lastUpdate = Date()

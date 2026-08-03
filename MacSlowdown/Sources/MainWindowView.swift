@@ -168,6 +168,7 @@ struct NowView: View {
                  + "\(store.machine.logicalCores) cores · "
                  + String(format: "%.0f GB", store.machine.physicalMemoryGB))
             Text(store.machine.osVersion)
+            Text(store.selfCost)
             Text(CPUPresentation.convention())
             if let note = CPUPresentation.topologyNote() {
                 Text(note).fixedSize(horizontal: false, vertical: true)
