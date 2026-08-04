@@ -44,7 +44,15 @@ final class NotificationDelivery {
     private(set) var authorisation: Authorisation = .notDetermined
     private(set) var deliveredCount = 0
 
-    private let center = UNUserNotificationCenter.current()
+    /// Resolved on first use, never at init.
+    ///
+    /// `UNUserNotificationCenter.current()` raises when the calling process has no
+    /// usable bundle identity, and this object is constructed while `MonitorStore`
+    /// is being built during scene evaluation — a raise there takes the whole
+    /// interface down while leaving the process alive, which is very hard to
+    /// diagnose. Nothing should need the notification centre until something is
+    /// actually being delivered or displayed.
+    private var center: UNUserNotificationCenter { .current() }
 
     /// Reads live state. Called whenever settings appear, so a change made in
     /// System Settings is reflected rather than whatever we last requested.
