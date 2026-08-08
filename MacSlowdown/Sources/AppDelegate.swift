@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // No menu bar item means the Dock icon is the only way back to the app.
             NSApp.setActivationPolicy(.regular)
         }
+        // Presentation only — this asks for nothing and shows no prompt.
+        MonitorStore.shared.notifications.registerForForegroundPresentation()
         MonitorStore.shared.start()
     }
 

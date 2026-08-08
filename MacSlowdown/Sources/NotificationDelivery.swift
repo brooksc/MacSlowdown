@@ -15,7 +15,7 @@ import UserNotifications
 ///     path where a muted or Focus-suppressed alert could slip through.
 @MainActor
 @Observable
-final class NotificationDelivery {
+final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     enum Authorisation: Equatable {
         case notDetermined
         case authorised
@@ -53,6 +53,26 @@ final class NotificationDelivery {
     /// diagnose. Nothing should need the notification centre until something is
     /// actually being delivered or displayed.
     private var center: UNUserNotificationCenter { .current() }
+
+    /// Registers for foreground presentation.
+    ///
+    /// Called once from the app delegate, where bundle identity is settled. Without
+    /// this, an alert raised while a MacSlowdown window is frontmost goes silently
+    /// to Notification Center — measured, not assumed: the first end-to-end test
+    /// delivered correctly and showed nothing, because the window was in front.
+    func registerForForegroundPresentation() {
+        center.delegate = self
+    }
+
+    /// Shows the alert even when MacSlowdown is the active application. The gate
+    /// has already decided this is worth interrupting for; whether our own window
+    /// happens to be in front is not a reason to withhold it.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .list]
+    }
 
     /// Reads live state. Called whenever settings appear, so a change made in
     /// System Settings is reflected rather than whatever we last requested.

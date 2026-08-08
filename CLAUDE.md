@@ -152,6 +152,11 @@ These recur across many FRs and have burned similar products:
   recovery hysteresis; a single spike is not an incident. (FR-006, FR-011)
 - **Label every conclusion** as measured fact / derived calculation / heuristic
   hypothesis / user-provided. (FR-038)
+- **A notification that macOS accepts is not a notification the user saw.**
+  Banners are suppressed while our own app is frontmost unless a
+  `UNUserNotificationCenterDelegate` returns `.banner` from `willPresent`. Verify
+  alerts by seeing them, not by `center.add` returning without error — the same
+  rule as FR-050's "an API's success return is not an outcome".
 
 ## Language and copy
 
