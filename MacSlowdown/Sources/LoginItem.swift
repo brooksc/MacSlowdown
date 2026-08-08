@@ -54,7 +54,13 @@ final class LoginItem {
         refresh()
     }
 
-    var explanation: String {
+    var explanation: String { Self.explanation(for: state) }
+
+    /// Static so every state's wording can be checked, including the two the app
+    /// cannot reach on demand: `requiresApproval` needs the user to have disabled
+    /// the item in System Settings, and `unavailable` needs a build the system does
+    /// not know about.
+    static func explanation(for state: State) -> String {
         switch state {
         case .enabled:
             "MacSlowdown will start when you log in, so it can catch slowdowns you did not see coming."

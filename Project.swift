@@ -80,6 +80,21 @@ let project = Project(
             sources: ["Metrics/Sources/**"],
             settings: .settings(base: signing)
         ),
+        // App-layer tests. Hosted by the app because MonitorStore, the intents and
+        // the notification adapter live in the app target and cannot be linked
+        // without it. The host's launch work is skipped under XCTest — see
+        // AppDelegate — so running tests does not start monitoring or put a status
+        // item in the user's menu bar.
+        .target(
+            name: "MacSlowdownTests",
+            destinations: [.mac],
+            product: .unitTests,
+            bundleId: "\(bundleID).MacSlowdownTests",
+            deploymentTargets: .macOS("26.0"),
+            sources: ["MacSlowdown/Tests/**"],
+            dependencies: [.target(name: "MacSlowdown")],
+            settings: .settings(base: signing)
+        ),
         .target(
             name: "MetricsTests",
             destinations: [.mac],
@@ -99,7 +114,7 @@ let project = Project(
             name: "AllTests",
             shared: true,
             buildAction: .buildAction(targets: ["MacSlowdown", "Metrics"]),
-            testAction: .targets(["MetricsTests"])
+            testAction: .targets(["MetricsTests", "MacSlowdownTests"])
         ),
     ]
 )

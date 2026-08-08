@@ -93,27 +93,18 @@ final class MonitorStore {
 
     /// FR-030 self-report, as the design's Now screen shows it.
     var selfCost: String {
-        let memory = ByteCountFormatStyle().format(Int64(ownResidentBytes))
-        return String(format: "MacSlowdown itself: %.1f%% CPU, %@",
-                      ownCPUPercentOfOneCore, memory as NSString)
+        Presentation.selfCost(cpuPercentOfOneCore: ownCPUPercentOfOneCore,
+                              residentBytes: ownResidentBytes)
     }
 
     var isWithinMemoryBudget: Bool { ownResidentBytes <= FR030Budget.residentBytes }
 
     /// Aggregate disk throughput, with the per-application limitation stated
     /// alongside it rather than left as a silent omission (FR-009).
-    var diskThroughput: String {
-        let read = ByteCountFormatStyle().format(Int64(diskRates.readBytesPerSecond))
-        let write = ByteCountFormatStyle().format(Int64(diskRates.writeBytesPerSecond))
-        return "\(read)/s read · \(write)/s write"
-    }
+    var diskThroughput: String { Presentation.diskThroughput(diskRates) }
 
     /// Swap activity, described without implying memory can be freed (FR-036).
-    var swapActivity: String {
-        pagingRates.isSwapping
-            ? "macOS is moving memory to and from disk"
-            : "No swapping"
-    }
+    var swapActivity: String { Presentation.swapActivity(pagingRates) }
 
     /// An evidence-based account of the open incident, or the most recent one.
     var currentSummary: IncidentSummary? {
@@ -126,8 +117,9 @@ final class MonitorStore {
 
     var severity: Severity {
         guard let attribution else { return .normal }
-        let share = attribution.totalBusyPercentOfOneCore / (Double(machine.logicalCores) * 100)
-        return .forBusyShareOfMachine(share)
+        return .forBusyShareOfMachine(Presentation.busyShareOfMachine(
+            percentOfOneCore: attribution.totalBusyPercentOfOneCore,
+            logicalCores: machine.logicalCores))
     }
 
     /// One row of the inventory: a family with its aggregated usage.
@@ -140,23 +132,10 @@ final class MonitorStore {
 
     /// Families with measurable usage, largest first, for the inventory view.
     var rankedFamilies: [FamilyRow] {
-        families.map { family in
-            let usage = family.members.reduce(into: (cpu: 0.0, memory: UInt64(0))) { totals, member in
-                if let contribution = contribution(for: member.record.identity) {
-                    totals.cpu += contribution
-                }
-                totals.memory += member.record.measurements?.residentBytes ?? 0
-            }
-            return FamilyRow(family: family, percentOfOneCore: usage.cpu, residentBytes: usage.memory)
-        }
-        .filter { $0.percentOfOneCore > 0 || $0.residentBytes > 0 }
-        .sorted { $0.percentOfOneCore > $1.percentOfOneCore }
+        Presentation.rankedFamilies(families, contributions: contributionIndex)
     }
 
     private var contributionIndex: [ProcessIdentity: Double] = [:]
-    private func contribution(for identity: ProcessIdentity) -> Double? {
-        contributionIndex[identity]
-    }
 
     private let sampler = ProcessSampler()
     private let resolver = ProcessIdentityResolver()
@@ -178,7 +157,7 @@ final class MonitorStore {
 
     /// Kept small: FR-005 bounds retained evidence, and the UI shows recent
     /// history rather than an archive.
-    private static let retainedIncidents = 20
+    static let retainedIncidents = 20
 
     init(cadence: Duration = MetricsHistory.defaultCadence,
          history: MetricsHistory = MetricsHistory(),
@@ -303,6 +282,12 @@ final class MonitorStore {
                     incident: incident,
                     leadingContributor: result.contributors.first?.command,
                     mute: mute,
+                    // `focusActive` is deliberately left at its default. No public
+                    // API reports the current Focus mode to a sandboxed app, and
+                    // guessing would be a fabricated measurement. Focus is still
+                    // respected — macOS enforces it at delivery, which is why this
+                    // is a gap in our reasoning rather than in the behaviour. The
+                    // gate's own check stands ready for a signal we can measure.
                     context: InterruptionContext(
                         audioActive: AudioSignals.isAnyProcessPlaying(),
                         audioApplication: AudioSignals.firstActiveProcessName()),
@@ -314,10 +299,8 @@ final class MonitorStore {
                 }
             case .closed(let incident):
                 openIncident = nil
-                recentIncidents.insert(incident, at: 0)
-                if recentIncidents.count > Self.retainedIncidents {
-                    recentIncidents.removeLast(recentIncidents.count - Self.retainedIncidents)
-                }
+                recentIncidents = Presentation.retained(
+                    [incident] + recentIncidents, limit: Self.retainedIncidents)
             case nil:
                 break
             }

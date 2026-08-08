@@ -13,7 +13,9 @@ struct MacSlowdownApp: App {
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
 
     var body: some Scene {
-        MenuBarExtra(isInserted: $showMenuBarItem) {
+        MenuBarExtra(isInserted: .init(
+            get: { showMenuBarItem && !AppDelegate.isHostingTests },
+            set: { showMenuBarItem = $0 })) {
             MenuBarContentView(store: store)
         } label: {
             // The label changes shape with severity, not only colour (FR-034).

@@ -3,6 +3,49 @@ import Metrics
 import Observation
 import UserNotifications
 
+/// The part of `UNUserNotificationCenter` this app uses.
+///
+/// A seam, for the same reason `ProcessSampler` has one: the real centre is a
+/// process-wide singleton whose authorisation state belongs to the user and
+/// cannot be set from a test. Without this, the rules that matter — never deliver
+/// what the gate suppressed, never deliver without live authorisation — could
+/// only be checked by asking a human to grant permission and generating a real
+/// incident.
+@MainActor
+protocol NotificationCentre {
+    func authorizationStatus() async -> UNAuthorizationStatus
+    func requestAuthorization() async -> Bool
+    func add(_ request: UNNotificationRequest) async throws
+    func setDelegate(_ delegate: UNUserNotificationCenterDelegate)
+}
+
+/// The real notification centre.
+///
+/// `UNUserNotificationCenter.current()` is resolved per call, never stored. It
+/// raises when the calling process has no usable bundle identity, and this type
+/// is constructed while `MonitorStore` is being built during scene evaluation —
+/// a raise there takes the whole interface down while leaving the process alive,
+/// which is very hard to attribute.
+@MainActor
+struct SystemNotificationCentre: NotificationCentre {
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    func requestAuthorization() async -> Bool {
+        (try? await UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .sound])) ?? false
+    }
+
+    func add(_ request: UNNotificationRequest) async throws {
+        try await UNUserNotificationCenter.current().add(request)
+    }
+
+    func setDelegate(_ delegate: UNUserNotificationCenterDelegate) {
+        UNUserNotificationCenter.current().delegate = delegate
+    }
+}
+
 /// Delivers notifications the policy gate has approved (FR-014).
 ///
 /// Two rules this enforces, both easy to get wrong:
@@ -44,15 +87,12 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     private(set) var authorisation: Authorisation = .notDetermined
     private(set) var deliveredCount = 0
 
-    /// Resolved on first use, never at init.
-    ///
-    /// `UNUserNotificationCenter.current()` raises when the calling process has no
-    /// usable bundle identity, and this object is constructed while `MonitorStore`
-    /// is being built during scene evaluation — a raise there takes the whole
-    /// interface down while leaving the process alive, which is very hard to
-    /// diagnose. Nothing should need the notification centre until something is
-    /// actually being delivered or displayed.
-    private var center: UNUserNotificationCenter { .current() }
+    private let centre: any NotificationCentre
+
+    init(centre: any NotificationCentre = SystemNotificationCentre()) {
+        self.centre = centre
+        super.init()
+    }
 
     /// Registers for foreground presentation.
     ///
@@ -61,24 +101,30 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     /// to Notification Center — measured, not assumed: the first end-to-end test
     /// delivered correctly and showed nothing, because the window was in front.
     func registerForForegroundPresentation() {
-        center.delegate = self
+        centre.setDelegate(self)
     }
 
     /// Shows the alert even when MacSlowdown is the active application. The gate
     /// has already decided this is worth interrupting for; whether our own window
     /// happens to be in front is not a reason to withhold it.
+    ///
+    /// A named constant because `UNNotification` cannot be constructed, so the
+    /// delegate method itself is unreachable from a test. This is the part that
+    /// carries the meaning.
+    nonisolated static let foregroundPresentationOptions: UNNotificationPresentationOptions =
+        [.banner, .list]
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list]
+        Self.foregroundPresentationOptions
     }
 
     /// Reads live state. Called whenever settings appear, so a change made in
     /// System Settings is reflected rather than whatever we last requested.
     func refreshAuthorisation() async {
-        let settings = await center.notificationSettings()
-        authorisation = switch settings.authorizationStatus {
+        authorisation = switch await centre.authorizationStatus() {
         case .authorized: .authorised
         case .provisional: .provisional
         case .denied: .denied
@@ -89,7 +135,7 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     /// Asks the user. Shows a system prompt, so only call it from an explicit
     /// user action — never at launch.
     func requestAuthorisation() async {
-        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        _ = await centre.requestAuthorization()
         await refreshAuthorisation()
     }
 
@@ -118,7 +164,7 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         let request = UNNotificationRequest(
             identifier: incident.id.uuidString, content: content, trigger: nil)
         do {
-            try await center.add(request)
+            try await centre.add(request)
             deliveredCount += 1
             return true
         } catch {

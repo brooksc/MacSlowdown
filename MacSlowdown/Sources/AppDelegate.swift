@@ -8,7 +8,18 @@ import AppKit
 /// measured nothing.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// True when the app is running only to host a unit test bundle.
+    ///
+    /// App-layer tests have to be hosted by the app to link against it, which means
+    /// the real app launches. Starting the sampler and putting a status item in the
+    /// developer's menu bar on every test run is a side effect no test asked for,
+    /// so both are skipped. This is the only test-aware branch in the app, and it
+    /// gates nothing but launch side effects.
+    static let isHostingTests =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !Self.isHostingTests else { return }
         let defaults = UserDefaults.standard
         // Absent preference means first launch, where the item is shown.
         let showMenuBarItem = defaults.object(forKey: "showMenuBarItem") as? Bool ?? true
