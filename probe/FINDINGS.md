@@ -467,3 +467,54 @@ time is later.
 
 **Rule.** Use `ppid` as corroboration and as a fallback for unbundled processes,
 never as the primary key. Validate every parent link against start time.
+
+## PID recycling is not hypothetical (measured, same machine)
+
+`pid_t` is 32-bit, but macOS does not use the range: allocation wraps at
+**99999**. That is a ~100k space, not 2^31.
+
+On this machine, uptime 12 days:
+
+- Highest live pid: **99763**
+- A freshly spawned process: **45952**
+
+The counter has **already wrapped at least once** and is reallocating from low
+numbers while long-lived processes still hold pids near the top. Recycling is
+not a rare theoretical hazard here; it is the current state of the machine.
+
+This is why identity is `(pid, start time)` everywhere, and why any use of
+`ppid` must reject a parent whose start time is later than its child's. The
+guard costs one comparison.
+
+## Measurability is decided by uid, exactly (`uid-probe.swift`)
+
+828 processes:
+
+| | Processes | Denied |
+|---|---|---|
+| Our uid | 599 | **0** |
+| Every other uid (root and 38 service accounts) | 229 | **229** |
+
+The correlation is total. Not one process of ours was denied, and not one
+process of another uid was readable. There is no grey area to reason about: a
+"System processes" grouping keyed on `uid != getuid()` is exactly the set we
+cannot measure, with no false members either way.
+
+**"Parented by launchd" is a different and much larger set — do not conflate
+them.** 690 processes are launchd-parented, and **464 of those are ours and
+fully measurable**. Launchd parentage says nothing about whether we can read a
+process; only uid does.
+
+## Can the unattributed total be assigned to those processes?
+
+Partly, and the distinction matters (FR-038).
+
+The total is already computed by subtraction — `host busy − sum of what we
+measured` — and that subtraction is a **measurement**, not an estimate. What it
+contains is the open part: other-uid process time, kernel and interrupt time,
+and any short-lived process that started and exited between samples.
+
+So the honest claim is "this much activity was not attributable, and these 229
+processes were running during the interval" — which is what the interface says
+today. What must never happen is assigning a share of it to any individual
+process. The 229 can be **named and counted**, never **measured**.
