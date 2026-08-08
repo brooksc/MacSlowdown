@@ -388,3 +388,32 @@ codesign --force --sign "$IDENTITY" --entitlements Probe.entitlements \
   --options runtime --timestamp=none build/NameProbe.app
 ./build/NameProbe.app/Contents/MacOS/NameProbe
 ```
+
+## How iStat Menus actually does it (researched, not measured)
+
+Worth recording, because the reference interface looks like a counter-example to
+several of our conclusions and is not one.
+
+iStat Menus ships in **two editions**. The Mac App Store edition is sandboxed
+like ours. Bjango's own documentation for it says: *"It can not control fan
+speeds. The iStat Menus Helper is needed to view some stats."*
+
+That Helper is **downloaded separately from `download.bjango.com`, not from the
+App Store**, and runs outside the sandbox. Temperatures, fan speeds and CPU
+frequency in the MAS edition come from it — not from the sandboxed app.
+
+So the market leader confirms our boundary rather than contradicting it. It
+reaches sensor data by asking the user to install a separate unsandboxed binary,
+which is precisely the privileged-helper pattern A-03, A-04 and FR-037 forbid us.
+Fan *control* is unavailable in the MAS edition even with the Helper installed.
+
+**Trap:** the App Store listing copy advertises the full sensor feature set,
+including "Fan speeds can be controlled." That text is carried over from the
+direct edition and contradicts Bjango's own help pages. A competitor's store
+listing is not evidence of sandboxed capability.
+
+**One lead worth probing.** GPU *utilisation* may be separable from GPU
+temperature and frequency: another Mac App Store monitor claims to read Apple
+Silicon GPU utilisation through the public `IOAccelerator` API with no private
+API and no elevated privileges, while explicitly omitting temperature and fans.
+Single-vendor self-description, unverified here — see TASK-59.
