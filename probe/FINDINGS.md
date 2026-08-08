@@ -302,3 +302,89 @@ swiftc -O -o /tmp/probe Sources/main.swift   # unsandboxed control
 ```
 
 `IDENTITY=...` overrides the signing identity.
+
+---
+
+# Human-meaningful process names (`name-probe.swift`)
+
+Prompted by a real defect: the popover showed `Spotify Helper (` and
+`Helium Helper (R`, which are `p_comm` truncated to 16 bytes by the kernel, and
+by the observation that iStat Menus shows `Cheetah3D` and `Safari` with icons.
+
+Measured on macOS 27.0 (26A5388g), signed and sandboxed with
+`com.apple.security.app-sandbox` and nothing else. 800 processes.
+
+## The headline: bundle metadata is readable under the sandbox
+
+**Reading an application's `Info.plist` from disk is not denied.** 145 of 151
+processes living in a `.app` yielded a display name; 5 were denied and 1 had no
+usable key. This was the open question — the sandbox restricts writes and
+user-data reads far more than it restricts reading installed application
+bundles — and the answer is that `CFBundleDisplayName` / `CFBundleName` are
+available for essentially every app we can see.
+
+| Source | Processes | Share of table |
+|---|---|---|
+| `proc_pidpath` | 776 | 97% |
+| Inside a `.app` | 151 | 19% |
+| `NSRunningApplication.localizedName` | 110 | 14% |
+| `Info.plist` display name (`.app` only) | 145 | 18% |
+| **Either source** | **187** | **23%** |
+| Icon available (real, not the generic one) | 188 | 24% |
+
+Widening to every bundle type raises the count only modestly:
+
+| Bundle kind | Processes | |
+|---|---|---|
+| `.framework` | 269 | almost never yields a useful name |
+| `.app` | 140 | |
+| `.appex` | 48 | yields names, but often internal ones |
+| `.bundle` | 2 | |
+| **Named from any bundle kind** | **183** | 23% |
+
+`.appex` adds real value for System Settings panes — `AppleIDSettings` becomes
+`Apple Account`, `ClassroomSetting` becomes `Classroom` — but also produces
+names no better than the truncation they replace, such as
+`BiometricsAndPasswordSettingsAppIntentsExtension`. Prefer
+`NSRunningApplication` where both exist: it returned
+`Apple Account (System Settings)`, which says what the process *is* as well as
+what it is called.
+
+## What this does and does not fix
+
+345 processes have a `p_comm` at or near the 16-byte limit. Of those, **108 are
+rescued** by a friendly name; **237 remain fragments** — `MTLCompilerServi`,
+`SetStoreUpdateSe`, `iCloudNotificati`, `com.apple.CloudP`.
+
+That is not a gap in our technique. Those processes are Unix daemons and XPC
+services with no display name anywhere on disk; there is no API that invents
+one, and neither does any other tool. The reference interface handles exactly
+this by not trying: it names real applications, shows `WindowServer` under its
+own raw name, and rolls everything else into a single `macOS` row.
+
+**Design consequence.** The ceiling for friendly naming is roughly a quarter of
+the process table, and that quarter is the part users recognise. The remainder
+should be aggregated rather than listed under fragments — which is the same
+shape as FR-055's unattributed-activity bucket, and should probably share it.
+
+## Rules
+
+- Resolve names in this order: `NSRunningApplication.localizedName`, then the
+  outermost `.app` `Info.plist`, then `.appex`, then `p_comm`.
+- Cache by `(pid, start time)` alongside the existing identity resolution. This
+  is filesystem work and must never run on the per-sweep hot path.
+- A name that falls through to `p_comm` at exactly 16 bytes is **known
+  truncated**. Label it as such (FR-002) rather than presenting the fragment as
+  though it were the name.
+- `NSWorkspace.icon(forFile:)` never returns nil — it returns a generic icon.
+  Compare against `icon(forFileType: "public.executable")` or the interface will
+  claim an icon it does not have.
+
+## Reproducing
+
+```sh
+swiftc -O -o build/NameProbe.app/Contents/MacOS/NameProbe Sources/name-probe.swift
+codesign --force --sign "$IDENTITY" --entitlements Probe.entitlements \
+  --options runtime --timestamp=none build/NameProbe.app
+./build/NameProbe.app/Contents/MacOS/NameProbe
+```
