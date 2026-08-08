@@ -66,11 +66,22 @@ struct MenuBarContentView: View {
 
             let leading = Array(attribution.contributors.prefix(3))
             ForEach(Array(leading.enumerated()), id: \.offset) { _, usage in
-                LabeledContent(usage.command) {
+                LabeledContent {
                     Text(CPUPresentation.percentOfOneCore(usage.percentOfOneCore))
                         .monospacedDigit()
+                } label: {
+                    // The resolved name, never the kernel's 16-byte command. The
+                    // store owns naming so this row, the table and the notification
+                    // cannot disagree.
+                    Text(store.displayName(for: usage))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
                 .font(.callout)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "\(store.accessibilityName(for: usage)): "
+                    + "\(CPUPresentation.percentOfOneCore(usage.percentOfOneCore)) of one core")
             }
 
             // Everything measured but not shown individually. Without this the

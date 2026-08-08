@@ -99,7 +99,7 @@ public struct DiagnosticExport: Sendable {
                 lines.append("Contributors")
                 for contributor in attribution.contributors.prefix(10) {
                     let name = options.hideProcessNames
-                        ? Self.redactedPlaceholder : contributor.command
+                        ? Self.redactedPlaceholder : contributor.label
                     lines.append(String(format: "  %-30@ %8.1f",
                                         name as NSString, contributor.percentOfOneCore))
                 }
@@ -118,7 +118,7 @@ public struct DiagnosticExport: Sendable {
         var result = text
         for contributor in attribution.contributors {
             result = result.replacingOccurrences(
-                of: contributor.command, with: Self.redactedPlaceholder)
+                of: contributor.label, with: Self.redactedPlaceholder)
         }
         return result
     }

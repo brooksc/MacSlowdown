@@ -108,7 +108,7 @@ public enum IncidentSummarizer {
                 let confidence = Self.confidence(
                     leaderShare: leaderShare, unattributedShare: attribution.unattributedShare)
 
-                var text = "\(leader.command) was the largest measurable contributor, at "
+                var text = "\(leader.label) was the largest measurable contributor, at "
                 text += "\(Int(leader.percentOfOneCore.rounded()))% of one core."
                 if attribution.unattributedShare > 0.3 {
                     text += " Because a large share of activity is unattributable, it may not "

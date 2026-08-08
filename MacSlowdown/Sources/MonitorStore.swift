@@ -140,6 +140,18 @@ final class MonitorStore {
 
     private var contributionIndex: [ProcessIdentity: Double] = [:]
 
+    /// A recognisable name for a contributor (FR-003, FR-013).
+    ///
+    /// Served from the identity resolver's cache, so this costs a dictionary
+    /// lookup rather than filesystem work. Views call it; nothing computes a name
+    /// of its own, or the popover, the table and the notification would drift
+    /// apart — which is exactly how the popover came to show "Spotify Helper (".
+    func displayName(for usage: ProcessCPUUsage) -> String { usage.label }
+
+    func accessibilityName(for usage: ProcessCPUUsage) -> String {
+        usage.displayName ?? ProcessNaming.accessibilityLabel(command: usage.command)
+    }
+
     private let sampler = ProcessSampler()
     private let resolver = ProcessIdentityResolver()
     private let history: MetricsHistory
@@ -224,7 +236,10 @@ final class MonitorStore {
             }
 
             let result = CPUAttributionCalculator.attribution(
-                from: previous, to: snapshot, hostEarlier: earlierHost, hostLater: host)
+                from: previous, to: snapshot, hostEarlier: earlierHost, hostLater: host,
+                // Served from the resolver's (pid, start time) cache, so this adds
+                // a dictionary lookup per contributor, not filesystem work.
+                naming: { [resolver] in resolver.identity(for: $0).friendlyName })
             let grouped = FamilyGrouper.group(snapshot: snapshot, resolver: resolver)
 
             attribution = result
@@ -281,9 +296,10 @@ final class MonitorStore {
             case .opened(let incident), .updated(let incident):
                 openIncident = incident
                 // The gate decides; delivery only carries out an approved decision.
+                let leadingContributor = result.contributors.first?.label
                 let decision = notificationGate.decide(
                     incident: incident,
-                    leadingContributor: result.contributors.first?.command,
+                    leadingContributor: leadingContributor,
                     mute: mute,
                     // `focusActive` is deliberately left at its default. No public
                     // API reports the current Focus mode to a sandboxed app, and
@@ -298,7 +314,7 @@ final class MonitorStore {
                 Task { [notifications] in
                     await notifications.deliver(
                         decision: decision, incident: incident,
-                        leadingContributor: result.contributors.first?.command)
+                        leadingContributor: leadingContributor)
                 }
             case .closed(let incident):
                 openIncident = nil

@@ -22,6 +22,21 @@ public struct ResolvedIdentity: Sendable, Equatable {
     public let appBundlePath: String?
     public let bundleID: String?
     public let teamID: String?
+    /// A human-meaningful name, when one exists on disk or in Launch Services.
+    /// Nil for the ~77% of the table that are daemons and XPC services with no
+    /// display name anywhere — see `ProcessNaming`.
+    public let friendlyName: String?
+
+    /// Defaults `friendlyName` to nil so that "we have no better name than the
+    /// command" stays the explicit, unsurprising case at every construction site.
+    public init(executablePath: String?, appBundlePath: String?,
+                bundleID: String?, teamID: String?, friendlyName: String? = nil) {
+        self.executablePath = executablePath
+        self.appBundlePath = appBundlePath
+        self.bundleID = bundleID
+        self.teamID = teamID
+        self.friendlyName = friendlyName
+    }
 
     /// True when the process belongs to no application bundle. About 85% of the
     /// process table — daemons and command-line tools. These are standalone
@@ -90,7 +105,10 @@ public final class ProcessIdentityResolver: Sendable {
             executablePath: path,
             appBundlePath: path.flatMap(outermostAppBundle),
             bundleID: signature.bundleID,
-            teamID: signature.teamID
+            teamID: signature.teamID,
+            // Resolved here so it lands in the same (pid, start time) cache as
+            // everything else. It is filesystem work and must never run per sweep.
+            friendlyName: ProcessNaming.resolve(pid: pid, executablePath: path)
         )
     }
 

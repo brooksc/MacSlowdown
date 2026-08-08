@@ -417,3 +417,53 @@ temperature and frequency: another Mac App Store monitor claims to read Apple
 Silicon GPU utilisation through the public `IOAccelerator` API with no private
 API and no elevated privileges, while explicitly omitting temperature and fans.
 Single-vendor self-description, unverified here — see TASK-59.
+
+## Parent PID as a grouping signal (`parent-probe.swift`)
+
+Asked directly: can `ppid` group processes instead of, or better than, the
+executable path? Measured sandboxed, 831 processes.
+
+**It cannot replace path grouping. 82% of the table is parented by launchd.**
+
+| | Processes |
+|---|---|
+| Parent is launchd or the kernel — `ppid` says nothing | 683 (82%) |
+| Parent is a live, identifiable process | 148 (18%) |
+| Parent had already exited | 0 |
+
+macOS launches most helpers through launchd and XPC rather than by forking from
+the application, so for four processes in five the parent is pid 1. Restricted
+to processes living inside a `.app`:
+
+| Of 166 bundled processes | |
+|---|---|
+| Parent is launchd, `ppid` uninformative | 107 (64%) |
+| Parent is in the same bundle — `ppid` agrees with the path | 56 (34%) |
+| Parent is in a *different* bundle | 1 |
+| Parent is in no bundle | 2 |
+
+**But it adds two things the path cannot.**
+
+1. **Corroboration.** For the 56 where the parent is in the same bundle, `ppid`
+   independently confirms what the path claims. That is exactly the evidence
+   needed to promote a member from `.uncertain` to `.certain` and stop showing
+   the uncertainty marker for it.
+
+2. **Attribution the path misses entirely.** 25 processes live in no bundle but
+   were spawned by an application: 14 `zsh` under Warp, 11 `backlog` under
+   ChatGPT, `chrome-native-ho` under Helium. Today each is a standalone
+   family — a Warp session with fourteen shells appears as fourteen unrelated
+   rows. `ppid` attributes them to the application responsible.
+
+The one disagreement is instructive rather than alarming: `SkyComputerUseSe`
+runs from `Codex Computer Use.app` but was spawned by ChatGPT. Both answers are
+defensible, which is what "uncertain" is for.
+
+**PID reuse.** `ppid` is a bare pid with no start time, so a recycled parent pid
+would link a process to an unrelated one. No impossible parents were observed in
+this snapshot, but the hazard is real over time and the guard is cheap: a real
+parent must have started **before** its child. Reject any parent whose start
+time is later.
+
+**Rule.** Use `ppid` as corroboration and as a fallback for unbundled processes,
+never as the primary key. Validate every parent link against start time.

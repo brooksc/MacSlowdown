@@ -104,7 +104,10 @@ public enum FamilyGrouper {
         let applications = bundled.map { path, members in
             ProcessFamily(
                 id: path,
-                displayName: displayName(forBundle: path),
+                // Prefer the bundle's own declared name over its folder name:
+                // "Helium" rather than a path component that happens to match.
+                displayName: members.compactMap { $0.resolved.friendlyName }.first
+                    ?? displayName(forBundle: path),
                 bundlePath: path,
                 members: classify(members, bundlePath: path)
             )
@@ -173,7 +176,9 @@ public enum FamilyGrouper {
     ) -> ProcessFamily {
         ProcessFamily(
             id: "pid:\(record.identity.pid):\(record.identity.startTime)",
-            displayName: record.command,
+            // Never the bare command: at 16 bytes it is a fragment, and showing a
+            // fragment as though it were a name breaks FR-002.
+            displayName: resolved.displayName(command: record.command),
             bundlePath: nil,
             members: [FamilyMember(record: record, resolved: resolved, membership: .certain)]
         )

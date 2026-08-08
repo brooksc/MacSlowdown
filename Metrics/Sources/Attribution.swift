@@ -144,9 +144,10 @@ public enum CPUAttributionCalculator {
         to later: ProcessSnapshot,
         hostEarlier: HostCPUSample,
         hostLater: HostCPUSample,
-        logicalCoreCount: Int = MachineTopology.logicalCoreCount
+        logicalCoreCount: Int = MachineTopology.logicalCoreCount,
+        naming: (ProcessIdentity) -> String? = { _ in nil }
     ) -> CPUAttribution {
-        let contributors = CPUUsage.between(earlier, later)
+        let contributors = CPUUsage.between(earlier, later, naming: naming)
             .sorted { $0.percentOfOneCore > $1.percentOfOneCore }
         let attributed = contributors.reduce(0) { $0 + $1.percentOfOneCore }
 
