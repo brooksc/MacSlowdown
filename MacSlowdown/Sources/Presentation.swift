@@ -56,6 +56,39 @@ enum Presentation {
         .sorted { $0.percentOfOneCore > $1.percentOfOneCore }
     }
 
+    /// Applies the table's sort order (FR-027).
+    ///
+    /// Ordering only. Sorting must never filter, re-read or re-sample: the set of
+    /// rows a user sees has to be the same set whichever column they clicked, or
+    /// the table would quietly hide processes as a side effect of being tidied.
+    ///
+    /// A tie is broken by name so that equal values — very common, since most
+    /// processes sit at 0% — do not shuffle between samples and make the table
+    /// look busier than the machine is.
+    static func sorted(
+        _ rows: [MonitorStore.FamilyRow],
+        by order: [KeyPathComparator<MonitorStore.FamilyRow>]
+    ) -> [MonitorStore.FamilyRow] {
+        guard !order.isEmpty else { return rows }
+        return rows.sorted { first, second in
+            for comparator in order {
+                switch comparator.compare(first, second) {
+                case .orderedAscending: return true
+                case .orderedDescending: return false
+                case .orderedSame: continue
+                }
+            }
+            return first.family.displayName.localizedCaseInsensitiveCompare(
+                second.family.displayName) == .orderedAscending
+        }
+    }
+
+    /// The order the table opens in: busiest first, which is what the surface is
+    /// for. Named so the view and its test cannot disagree about it.
+    static let defaultSortOrder = [
+        KeyPathComparator(\MonitorStore.FamilyRow.percentOfOneCore, order: .reverse)
+    ]
+
     /// Keeps the most recent incidents, newest first (FR-005 bounds evidence).
     static func retained(_ incidents: [Incident], limit: Int) -> [Incident] {
         incidents.count > limit ? Array(incidents.prefix(limit)) : incidents

@@ -10,13 +10,17 @@ struct ProcessInventoryView: View {
     /// changes, so an index-based selection would jump to a different application
     /// on each refresh (FR-027).
     @State private var selection: ProcessFamily.ID?
+    /// Column sort order (FR-027). Held here rather than in the store because it
+    /// is a view preference, not a measurement — changing it must not touch
+    /// sampling.
+    @State private var sortOrder = Presentation.defaultSortOrder
 
     private var rows: [MonitorStore.FamilyRow] {
         let ranked = store.rankedFamilies
-        guard !query.isEmpty else { return ranked }
-        return ranked.filter {
+        let matching = query.isEmpty ? ranked : ranked.filter {
             $0.family.displayName.localizedCaseInsensitiveContains(query)
         }
+        return Presentation.sorted(matching, by: sortOrder)
     }
 
     var body: some View {
@@ -37,8 +41,8 @@ struct ProcessInventoryView: View {
     }
 
     private var table: some View {
-        Table(rows, selection: $selection) {
-            TableColumn("Application") { row in
+        Table(rows, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("Application", value: \.family.displayName) { row in
                 HStack(spacing: 6) {
                     Text(row.family.displayName)
                     if row.family.hasUncertainMembers {
@@ -55,20 +59,20 @@ struct ProcessInventoryView: View {
                     }
                 }
             }
-            TableColumn("CPU") { row in
+            TableColumn("CPU", value: \.percentOfOneCore) { row in
                 Text(CPUPresentation.percentOfOneCore(row.percentOfOneCore))
                     .monospacedDigit()
                     .accessibilityLabel(
                         "\(row.family.displayName): "
                         + "\(CPUPresentation.percentOfOneCore(row.percentOfOneCore)) of one core")
             }
-            TableColumn("Resident memory") { row in
+            TableColumn("Resident memory", value: \.residentBytes) { row in
                 Text(row.residentBytes == 0
                      ? "—"
                      : ByteCountFormatStyle().format(Int64(row.residentBytes)))
                     .monospacedDigit()
             }
-            TableColumn("Processes") { row in
+            TableColumn("Processes", value: \.processCount) { row in
                 Text("\(row.family.members.count)").monospacedDigit()
             }
         }
@@ -85,6 +89,8 @@ struct ProcessInventoryView: View {
             Text("Resident memory. Activity Monitor's Memory column shows a different "
                  + "measure (footprint), so the numbers will not match exactly.")
             Text("Per-app disk activity is not available to App Store apps.")
+            Text("Click a column heading to sort. Sorting changes the order only — "
+                 + "no application is hidden by it.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)

@@ -193,6 +193,104 @@ struct FamilyRankingTests {
 }
 
 @MainActor
+@Suite("Column sorting")
+struct SortingTests {
+    private func rows() -> [MonitorStore.FamilyRow] {
+        Presentation.rankedFamilies(
+            [family("Zebra", bundlePath: "/Z.app",
+                    members: [record(10, command: "z", residentBytes: 100)]),
+             family("apple", bundlePath: "/A.app",
+                    members: [record(20, command: "a", residentBytes: 900),
+                              record(21, command: "a2", residentBytes: 100)]),
+             family("Middle", bundlePath: "/M.app",
+                    members: [record(30, command: "m", residentBytes: 500)])],
+            contributions: [identity(10): 5, identity(20): 50, identity(30): 20])
+    }
+
+    /// FR-027's default: busiest first, which is what the table already showed
+    /// before headers became interactive. Opening on a different order would
+    /// change the surface's meaning.
+    @Test("The default order is CPU, busiest first")
+    func defaultIsCPUDescending() {
+        let sorted = Presentation.sorted(rows(), by: Presentation.defaultSortOrder)
+        #expect(sorted.map(\.percentOfOneCore) == [50, 20, 5])
+    }
+
+    @Test("Every column sorts in both directions")
+    func everyColumnSorts() {
+        let byName = Presentation.sorted(
+            rows(), by: [KeyPathComparator(\MonitorStore.FamilyRow.family.displayName)])
+        #expect(byName.map(\.family.displayName) == ["apple", "Middle", "Zebra"],
+                "name order should be case-insensitive, not ASCII")
+
+        let byMemory = Presentation.sorted(
+            rows(), by: [KeyPathComparator(\MonitorStore.FamilyRow.residentBytes,
+                                           order: .reverse)])
+        #expect(byMemory.map(\.residentBytes) == [1000, 500, 100])
+
+        let byCount = Presentation.sorted(
+            rows(), by: [KeyPathComparator(\MonitorStore.FamilyRow.processCount,
+                                           order: .reverse)])
+        #expect(byCount.first?.processCount == 2)
+
+        let ascending = Presentation.sorted(
+            rows(), by: [KeyPathComparator(\MonitorStore.FamilyRow.percentOfOneCore)])
+        #expect(ascending.map(\.percentOfOneCore) == [5, 20, 50])
+    }
+
+    /// The invariant that makes sorting safe: it reorders and nothing else. A sort
+    /// that dropped a row would hide an application as a side effect of tidying.
+    @Test("Sorting changes only the order, never the set of rows")
+    func sortingIsOrderOnly() {
+        let unsorted = rows()
+        let identifiers = Set(unsorted.map(\.id))
+
+        for order in [Presentation.defaultSortOrder,
+                      [KeyPathComparator(\MonitorStore.FamilyRow.family.displayName)],
+                      [KeyPathComparator(\MonitorStore.FamilyRow.residentBytes)],
+                      [KeyPathComparator(\MonitorStore.FamilyRow.processCount)]] {
+            let sorted = Presentation.sorted(unsorted, by: order)
+            #expect(sorted.count == unsorted.count)
+            #expect(Set(sorted.map(\.id)) == identifiers)
+        }
+    }
+
+    /// Most processes sit at 0%, so ties are the common case. Without a stable
+    /// tiebreak the table would reshuffle every sample and look busier than the
+    /// machine is.
+    @Test("Equal values are broken by name, so the order does not shuffle")
+    func tiesAreStable() {
+        let tied = Presentation.rankedFamilies(
+            [family("Charlie", bundlePath: "/C.app",
+                    members: [record(1, command: "c", residentBytes: 10)]),
+             family("alpha", bundlePath: "/A.app",
+                    members: [record(2, command: "a", residentBytes: 10)]),
+             family("Bravo", bundlePath: "/B.app",
+                    members: [record(3, command: "b", residentBytes: 10)])],
+            contributions: [:])
+
+        let order = [KeyPathComparator(\MonitorStore.FamilyRow.percentOfOneCore,
+                                       order: .reverse)]
+        let first = Presentation.sorted(tied, by: order).map(\.family.displayName)
+        let again = Presentation.sorted(tied.reversed(), by: order).map(\.family.displayName)
+
+        #expect(first == ["alpha", "Bravo", "Charlie"])
+        #expect(first == again, "the same rows must sort the same way whatever order they arrive in")
+    }
+
+    @Test("An empty sort order leaves the rows as they were")
+    func emptyOrderIsIdentity() {
+        let unsorted = rows()
+        #expect(Presentation.sorted(unsorted, by: []).map(\.id) == unsorted.map(\.id))
+    }
+
+    @Test("Sorting an empty table produces an empty table rather than failing")
+    func emptyTable() {
+        #expect(Presentation.sorted([], by: Presentation.defaultSortOrder).isEmpty)
+    }
+}
+
+@MainActor
 @Suite("Retention and share")
 struct RetentionAndShareTests {
     @Test("Retention keeps the newest and drops the rest")

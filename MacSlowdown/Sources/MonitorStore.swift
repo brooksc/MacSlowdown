@@ -128,6 +128,9 @@ final class MonitorStore {
         let percentOfOneCore: Double
         let residentBytes: UInt64
         var id: String { family.id }
+        /// Exposed as a stored-looking value so the table can sort on it with a
+        /// key path; `members.count` is not reachable as one.
+        var processCount: Int { family.members.count }
     }
 
     /// Families with measurable usage, largest first, for the inventory view.
