@@ -82,6 +82,13 @@ struct AllProcessesRow: Identifiable, Equatable {
     var startedSortKey: Double { startedAt.timeIntervalSince1970 }
 }
 
+/// The flat list is damped on the same rule as the inventory (TASK-74). It is a flat
+/// list, so it takes the protocol's childless default. TASK-67 measured 0 warnings
+/// here, but only because nearly every row ties at zero CPU and is held in place by
+/// the name tie-break — latent, not absent, and one busy machine away from behaving
+/// like the Apps table.
+extension AllProcessesRow: StablyOrdered {}
+
 /// The process table, counted honestly (FR-002, FR-038).
 struct ProcessCensus: Equatable {
     let total: Int
