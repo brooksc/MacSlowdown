@@ -181,7 +181,7 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Acceptance criteria           | Default history covers at least 15 minutes; memory and disk budgets are met; restart persistence is configurable. |
 | Confidence level              | High                                                                                                              |
 | Design freedom                | Storage format and visualization are implementation choices.                                                      |
-| Open questions or assumptions | Default duration and persistence policy.                                                                          |
+| Open questions or assumptions | **Settled 2026-08-09:** the metric sample series stays in memory (15 minutes, not restored across a restart — a restored series would let a threshold change date an incident to before the app was running). Incident records persist; see FR-029. |
 | Human-review status           | Approved                                                                                                          |
 
 ## FR-006 — The system shall detect sustained aggregate CPU saturation and identify likely contributing process families.
@@ -300,7 +300,7 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Acceptance criteria           | Report contains at least 2 minutes pre-trigger and 1 minute post-recovery by default, subject to storage policy. |
 | Confidence level              | High                                                                                                             |
 | Design freedom                | Exact duration and persistence configurable.                                                                     |
-| Open questions or assumptions | Privacy-sensitive retention defaults.                                                                            |
+| Open questions or assumptions | **Settled 2026-08-09:** retained incidents persist across restarts and are kept 30 days by default; see FR-029. |
 | Human-review status           | Approved                                                                                                         |
 
 ## FR-013 — The system shall generate an evidence-based incident summary that distinguishes observations from hypotheses.
@@ -591,6 +591,37 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Design freedom                | Encryption-at-rest implementation open.                                                                                    |
 | Open questions or assumptions | Crash reporting scope.                                                                                                     |
 | Human-review status           | Approved                                                                                                                   |
+
+### FR-029 — settled persistence and retention decision (product owner, 2026-08-09)
+
+This is the product decision the specification previously left open in §10, and it
+governs FR-005's retained series, FR-011/FR-012's retained incidents and this
+requirement's retention controls.
+
+- **Incident history persists across restarts, on by default.** It is written to
+  `incidents.json` in the application's own Application Support directory, which
+  under the App Sandbox is inside the app's container.
+- **The default retention period is 30 days.** The period is user-adjustable
+  (7 / 30 / 90 days) in the Privacy settings.
+- **Retention is bounded on two axes and the interface shall state both.** The
+  chosen period, and a count bound on retained incidents; whichever is reached
+  first is what is kept. A period alone does not satisfy FR-005's "bounded".
+- **Retention shall be enforced whenever the stored set changes and on a schedule
+  that does not depend on the user opening any screen.** A configured period that
+  nothing applies does not satisfy this requirement.
+- **The stored form shall carry a schema version**, so a later format change can
+  migrate rather than discard a user's recorded history.
+- **Recorded attribution, and the confidence it carried, shall survive persistence
+  unchanged and shall never be recomputed from live state on load.** Live state
+  describes the machine now, not the machine that was in trouble (FR-013, FR-038).
+- **No user-facing copy shall claim the store is encrypted.** FileVault is the
+  user's setting and `NSFileProtection` on macOS is not the guarantee the word
+  implies. The approved statement is that data is held *in MacSlowdown's own
+  container, which no other app can read*.
+- **The rolling metric sample series (FR-005) is not persisted.** It is a
+  15-minute window whose only consumer re-decides a breach start against readings
+  that were actually taken; restoring a series from a previous run could date an
+  incident to a period during which the app was not running.
 
 ## FR-030 — The system shall operate with bounded CPU, memory, disk and wake-up overhead.
 
@@ -1149,8 +1180,10 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 - Whether on-device language generation is used for summaries or
   deterministic templates are sufficient.
 
-- Whether incident records persist across restarts and the default
-  retention duration.
+- ~~Whether incident records persist across restarts and the default
+  retention duration.~~ **Settled 2026-08-09:** they persist, on by default,
+  kept 30 days (user-adjustable 7/30/90) and additionally count-bounded. See the
+  settled-decision subsection under FR-029.
 
 - Whether telemetry or crash reporting is offered, and the exact opt-in
   and redaction model.

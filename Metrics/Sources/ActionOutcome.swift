@@ -1,7 +1,7 @@
 import Foundation
 
 /// What happened when an action was requested (FR-017).
-public enum ActionResult: Sendable, Equatable {
+public enum ActionResult: Sendable, Equatable, Codable {
     case succeeded
     /// The action was offered but did not work. Reported rather than swallowed,
     /// because FR-017 requires results be reported rather than assumed.
@@ -17,7 +17,7 @@ public enum ActionResult: Sendable, Equatable {
 /// The distinction this type exists to preserve: an action's API returning
 /// success says the request was accepted, not that anything improved. FR-050
 /// forbids treating one as the other.
-public enum VerificationOutcome: String, Sendable, CaseIterable {
+public enum VerificationOutcome: String, Sendable, CaseIterable, Codable {
     case improved
     case unchanged
     case worsened
@@ -40,7 +40,9 @@ public enum VerificationOutcome: String, Sendable, CaseIterable {
 /// A before/after comparison around a user-directed action (FR-050).
 /// `Equatable` because an incident carries the verifications recorded during it,
 /// and an incident has to stay comparable for the detector's event equality.
-public struct ActionVerification: Sendable, Equatable {
+/// `Codable` because an incident carries its recorded actions and an incident is
+/// persisted across restarts (TASK-72).
+public struct ActionVerification: Sendable, Equatable, Codable {
     public let action: ProcessAction
     public let target: String
     public let requestedAt: Date

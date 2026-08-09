@@ -122,7 +122,15 @@ public struct SystemObservation: Sendable {
 }
 
 /// A degradation episode (FR-011).
-public struct Incident: Sendable, Identifiable, Equatable {
+///
+/// `Codable` because incident history is written to disk and survives a restart
+/// (TASK-72, FR-005's "restart persistence is configurable", FR-029's retention
+/// controls). Everything an incident concluded — its severity, its peaks and above
+/// all its recorded `attribution` with the `confidence` that attribution carried —
+/// travels in the stored form and is read back verbatim. Nothing about a decoded
+/// incident is re-derived from the machine it is decoded on: live state describes
+/// the machine now, not the machine that was in trouble (FR-013, FR-038).
+public struct Incident: Sendable, Identifiable, Equatable, Codable {
     public let id: UUID
     /// When the condition first breached, which precedes the trigger by the
     /// sustained duration.
@@ -180,6 +188,17 @@ public struct Incident: Sendable, Identifiable, Equatable {
             evidence: .measured)
     }
 
+    // MARK: - Stored form
+
+    /// Spelled out rather than synthesised so a field added later has a name that
+    /// was chosen, not one that fell out of a property rename.
+    enum CodingKeys: String, CodingKey {
+        case id, beganAt, triggeredAt, recoveryStartedAt, closedAt
+        case conditions, severity, peakCPUBusyFraction, peakMemoryPressure
+        case attribution, actions, suppressions
+        case beganAtEstablishedFromRetainedHistory
+    }
+
     public var isOpen: Bool { closedAt == nil }
     public var duration: Duration {
         .seconds((closedAt ?? Date()).timeIntervalSince(beganAt))
@@ -190,7 +209,43 @@ public struct Incident: Sendable, Identifiable, Equatable {
     public func covers(_ date: Date) -> Bool {
         date >= beganAt && date <= (closedAt ?? .distantFuture)
     }
+}
 
+/// Decoding lives in an extension so the memberwise initialiser survives — the
+/// detector builds incidents with it.
+///
+/// A missing field is tolerated only where the property has a default. That is what
+/// lets a later version add a field without the schema version having to step for
+/// it: an older file simply carries the default. The times, the conditions and the
+/// severity are required, because an incident missing one of those is not an
+/// incident with a gap, it is a record we cannot honestly display.
+extension Incident {
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        beganAt = try container.decode(Date.self, forKey: .beganAt)
+        triggeredAt = try container.decode(Date.self, forKey: .triggeredAt)
+        recoveryStartedAt = try container.decodeIfPresent(Date.self, forKey: .recoveryStartedAt)
+        closedAt = try container.decodeIfPresent(Date.self, forKey: .closedAt)
+        conditions = try container.decode(Set<IncidentCondition>.self, forKey: .conditions)
+        severity = try container.decode(IncidentSeverity.self, forKey: .severity)
+        peakCPUBusyFraction = try container.decode(Double.self, forKey: .peakCPUBusyFraction)
+        peakMemoryPressure = try container.decode(
+            MemoryPressureLevel.self, forKey: .peakMemoryPressure)
+        // Read back exactly as recorded, including its confidence. There is
+        // deliberately no fallback that reconstructs an attribution from anything
+        // else: absent means nothing was attributed, and a screen must say so
+        // rather than fill the gap from live state (FR-013, FR-038).
+        attribution = try container.decodeIfPresent(IncidentAttribution.self, forKey: .attribution)
+        actions = try container.decodeIfPresent([ActionVerification].self, forKey: .actions) ?? []
+        suppressions = try container.decodeIfPresent(
+            [SuppressedDetection].self, forKey: .suppressions) ?? []
+        beganAtEstablishedFromRetainedHistory = try container.decodeIfPresent(
+            Bool.self, forKey: .beganAtEstablishedFromRetainedHistory) ?? false
+    }
+}
+
+extension Incident {
     /// Links a user action to this incident (FR-050).
     ///
     /// Two conditions, both required, and neither is "the machine got better

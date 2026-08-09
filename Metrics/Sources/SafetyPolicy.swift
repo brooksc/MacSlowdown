@@ -26,7 +26,7 @@ public enum ProtectionReason: String, Sendable, Equatable {
 /// control at all (§7, DR-06), so this is not a list that grows once protection is
 /// cleared — it is the complete set for every process, and protection only removes
 /// from it.
-public enum ProcessAction: String, Sendable, CaseIterable, Identifiable {
+public enum ProcessAction: String, Sendable, CaseIterable, Identifiable, Codable {
     /// Bring the application to the front.
     case activate
     /// Reveal the executable in Finder.
