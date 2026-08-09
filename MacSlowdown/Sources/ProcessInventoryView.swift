@@ -27,7 +27,37 @@ struct ProcessInventoryView: View {
         var id: String { rawValue }
     }
 
+    /// Whether the processes we may not measure are listed. Shown by default:
+    /// hiding two thirds of the process table by default would reproduce, as a
+    /// setting, exactly the omission the census exists to correct (TASK-65.13).
+    @State private var showsUnmeasurable = true
+    @State private var allProcessesSort = AllProcesses.defaultSort
+
     private var census: InventoryCensus { InventoryCensus.of(store.families) }
+
+    /// Every process on the machine, flat (TASK-65.13).
+    ///
+    /// Built here rather than on the store so that nothing outside this view pays
+    /// for it, and so the sampling loop stays the only writer of the store's state.
+    private var allProcessRows: [AllProcessesRow] {
+        AllProcesses.rows(store.families, contributions: contributions)
+    }
+
+    private var contributions: [ProcessIdentity: Double] {
+        Dictionary(
+            (store.attribution?.contributors ?? []).map { ($0.identity, $0.percentOfOneCore) },
+            uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Runs the same search against every process before saying anything about an
+    /// empty application list (TASK-65.16).
+    private var searchOutcome: InventorySearchOutcome {
+        let processes = allProcessRows
+        return InventorySearchOutcome(
+            query: query,
+            matchesInAllProcesses: processes.filter { AllProcesses.matches($0, query: query) }.count,
+            totalProcesses: processes.count)
+    }
 
     private var rows: [InventoryRow] {
         let all = store.inventory
@@ -71,6 +101,9 @@ struct ProcessInventoryView: View {
                 }
             }
         }
+        // Search covers both scopes and shares its term between them: switching
+        // scope to find what the other list is hiding is the whole of screen 1p.
+        .searchable(text: $query, prompt: searchPrompt)
         .navigationTitle("Apps & Processes")
         .onChange(of: store.lastUpdate) { _, _ in
             history.record(rows: store.inventory, families: store.families,
@@ -92,35 +125,51 @@ struct ProcessInventoryView: View {
             .labelsHidden()
             .fixedSize()
             Spacer()
+            if scope == .allProcesses {
+                // The count is stated either way, so hiding them is a visible
+                // choice rather than a silently shorter list.
+                Toggle(isOn: $showsUnmeasurable) {
+                    Text("Show unmeasurable · \(census.notMeasurableProcesses)")
+                }
+                .toggleStyle(.checkbox)
+            }
         }
         .padding(10)
+    }
+
+    private var searchPrompt: String {
+        scope == .apps ? "Search applications" : "Search processes"
     }
 
     @ViewBuilder
     private var content: some View {
         switch scope {
         case .apps:
-            HStack(spacing: 0) {
-                table
-                if let selectedRow, selectedRow.kind != .member {
-                    Divider()
-                    FamilyInspectorView(
-                        store: store, history: history,
-                        row: selectedRow, family: selectedFamily)
-                        .frame(width: 340)
+            if rows.isEmpty && !query.isEmpty {
+                // FR-002's rule applied to an empty list: "we found nothing here"
+                // must never be delivered as "it is not running" (TASK-65.16).
+                InventorySearchEmptyView(outcome: searchOutcome) { scope = .allProcesses }
+            } else {
+                HStack(spacing: 0) {
+                    table
+                    if let selectedRow, selectedRow.kind != .member {
+                        Divider()
+                        FamilyInspectorView(
+                            store: store, history: history,
+                            row: selectedRow, family: selectedFamily)
+                            .frame(width: 340)
+                    }
                 }
             }
         case .allProcesses:
-            // TASK-65.13 owns this list. Saying so is better than a table that
-            // silently shows the same applications under a different heading.
-            ContentUnavailableView {
-                Label("All processes is not built yet", systemImage: "list.bullet")
-            } description: {
-                Text("\(census.totalProcesses) processes were read on the last sweep, "
-                     + "\(census.notMeasurableProcesses) of which macOS will not report "
-                     + "usage for. Until this list exists, the applications among them "
-                     + "are under Apps.")
-            }
+            AllProcessesView(
+                rows: allProcessRows,
+                census: AllProcesses.census(allProcessRows),
+                freshness: InventoryCensus.freshness(lastUpdate: store.lastUpdate),
+                query: $query,
+                showsUnmeasurable: $showsUnmeasurable,
+                sortOrder: $allProcessesSort,
+                icon: { store.icon(forExecutablePath: $0) })
         }
     }
 
@@ -171,7 +220,6 @@ struct ProcessInventoryView: View {
                 }
             }
         }
-        .searchable(text: $query, prompt: "Search applications")
         .safeAreaInset(edge: .bottom) { footer }
     }
 
