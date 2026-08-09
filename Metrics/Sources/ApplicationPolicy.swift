@@ -101,6 +101,20 @@ public struct SuppressedDetection: Sendable, Codable, Equatable, Identifiable {
 
 /// User corrections to grouping (FR-039), stored alongside policies because both
 /// are the user telling us something we could not measure.
+///
+/// **The key is deliberately not a PID.** PIDs are reused — macOS wraps allocation
+/// at 99999 and the counter had already wrapped on a machine with twelve days of
+/// uptime — so a correction keyed on one would attach itself to an unrelated
+/// process within days, and would not survive a restart at all. A correction is
+/// keyed on what the process *is*:
+///
+/// - `executablePath` when it was known when the correction was made. This is the
+///   precise key, and it is nearly always available: `proc_pidpath` answers for
+///   1042 of 1063 processes and is unaffected by the sandbox.
+/// - `processCommand` — the kernel's `p_comm` — otherwise. Durable for the same
+///   reason, but coarse: `p_comm` is 16 bytes, so a correction made this way applies
+///   to every process whose truncated command matches. The interface says so rather
+///   than letting the user discover it.
 public struct GroupingCorrection: Sendable, Codable, Equatable, Identifiable {
     public enum Kind: String, Sendable, Codable {
         /// Pull a process out of the family we inferred.
@@ -110,20 +124,56 @@ public struct GroupingCorrection: Sendable, Codable, Equatable, Identifiable {
     }
 
     public let processCommand: String
+    /// The executable's full path when the correction was made, when it was known.
+    ///
+    /// Optional, and decoded as nil when absent, so corrections written before this
+    /// field existed keep working on their command key rather than being dropped.
+    public let executablePath: String?
     public let kind: Kind
     /// Target family for a merge.
     public let intoBundlePath: String?
+    /// The name the user saw when they made the correction.
+    ///
+    /// Kept because a correction outlives the process it was made about: a list of
+    /// corrections has to be readable when nothing matching them is running, and a
+    /// truncated `p_comm` is not a name (FR-002).
+    public let displayName: String?
     public let createdAt: Date
 
-    public var id: String { "\(kind.rawValue):\(processCommand)" }
+    /// One correction per subject, not one per subject *and kind*.
+    ///
+    /// Keyed this way so that correcting the same process twice replaces the earlier
+    /// decision instead of leaving a split and a merge both stored, where whichever
+    /// `overrides(for:)` happened to find first would silently win.
+    public var id: String { executablePath ?? processCommand }
 
-    public init(processCommand: String, kind: Kind,
-                intoBundlePath: String? = nil, createdAt: Date = Date()) {
+    public init(processCommand: String, executablePath: String? = nil, kind: Kind,
+                intoBundlePath: String? = nil, displayName: String? = nil,
+                createdAt: Date = Date()) {
         self.processCommand = processCommand
+        self.executablePath = executablePath
         self.kind = kind
         self.intoBundlePath = intoBundlePath
+        self.displayName = displayName
         self.createdAt = createdAt
     }
+
+    /// What to call this correction's subject in the interface.
+    public var subject: String { displayName ?? processCommand }
+
+    /// Whether this correction is about the given process.
+    ///
+    /// A correction that carries a path matches only on the path — never falling
+    /// back to the command, which would silently widen a precise correction into a
+    /// coarse one the moment the path became unreadable.
+    public func matches(command: String, executablePath: String?) -> Bool {
+        if let mine = self.executablePath { return mine == executablePath }
+        return processCommand == command
+    }
+
+    /// Whether this correction can apply to more than one process, because it had
+    /// no path to key on. Stated in the interface (FR-038) rather than left implied.
+    public var isKeyedOnCommandOnly: Bool { executablePath == nil }
 }
 
 /// Stores what the user has told us (FR-016, FR-039).
@@ -218,16 +268,30 @@ public final class PolicyStore: Sendable {
 
     /// Corrections as grouping overrides, for FamilyGrouper.
     ///
-    /// Note this maps by command name rather than process identity: a correction
-    /// must outlive the process it was made about, and PIDs do not.
-    public func overrides(for snapshot: ProcessSnapshot) -> GroupingOverrides {
+    /// Resolves each correction's durable key — executable path, or command where
+    /// there was no path — back onto the identities present in *this* snapshot. The
+    /// `ProcessIdentity` keys in the result are therefore recomputed every sweep and
+    /// never stored, which is what lets a correction survive the process it was made
+    /// about being replaced by one with a different PID.
+    ///
+    /// Returns `.none` immediately when the user has made no corrections, which is
+    /// the overwhelmingly common case: without that early exit this would take a
+    /// resolver lock once per process on every sweep to answer "no" ~1000 times.
+    public func overrides(
+        for snapshot: ProcessSnapshot, resolver: ProcessIdentityResolver? = nil
+    ) -> GroupingOverrides {
         let corrections = self.corrections
+        guard !corrections.isEmpty else { return .none }
         var detached: Set<ProcessIdentity> = []
         var attached: [ProcessIdentity: String] = [:]
 
         for record in snapshot.records.values {
+            // Served from the resolver's (pid, start time) cache, so this is a
+            // dictionary lookup and not the ~760 ms of filesystem work a full
+            // resolution pass costs.
+            let path = resolver?.identity(for: record.identity).executablePath
             guard let correction = corrections.first(where: {
-                $0.processCommand == record.command
+                $0.matches(command: record.command, executablePath: path)
             }) else { continue }
             switch correction.kind {
             case .split: detached.insert(record.identity)

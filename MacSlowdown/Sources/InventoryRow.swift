@@ -60,6 +60,60 @@ struct GroupingProvenance: Equatable {
     }
 }
 
+/// What the interface says about a user's grouping correction (FR-038, FR-039).
+///
+/// Pure, so the sentences can be checked rather than read: every one of them has to
+/// say that the machine's grouping is a guess and the user's is not, and neither may
+/// be presented as a measurement.
+enum GroupingCorrectionCopy {
+    /// FR-038: the machine's grouping is a heuristic hypothesis, and says so before
+    /// offering the user a way to overrule it.
+    static let heuristic =
+        "Grouping keys on the outermost application bundle in each executable's "
+        + "path, corroborated by the code signature and by which process started "
+        + "which. That is a reasoned guess, not something macOS tells us, so it is "
+        + "sometimes wrong."
+
+    /// FR-038 again, from the other side: what the user says is user-provided, and
+    /// is bounded — it changes a view, not a measurement.
+    static let userProvided =
+        "What you change here is recorded as your correction, not as a measurement. "
+        + "It applies from the next reading, can be undone at any time, stays on "
+        + "this Mac, and never changes what an incident already recorded."
+
+    /// One line describing a correction, in the past tense of something the user did.
+    static func describe(_ correction: GroupingCorrection) -> String {
+        switch correction.kind {
+        case .split:
+            return "\(correction.subject) — you separated this from the application "
+                + "it was grouped under."
+        case .merge:
+            guard let target = correction.intoBundlePath else {
+                return "\(correction.subject) — you moved this, but the application "
+                    + "you moved it into is no longer on this Mac."
+            }
+            return "\(correction.subject) — you placed this in \(bundleName(target))."
+        }
+    }
+
+    /// The caveat on a correction that had no executable path to key on, stated
+    /// rather than left for the user to discover (FR-002: `p_comm` is 16 bytes).
+    static func scope(_ correction: GroupingCorrection) -> String? {
+        guard correction.isKeyedOnCommandOnly else { return nil }
+        return "Applies to any process the system calls “\(correction.processCommand)”. "
+            + "No executable path was readable for it, and macOS shortens that name "
+            + "to 16 characters, so this may cover more than one process."
+    }
+
+    /// An application's name from its bundle path. The folder name, not a claim
+    /// about the bundle's declared name — reading `Info.plist` here would be
+    /// filesystem work in a label.
+    static func bundleName(_ path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        return name.hasSuffix(".app") ? String(name.dropLast(4)) : name
+    }
+}
+
 /// One row of the inventory, which may have children (FR-003, FR-027).
 ///
 /// A single type for both levels so the table can sort and select uniformly.
