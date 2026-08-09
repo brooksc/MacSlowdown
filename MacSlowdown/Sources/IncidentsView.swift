@@ -10,20 +10,42 @@ struct IncidentsView: View {
         (store.openIncident.map { [$0] } ?? []) + store.recentIncidents
     }
 
+    /// True when a row is selected. Written as a real binding rather than
+    /// `.constant`: `inspector(isPresented:)` writes back through it when the
+    /// inspector is dismissed, and a constant binding silently swallows that
+    /// write, leaving SwiftUI's presentation state and ours disagreeing about
+    /// whether a column exists.
+    ///
+    /// Changed while chasing TASK-51.1, where this column rendered nothing on
+    /// screen. That it *caused* the blank pane is a hypothesis, not a
+    /// measurement: the blank state could not be reproduced offscreen. What is
+    /// established is that this was the only unsupported construct here, and
+    /// that a hidden inspector column is one of the few things that can leave a
+    /// detail column with its title and no body.
+    private var inspectorShown: Binding<Bool> {
+        Binding(get: { selection != nil }, set: { if !$0 { selection = nil } })
+    }
+
     var body: some View {
         Group {
             if all.isEmpty {
                 empty
             } else {
+                // No `navigationDestination(for: Incident.ID.self)` here. It used
+                // to register `EmptyView()` on the detail column's stack, and a
+                // `List(selection:)` whose selection type has a registered
+                // destination is SwiftUI's "selection pushes a screen" pattern —
+                // so selecting a row could replace the whole column with nothing
+                // instead of opening the inspector. Selection drives the
+                // inspector, and nothing in the app pushes an incident.
                 List(all, selection: $selection) { incident in
                     IncidentRow(incident: incident)
                         .tag(incident.id)
                 }
-                .navigationDestination(for: Incident.ID.self) { _ in EmptyView() }
             }
         }
         .navigationTitle("Incidents")
-        .inspector(isPresented: .constant(selection != nil)) {
+        .inspector(isPresented: inspectorShown) {
             if let incident = all.first(where: { $0.id == selection }) {
                 IncidentDetailView(incident: incident, store: store)
                     .inspectorColumnWidth(min: 380, ideal: 460)
