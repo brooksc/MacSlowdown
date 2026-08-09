@@ -31,17 +31,36 @@ struct MainWindowView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
             .safeAreaInset(edge: .bottom) { sidebarFooter }
+            // The same bound as the detail column, for the same reason: this
+            // footer's three wrapping lines are also `fixedSize` vertically, and
+            // with the split view proposing no width they answered an ideal-size
+            // query with over a thousand points (TASK-75).
+            .frame(minHeight: 320, idealHeight: 480, maxHeight: .infinity)
         } detail: {
-            switch selection {
-            case .now: NowView(store: store, showIncidents: { selection = .incidents })
-            case .apps: ProcessInventoryView(store: store)
-            case .incidents: IncidentsView(store: store)
-            case .storage: StorageView(store: store)
-            }
+            detailPane
+                // TASK-75: the window grew to 1300 x 3599 pt on a 1107 pt screen and
+                // sprang back when resized, because the detail column's answer to
+                // "how big would you like to be?" was thousands of points and the
+                // window took it literally. Every pane here scrolls, so none of them
+                // has a content height worth respecting — say what a sensible
+                // window is once, here, rather than letting whichever pane is
+                // selected decide.
+                .frame(minWidth: 480, idealWidth: 700,
+                       minHeight: 320, idealHeight: 480, maxHeight: .infinity)
         }
         .toolbar { ToolbarItem(placement: .primaryAction) { muteControl } }
         .onAppear { ActivationPolicy.mainWindowOpened() }
         .onDisappear { ActivationPolicy.mainWindowClosed() }
+    }
+
+    @ViewBuilder
+    private var detailPane: some View {
+        switch selection {
+        case .now: NowView(store: store, showIncidents: { selection = .incidents })
+        case .apps: ProcessInventoryView(store: store)
+        case .incidents: IncidentsView(store: store)
+        case .storage: StorageView(store: store)
+        }
     }
 
     /// FR-031 requires the current cadence be inspectable, and FR-030 requires we

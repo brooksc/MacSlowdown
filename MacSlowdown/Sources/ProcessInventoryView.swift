@@ -151,7 +151,9 @@ struct ProcessInventoryView: View {
                 InventorySearchEmptyView(outcome: searchOutcome) { scope = .allProcesses }
             } else {
                 HStack(spacing: 0) {
-                    table
+                    InventoryTable(
+                        store: store, rows: rows, selection: $selection,
+                        expanded: $expanded, sortOrder: $sortOrder)
                     if let selectedRow, selectedRow.kind != .member {
                         Divider()
                         FamilyInspectorView(
@@ -171,6 +173,40 @@ struct ProcessInventoryView: View {
                 sortOrder: $allProcessesSort,
                 icon: { store.icon(forExecutablePath: $0) })
         }
+    }
+}
+
+/// The inventory table itself, with `rows` passed in rather than read from the
+/// store.
+///
+/// Injected deliberately (TASK-75). The window grew to 3599 pt, and the only honest
+/// way to test that is to ask this view what height it demands for a known number
+/// of rows. A view that reads its own rows from a shared store cannot be asked
+/// that question.
+///
+/// The answer, measured, was not the one anybody expected: the demand does not come
+/// from the rows at all. 20 rows and 500 rows both demand 137 pt on their own, and
+/// both demand ~9,500 pt inside a `NavigationSplitView` detail column. The footer
+/// is what asks: seven paragraphs of caption text under
+/// `fixedSize(horizontal: false, vertical: true)` inside a `safeAreaInset`. When
+/// the split view asks the detail column for an ideal size it proposes no width,
+/// so every sentence wraps to one word per line and the footer answers with
+/// thousands of points. The rows were never involved.
+struct InventoryTable: View {
+    let store: MonitorStore
+    let rows: [InventoryRow]
+    @Binding var selection: InventoryRow.ID?
+    @Binding var expanded: Set<InventoryRow.ID>
+    @Binding var sortOrder: [KeyPathComparator<InventoryRow>]
+
+    private var census: InventoryCensus { InventoryCensus.of(store.families) }
+
+    var body: some View {
+        // The bound that stops the footer's answer reaching the window. A table
+        // scrolls, so its *ideal* height is a matter of taste rather than of
+        // content, and stating one here is what makes the window's size the user's
+        // business instead of the layout engine's.
+        table.frame(minHeight: 160, idealHeight: 420, maxHeight: .infinity)
     }
 
     private func expansion(for id: InventoryRow.ID) -> Binding<Bool> {
