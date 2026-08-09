@@ -1,9 +1,10 @@
 ---
 id: TASK-82
 title: A repeated-quit incident is narrated as a CPU problem in the Now banner
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 22:54'
+updated_date: '2026-08-09 23:18'
 labels:
   - core
   - ui

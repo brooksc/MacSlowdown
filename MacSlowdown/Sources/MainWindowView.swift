@@ -25,9 +25,24 @@ struct MainWindowView: View {
     var body: some View {
         NavigationSplitView {
             List(Section.allCases, selection: $selection) { section in
+                let badge = section == .incidents && store.openIncident != nil ? 1 : 0
                 Label(section.rawValue, systemImage: section.symbol)
-                    .badge(section == .incidents && store.openIncident != nil ? 1 : 0)
+                    .badge(badge)
                     .tag(section)
+                    // Measured on screen 2026-08-09: with a badge attached, this
+                    // row's accessibility label was the bare string "1" — the badge
+                    // had replaced the name. So the one navigation control that
+                    // matters most lost its name *exactly* when there was an
+                    // incident to go and look at, and read correctly the rest of
+                    // the time, which is why using the app casually never caught it
+                    // (FR-034).
+                    //
+                    // Spoken as a counted noun: "1" alone does not say what is being
+                    // counted.
+                    .accessibilityLabel(
+                        badge > 0
+                            ? "\(section.rawValue), \(badge) open incident"
+                            : section.rawValue)
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
             .safeAreaInset(edge: .bottom) { sidebarFooter }

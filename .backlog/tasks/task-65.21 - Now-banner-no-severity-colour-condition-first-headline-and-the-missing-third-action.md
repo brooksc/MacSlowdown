@@ -3,9 +3,10 @@ id: TASK-65.21
 title: >-
   Now banner: no severity colour, condition-first headline, and the missing
   third action
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 22:53'
+updated_date: '2026-08-09 23:18'
 labels:
   - ui
 milestone: m-1

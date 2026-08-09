@@ -244,32 +244,44 @@ struct InventoryTable: View {
 
     private var table: some View {
         Table(of: InventoryRow.self, selection: $selection, sortOrder: $sortOrder) {
+            // Widths are declared because otherwise SwiftUI shares the table
+            // evenly and the name — the only column carrying meaning — loses.
+            // Measured on screen 2026-08-09 in a 1250 pt window: Name got about
+            // 105 pt and rendered "1Passwo…", "iStat Me…", "System p…",
+            // "loginwin…". Every numeric column here has a known maximum width, so
+            // pinning those and leaving Name flexible gives it everything left over.
             TableColumn("Name", value: \.name) { row in
                 nameCell(row)
             }
+            .width(min: 220, ideal: 420)
             TableColumn("CPU", value: \.cpuSortKey) { row in
                 measurement(row) {
                     CPUPresentation.percentOfOneCore(row.percentOfOneCore)
                 }
             }
+            .width(min: 64, ideal: 76, max: 96)
             TableColumn("Memory", value: \.memorySortKey) { row in
                 measurement(row) {
                     row.residentBytes == 0
                         ? "—" : ByteCountFormatStyle().format(Int64(row.residentBytes))
                 }
             }
+            .width(min: 84, ideal: 96, max: 120)
             // A family has no PID of its own, and a dash says that better than the
             // PID of whichever member happened to be first.
             TableColumn("PID", value: \.pidSortKey) { row in
                 Text(row.pid.map(String.init) ?? "—").monospacedDigit()
             }
+            .width(min: 56, ideal: 64, max: 80)
             TableColumn("Started", value: \.startedSortKey) { row in
                 Text(row.startedAt.map { $0.formatted(date: .omitted, time: .shortened) } ?? "—")
                     .monospacedDigit()
             }
+            .width(min: 72, ideal: 84, max: 104)
             TableColumn("Processes", value: \.processCount) { row in
                 Text(row.kind == .member ? "" : "\(row.processCount)").monospacedDigit()
             }
+            .width(min: 64, ideal: 76, max: 96)
         } rows: {
             ForEach(rows) { row in
                 if row.hasChildren {
@@ -353,35 +365,54 @@ struct InventoryTable: View {
         }
     }
 
+    /// The census, the freshness, and the one caveat that is about *this list*.
+    ///
+    /// It used to be seven paragraphs. Measured on screen 2026-08-09 in a 900 pt
+    /// window: roughly 180 pt of caption, more vertical space than the table it was
+    /// explaining, in the pane whose whole job is to show a long list (design 1d
+    /// carries one sentence here).
+    ///
+    /// Nothing was deleted. The resident-memory and per-app-disk caveats already
+    /// appear in `FamilyInspectorView`, beside the very figures they qualify, which
+    /// is where the design puts them and where they are actually read; keeping a
+    /// second copy down here was duplication, not diligence. The CPU convention and
+    /// the P/E core note move behind the help affordance on the column itself, for
+    /// the same reason: a caveat is worth most next to the number.
+    ///
+    /// What stays is what is true of the *list* rather than of a cell — the census,
+    /// how fresh it is, and the fact that this list deliberately omits daemons.
     private var footer: some View {
         VStack(alignment: .leading, spacing: 3) {
-            // FR-002/FR-038: the census and the freshness are the first two lines,
-            // because everything above them is only true of what we were allowed
-            // to read and of when we last read it.
+            // FR-002/FR-038: the census and the freshness lead, because everything
+            // above them is only true of what we were allowed to read and of when
+            // we last read it.
             HStack(spacing: 8) {
                 Text(census.summary).bold()
                 Text(InventoryCensus.freshness(lastUpdate: store.lastUpdate))
             }
             .accessibilityElement(children: .combine)
             Text(InventoryCensus.explanation)
-            Text(CPUPresentation.convention())
-            if let note = CPUPresentation.topologyNote() {
-                Text(note)
-            }
-            Text("Resident memory. Activity Monitor's Memory column shows a different "
-                 + "measure (footprint), so the numbers will not match exactly.")
-            Text("Per-app disk activity is not available to App Store apps.")
-            Text("Click a column heading to sort, a triangle to see the individual "
-                 + "processes an application is running, or a row to inspect it. "
-                 // The order is deliberately not live. Said here rather than left
-                 // for a user to discover as an inconsistency (TASK-74).
-                 + OrderStability.explanation)
+            // This one stays visible rather than moving behind help. Observed on
+            // screen after the columns were widened: the list is plainly not in CPU
+            // order under a header that says CPU, because TASK-74 holds the order
+            // for 10 s. A user who sees that and has not been told will conclude the
+            // sort is broken — which is exactly what TASK-63 turned out to be, an
+            // hour spent on a table that was sorting correctly. An unexplained
+            // deliberate behaviour is indistinguishable from a bug.
+            Text(OrderStability.explanation)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
         .background(.bar)
+        // Still reachable, and still one source of truth — the strings are the same
+        // constants, not copies (TASK-65.22).
+        .help(([CPUPresentation.convention(), CPUPresentation.topologyNote(),
+                InventoryCensus.residentMemoryCaveat,
+                InventoryCensus.perApplicationDiskCaveat]
+                .compactMap { $0 }).joined(separator: "\n\n"))
     }
 }

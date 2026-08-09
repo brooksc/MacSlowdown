@@ -64,6 +64,23 @@ struct InventoryCensus: Equatable {
         + "Processes owned by another user account are named but never measured: "
         + "macOS reports their CPU and memory to no App Store app."
 
+    /// Why our memory figure and Activity Monitor's disagree.
+    ///
+    /// One constant because there were two copies with different wording — the
+    /// inventory footer's and the inspector's — which is precisely how TASK-80
+    /// found two differently-worded paraphrases of the per-app disk limitation on
+    /// the Now screen, with a test asserting one of them verbatim. A caveat that
+    /// exists twice is a caveat that will disagree with itself.
+    static let residentMemoryCaveat =
+        "Resident memory. Activity Monitor's Memory column shows a different "
+        + "measure (footprint), so the numbers will not match exactly."
+
+    /// Why there is no per-application disk column, and never will be in this build.
+    static let perApplicationDiskCaveat =
+        "Per-app disk activity is not available to App Store apps. macOS reports "
+        + "per-process disk I/O only to unsandboxed tools, so there is no figure "
+        + "here to show."
+
     /// How old the reading is, said in words rather than left to a timestamp the
     /// reader has to subtract (FR-002).
     static func freshness(lastUpdate: Date?, now: Date = Date()) -> String {

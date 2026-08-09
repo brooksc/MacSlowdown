@@ -285,11 +285,11 @@ struct FamilyInspectorView: View {
 
     private var caveats: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Resident memory. Activity Monitor's Memory column shows a different "
-                 + "measure (footprint), so the numbers will not match exactly.")
-            Text("Per-app disk activity is not available to App Store apps. macOS "
-                 + "reports per-process disk I/O only to unsandboxed tools, so there is "
-                 + "no figure here to show.")
+            // Shared constants, not copies. This is the surface the inventory
+            // footer now defers to for both caveats, so a change here changes the
+            // one place a user reads them (TASK-65.22).
+            Text(InventoryCensus.residentMemoryCaveat)
+            Text(InventoryCensus.perApplicationDiskCaveat)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
