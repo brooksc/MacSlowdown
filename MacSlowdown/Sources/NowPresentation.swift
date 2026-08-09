@@ -102,6 +102,34 @@ enum NowPresentation {
             + "in use"
     }
 
+    /// The detail lines under the memory-pressure card, in the design's order:
+    /// what is in use, whether pages are moving, and how much swap is on disk.
+    ///
+    /// A function rather than three expressions inside the card's `body`, for the
+    /// reason the rest of this type exists: the rules that can be wrong have to be
+    /// somewhere a test can reach.
+    ///
+    /// Every line here is either a measurement or explicitly labelled as not one.
+    /// The in-use figure carries "calculated" because it is a sum over page
+    /// counters and excludes inactive pages, and an unreadable counter says so
+    /// rather than reporting zero (FR-002, FR-007, DR-08).
+    static func memoryCardDetails(
+        statistics: MemoryStatistics?,
+        physicalMemoryBytes: UInt64,
+        swapActivity: String,
+        swapUsage: SwapUsage?
+    ) -> [String] {
+        var details: [String] = []
+        if let inUse = memoryInUse(statistics, physicalMemoryBytes: physicalMemoryBytes) {
+            details.append("\(inUse) · calculated")
+        } else {
+            details.append("Memory counters unavailable")
+        }
+        details.append(swapActivity)
+        details.append(Presentation.swapInUse(swapUsage))
+        return details
+    }
+
     /// The disk card's headline figure.
     ///
     /// Write throughput, because writes are what a slowdown is usually made of.
@@ -224,8 +252,11 @@ enum NowPresentation {
     static func footnotes(topology: CoreTopology = .current) -> [String] {
         var notes = [CPUPresentation.convention(topology: topology)]
         if let note = CPUPresentation.topologyNote(topology: topology) { notes.append(note) }
-        notes.append("Per-app disk activity isn't available to App Store apps, so only the "
-                     + "machine-wide figure above is shown.")
+        // The framework's sentence, not a paraphrase of it. This footnote and the
+        // Disk card's help text were two separately worded statements of one
+        // limitation, either of which could have drifted from what the app does.
+        // Both now read from `DiskSignals.perApplicationUnavailable` (FR-009).
+        notes.append(DiskSignals.perApplicationUnavailable)
         notes.append("Resident memory. Activity Monitor's Memory column shows a different "
                      + "measure (footprint), so the numbers will not match exactly.")
         notes.append(historyColumnNote)

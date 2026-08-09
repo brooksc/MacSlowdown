@@ -269,7 +269,11 @@ struct NowFootnoteTests {
         let notes = NowPresentation.footnotes(
             topology: CoreTopology(logical: 8, performance: 4, efficiency: 4))
         #expect(notes.contains { $0.contains("100% is one core fully busy") })
-        #expect(notes.contains { $0.contains("Per-app disk activity") })
+        // Matched against the framework's constant rather than a phrase copied
+        // here. This assertion used to name a hand-written paraphrase, which is
+        // how two differently worded statements of one limitation came to sit on
+        // the same screen (TASK-80).
+        #expect(notes.contains(DiskSignals.perApplicationUnavailable))
         #expect(notes.contains { $0.contains("performance and 4 efficiency") })
         #expect(notes.contains { $0.contains("footprint") })
     }

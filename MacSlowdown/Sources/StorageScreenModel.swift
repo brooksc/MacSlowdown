@@ -112,6 +112,18 @@ enum StoragePresentation {
         "\(bytes(capacity.availableBytes)) available of \(bytes(capacity.totalBytes))"
     }
 
+    /// The evidence class of a trend statement, in the same words the capacity
+    /// legend uses (FR-038).
+    ///
+    /// A direction, a byte movement and a window are derived across many readings,
+    /// so `.declining` / `.rising` / `.steady` are calculations. `.insufficientHistory`
+    /// is not: it reports how many readings exist and how long they span, which is
+    /// a count of measurements and nothing more. `StorageTrend.isCalculated` is the
+    /// framework's own answer to that question and this must not second-guess it.
+    static func trendProvenance(_ trend: StorageTrend) -> String {
+        trend.isCalculated ? "Calculated" : "Measured"
+    }
+
     /// The purgeable figure, always with the caveat attached to it rather than
     /// somewhere else on the screen (FR-041).
     static func purgeable(_ capacity: VolumeCapacity) -> String? {

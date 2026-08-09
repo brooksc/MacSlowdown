@@ -189,9 +189,22 @@ struct StartupVolumeCard: View {
                 Spacer()
                 // The finding in words. This is the point of the section; the
                 // curve reinforces it and never carries it alone.
-                Text(trend.statement)
-                    .font(.callout)
-                    .foregroundStyle(trend.isStillFalling ? .orange : .secondary)
+                //
+                // With its provenance attached to it, in the same idiom as the
+                // capacity legend above: a direction and a byte figure over a
+                // window are a calculation across readings, not a reading, and
+                // showing them bare let the trend read as something the app had
+                // measured directly (FR-038).
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(trend.statement)
+                        .font(.callout)
+                        .foregroundStyle(trend.isStillFalling ? .orange : .secondary)
+                    Text(StoragePresentation.trendProvenance(trend))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "\(trend.statement), \(StoragePresentation.trendProvenance(trend))")
             }
 
             if case .insufficientHistory = trend {
@@ -231,7 +244,9 @@ struct StartupVolumeCard: View {
     }
 
     private func chartAccessibilitySummary(trend: StorageTrend, capacity: VolumeCapacity) -> String {
-        var parts = ["Available space over the recorded period.", trend.statement]
+        var parts = ["Available space over the recorded period.",
+                     trend.statement,
+                     StoragePresentation.trendProvenance(trend) + "."]
         parts.append(model.detector.thresholdExplanation(for: capacity) + ".")
         if let standing = model.standing(for: volume, hadIncident: !incidents.isEmpty) {
             parts.append(standing)

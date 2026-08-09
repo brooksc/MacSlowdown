@@ -286,6 +286,15 @@ struct IncidentDetailView: View {
             }
             IncidentTimelineBand(timeline: line)
                 .frame(height: line.hasSeries ? 78 : 46)
+            // Why this incident can be dated before the moment it was noticed
+            // (FR-038). Nil in the ordinary case, where the start was observed
+            // live and there is nothing to explain. Rendered here rather than in
+            // "What we found" because it is a statement about the timeline's own
+            // left edge, and a reader who has just seen a start time earlier than
+            // the app could plausibly have watched needs the answer next to it.
+            if let provenance = line.startProvenance {
+                ConclusionRow(conclusion: provenance)
+            }
             if !line.hasSeries {
                 Text(IncidentTimeline.noSeriesNote)
                     .font(.caption).foregroundStyle(.secondary)
