@@ -29,6 +29,67 @@ struct IncidentDetailView: View {
 
     @State private var isExporting = false
 
+    /// The user's own words about incidents (FR-039). Owned here rather than
+    /// injected because `IncidentsView` constructs this view and is not ours to
+    /// change; `UserDefaults` is the shared state, so a second instance sees the
+    /// same labels rather than a private copy.
+    @State private var labels = IncidentLabels()
+    @State private var draftLabel = ""
+    @State private var isLabelling = false
+    /// What actually happened when a hand-off was used, so a button is never shown
+    /// as though it worked (FR-017).
+    @State private var toolResults: [String: String] = [:]
+
+    /// The 1h presentation, when most of this incident's load is unattributable.
+    ///
+    /// Nil is the ordinary case and is not a failure: an incident the user's own
+    /// applications explain must not be dressed in the language of a limit we did
+    /// not hit.
+    private var unattributed: UnattributedIncidentReport? {
+        UnattributedIncidentReport.build(
+            incident: incident,
+            liveAttribution: store.attribution,
+            protected: store.attribution?.protectedProcesses ?? [],
+            lifecycle: store.lifecycleEvents,
+            lifecycleObservedFrom: store.monitoringStartedAt,
+            enumerationSucceeded: !store.enumeration.didFail,
+            samples: samples,
+            recentIncidents: store.recentIncidents,
+            labels: labels.byIncident)
+    }
+
+    /// Relaunch patterns whose window overlaps this incident (design 1o, FR-046).
+    ///
+    /// Bounded by the lifecycle tracker's own window, so this is "what we watched"
+    /// and never "what has ever happened".
+    private var repeatedQuits: [RepeatedQuitReport] {
+        store.relaunchPatterns
+            .filter { pattern in
+                pattern.lastAt >= incident.beganAt
+                    && pattern.firstAt <= (incident.closedAt ?? Date())
+            }
+            .map { pattern in
+                RepeatedQuitReport.build(
+                    pattern: pattern,
+                    displayName: displayName(forCommand: pattern.command),
+                    lifecycle: store.lifecycleEvents,
+                    samples: samples,
+                    logicalCoreCount: incident.attribution?.logicalCoreCount
+                        ?? store.attribution?.logicalCoreCount,
+                    peakPressure: incident.peakMemoryPressure)
+            }
+    }
+
+    /// The application name for a command, where grouping knows one.
+    private func displayName(forCommand command: String) -> String? {
+        for family in store.families {
+            if family.members.contains(where: { $0.record.command == command }) {
+                return family.displayName
+            }
+        }
+        return nil
+    }
+
     private var summary: IncidentSummary {
         IncidentSummarizer.summarize(incident: incident, attribution: store.attribution)
     }
@@ -65,8 +126,28 @@ struct IncidentDetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 verdict
                 legend
+                // Design 1h: where the CPU went comes before the timeline, because
+                // for an unattributable incident the split *is* the finding.
+                if let report = unattributed {
+                    CPUSplitSection(split: report.split)
+                }
                 timelineSection
                 findings
+                if let report = unattributed {
+                    TimingInferenceSection(report: report)
+                    SystemProcessRosterSection(report: report)
+                    UnattributedLimitSection(share: report.unattributedShare)
+                }
+                ForEach(Array(repeatedQuits.enumerated()), id: \.offset) { _, report in
+                    RepeatedQuitSection(report: report)
+                }
+                if let report = unattributed {
+                    labelSection(report: report)
+                    if let recurrence = report.recurrence {
+                        RecurrenceSection(recurrence: recurrence)
+                    }
+                }
+                toolsSection
                 postAction
                 events
                 conditionsSection
@@ -86,10 +167,29 @@ struct IncidentDetailView: View {
 
     // MARK: - Verdict
 
+    /// The opening line, which changes with the kind of evidence behind it.
+    ///
+    /// An unattributable incident and a repeated-quit episode are not the same
+    /// event described differently — they are answers to different questions, and
+    /// leading either with "your Mac's processors were close to fully busy" would
+    /// point the reader at the wrong evidence entirely.
+    private var headline: String {
+        if let report = unattributed { return report.headline }
+        if let quits = repeatedQuits.first, unattributed == nil { return quits.headline }
+        return IncidentVerdict.headline(for: incident, duration: duration)
+    }
+
+    private var opening: String {
+        if let report = unattributed { return report.opening }
+        if let quits = repeatedQuits.first { return quits.opening }
+        return IncidentVerdict.paragraph(
+            incident: incident, attribution: store.attribution, duration: duration)
+    }
+
     private var verdict: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(IncidentVerdict.headline(for: incident, duration: duration))
+                Text(headline)
                     .font(.title3).bold()
                     .fixedSize(horizontal: false, vertical: true)
                 SeverityChip(severity: incident.severity)
@@ -98,8 +198,7 @@ struct IncidentDetailView: View {
                 Button("Export…") { isExporting = true }
                     .help("Check what's in a report before you send it. Nothing is uploaded.")
             }
-            Text(IncidentVerdict.paragraph(
-                incident: incident, attribution: store.attribution, duration: duration))
+            Text(opening)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             // How it ended, from what was recorded — never inferred from the fact
@@ -402,6 +501,461 @@ struct IncidentDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - What you can do
+
+    /// Hand-offs to tools that can see what we cannot.
+    ///
+    /// The offer follows the evidence: Time Machine's settings appear because
+    /// `backupd` was on the roster, not because backups are a plausible topic.
+    private var tools: [SystemTool] {
+        var tools = unattributed?.tools ?? []
+        for report in repeatedQuits {
+            for tool in report.tools where !tools.contains(where: { $0.id == tool.id }) {
+                tools.append(tool)
+            }
+        }
+        return tools
+    }
+
+    @ViewBuilder private var toolsSection: some View {
+        if !tools.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("What you can do").font(.headline)
+                ForEach(tools) { tool in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Button(tool.title) { open(tool) }
+                            .disabled(!tool.isPresent)
+                        Text(tool.explanation)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        // FR-017: the result of asking, not the assumption that
+                        // asking worked.
+                        if let result = toolResults[tool.id] {
+                            Text(result)
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                }
+            }
+        }
+    }
+
+    private func open(_ tool: SystemTool) {
+        switch SystemToolOpener().open(tool) {
+        case .succeeded:
+            toolResults[tool.id] = "Asked macOS to open it."
+        case .failed(let reason), .withheld(let reason):
+            toolResults[tool.id] = reason
+        }
+    }
+
+    // MARK: - What the user knows that we do not (FR-039)
+
+    private func labelSection(report: UnattributedIncidentReport) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let existing = labels.label(for: incident.id) {
+                Text(IncidentLabels.conclusion(for: existing).text)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Change…") {
+                        draftLabel = existing
+                        isLabelling = true
+                    }
+                    // Reversible, as FR-039 requires: there is no state a user can
+                    // reach here and not leave.
+                    Button("Remove label") { labels.clear(for: incident.id) }
+                }
+            } else if !isLabelling {
+                Button(IncidentLabels.prompt) {
+                    draftLabel = ""
+                    isLabelling = true
+                }
+            }
+
+            if isLabelling {
+                TextField(IncidentLabels.fieldPrompt, text: $draftLabel)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { commitLabel() }
+                let suggestions = IncidentLabels.suggestions(from: report.roster)
+                if !suggestions.isEmpty {
+                    HStack {
+                        ForEach(suggestions, id: \.self) { suggestion in
+                            Button(suggestion) { draftLabel = suggestion }
+                                .buttonStyle(.bordered)
+                                .font(.caption)
+                        }
+                    }
+                }
+                HStack {
+                    Button("Save") { commitLabel() }
+                    Button("Cancel") { isLabelling = false }
+                }
+            }
+
+            Text(IncidentLabels.promise)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(IncidentLabels.recallPromise)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func commitLabel() {
+        labels.set(draftLabel, for: incident.id)
+        isLabelling = false
+    }
+}
+
+// MARK: - Where the CPU went (design 1h)
+
+/// The split of busy CPU, with the remainder as a first-class bar.
+///
+/// The unattributed share is drawn like every other slice rather than as a
+/// leftover, because it *is* a measurement — and it is usually the largest one.
+/// The hatched fill and the word "unattributed" both carry that meaning, so the
+/// distinction never rests on colour alone (FR-034).
+struct CPUSplitSection: View {
+    let split: CPUSplit
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Where the CPU went").font(.headline)
+                Text("totals 100%").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(split.slices) { slice in
+                row(slice)
+            }
+            if !split.applicationPeaks.isEmpty {
+                Text("Applications we could measure")
+                    .font(.subheadline).bold()
+                    .padding(.top, 4)
+                ForEach(split.applicationPeaks) { application in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(application.displayName).font(.callout)
+                        Spacer()
+                        Text(CPUPresentation.percentOfOneCore(application.peakPercentOfOneCore))
+                            .font(.callout).monospacedDigit()
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            Text(split.coherence.note)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(CPUPresentation.convention())
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func row(_ slice: CPUSplit.Slice) -> some View {
+        let share = split.share(of: slice)
+        let percent = Int((share * 100).rounded())
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: EvidenceStyle.symbol(slice.evidence))
+                    .font(.caption2).foregroundStyle(.secondary)
+                Text(slice.name).font(.callout)
+                Spacer()
+                Text("\(percent)%").font(.callout).bold().monospacedDigit()
+            }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.quaternary)
+                    Capsule()
+                        .fill(slice.kind == .unattributed
+                              ? AnyShapeStyle(.secondary)
+                              : AnyShapeStyle(.tint))
+                        .frame(width: max(2, geometry.size.width * share))
+                }
+            }
+            .frame(height: 7)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(slice.name): \(percent)% of busy CPU, "
+            + "\(CPUPresentation.percentOfOneCore(slice.percentOfOneCore)) of one core, "
+            + "\(slice.evidence.rawValue)")
+    }
+}
+
+// MARK: - An inference from timing (design 1h)
+
+/// The suggestion, its supporting evidence, and its disclaimer, in one block.
+///
+/// They are one view rather than three so that the caveat cannot be laid out
+/// away from the claim it qualifies.
+struct TimingInferenceSection: View {
+    let report: UnattributedIncidentReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("What the timing suggests").font(.headline)
+            if report.inferences.isEmpty {
+                Text(TimingInference.noneFound)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let shape = report.shape {
+                    ConclusionRow(conclusion: shape.conclusion)
+                }
+            } else {
+                ForEach(report.inferences) { inference in
+                    VStack(alignment: .leading, spacing: 6) {
+                        ConclusionRow(conclusion: inference.conclusion)
+                        ForEach(Array(inference.supporting.enumerated()), id: \.offset) {
+                            _, support in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Image(systemName: EvidenceStyle.symbol(support.evidence))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                Text(support.text)
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - What was running (design 1h)
+
+/// System processes by name and timing, and the ones notably absent.
+struct SystemProcessRosterSection: View {
+    let report: UnattributedIncidentReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(SystemProcessRoster.heading).font(.headline)
+                Text(SystemProcessRoster.evidenceNote)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text(SystemProcessRoster.cpuLimitation)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(report.roster.running) { witness in
+                row(witness, absent: false)
+            }
+            // Absence is evidence. A user asking "was it a software update?" is
+            // answered by softwareupdated not having been there.
+            ForEach(report.roster.absent) { witness in
+                row(witness, absent: true)
+            }
+            if let limitation = report.roster.absenceLimitation {
+                Text(limitation)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(report.roster.provenanceNote)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(SystemProcessRoster.timingPrecisionNote)
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func row(_ witness: SystemProcessWitness, absent: Bool) -> some View {
+        let timing = witness.timing(window: report.window)
+        return VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                // Presence and absence differ by symbol as well as by wording,
+                // never by colour alone (FR-034).
+                Image(systemName: absent ? "circle" : "circle.fill")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Text(witness.displayName).font(.callout).bold()
+                Text(witness.command)
+                    .font(.caption).monospaced().foregroundStyle(.secondary)
+            }
+            Text(timing)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(witness.displayName), \(witness.command). \(timing). "
+                            + "Its CPU is not measurable.")
+    }
+}
+
+// MARK: - Why we can't name it (design 1h)
+
+struct UnattributedLimitSection: View {
+    let share: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(UnattributedExplanation.heading).font(.headline)
+            Text(UnattributedExplanation.limit)
+                .font(.callout).fixedSize(horizontal: false, vertical: true)
+            Text(UnattributedExplanation.remainderIsMeasured(share: share))
+                .font(.callout).fixedSize(horizontal: false, vertical: true)
+            Text(UnattributedExplanation.whatWeStillSee)
+                .font(.callout).fixedSize(horizontal: false, vertical: true)
+            Text(UnattributedExplanation.handOff)
+                .font(.callout).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Has this happened before? (design 1h)
+
+struct RecurrenceSection: View {
+    let recurrence: UnattributedRecurrence
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Has this happened before?").font(.headline)
+            ConclusionRow(conclusion: recurrence.count)
+            if let clustering = recurrence.clustering { ConclusionRow(conclusion: clustering) }
+            if let recall = recurrence.labelRecall { ConclusionRow(conclusion: recall) }
+            if let hint = recurrence.hint { ConclusionRow(conclusion: hint) }
+        }
+    }
+}
+
+// MARK: - Repeated quits (design 1o)
+
+/// Lifecycle evidence: sessions, exits and PID changes — not resource curves.
+struct RepeatedQuitSection: View {
+    let report: RepeatedQuitReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("What we saw").font(.headline)
+                Text("Measured — launches, exits and PID changes")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            SessionBar(report: report)
+                .frame(height: 20)
+            legend
+
+            // The PID evidence, spelled out. This is the whole of what we know.
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                ForEach(report.exits) { exit in
+                    GridRow {
+                        Text(IncidentVerdict.time(exit.noticedAt))
+                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        Text(exit.text)
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                if let since = report.stillRunningSince {
+                    GridRow {
+                        Text(IncidentVerdict.time(since))
+                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        Text("Running since — no further exit seen while we have been watching")
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            Text(RepeatedQuitReport.timingPrecisionNote)
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("What we found").font(.headline).padding(.top, 4)
+            ForEach(Array(report.conclusions.enumerated()), id: \.offset) { _, conclusion in
+                ConclusionRow(conclusion: conclusion)
+            }
+            Text("Ruled out").font(.subheadline).bold().padding(.top, 4)
+            ForEach(Array(report.ruledOut.enumerated()), id: \.offset) { _, conclusion in
+                ConclusionRow(conclusion: conclusion)
+            }
+
+            // FR-046's sentence, given a section of its own rather than a
+            // footnote: a capability we do not have is part of the answer.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("What we can and can't say").font(.subheadline).bold()
+                Text(RepeatedQuitReport.capability)
+                    .font(.callout).fixedSize(horizontal: false, vertical: true)
+                Text(RepeatedQuitReport.hangLimitation)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var legend: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(RepeatedQuitReport.sessionLegend, id: \.label) { entry in
+                Text("\(entry.label) — \(entry.meaning)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// Sessions as bars along the window, with a mark where each one ended.
+///
+/// A bar chart rather than a line, because the quantity being shown is "this
+/// process existed from here to here" — there is no series to plot and drawing one
+/// would imply we measured something across it.
+struct SessionBar: View {
+    let report: RepeatedQuitReport
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .topLeading) {
+                Capsule().fill(.quaternary).frame(height: 3).offset(y: 8)
+                ForEach(report.sessions) { session in
+                    let start = fraction(session.startedAt ?? report.window.start) * width
+                    let end = fraction(session.endedAt ?? report.window.end) * width
+                    RoundedRectangle(cornerRadius: 3)
+                        // An open session is drawn taller as well as differently
+                        // filled, so the distinction is not colour alone (FR-034).
+                        .fill(session.isOpen ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                        .frame(width: max(3, end - start), height: session.isOpen ? 14 : 10)
+                        .offset(x: start, y: session.isOpen ? 2 : 4)
+                }
+                ForEach(report.exits) { exit in
+                    Rectangle()
+                        .fill(.primary)
+                        .frame(width: 1.5, height: 18)
+                        .offset(x: fraction(exit.noticedAt) * width)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private func fraction(_ date: Date) -> Double {
+        let span = report.window.duration
+        guard span > 0 else { return 0 }
+        return min(1, max(0, date.timeIntervalSince(report.window.start) / span))
+    }
+
+    private var accessibilityDescription: String {
+        let sessions = report.sessions.count
+        let exits = report.exits.map { IncidentVerdict.time($0.noticedAt) }
+            .joined(separator: ", ")
+        return "\(sessions) sessions of \(report.displayName) between "
+            + "\(IncidentVerdict.time(report.window.start)) and "
+            + "\(IncidentVerdict.time(report.window.end)). Exits noticed at \(exits)."
     }
 }
 
