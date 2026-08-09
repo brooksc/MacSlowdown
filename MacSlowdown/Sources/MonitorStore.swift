@@ -64,7 +64,7 @@ final class MonitorStore {
     /// Shared because the app delegate starts monitoring at launch, independently
     /// of any view. Tying the sampling loop to a view's lifecycle meant that
     /// hiding the menu bar item stopped monitoring altogether.
-    static let shared = MonitorStore()
+    static let shared = MonitorStore(alertSettings: .shared)
 
     private(set) var attribution: CPUAttribution?
     private(set) var families: [ProcessFamily] = []
@@ -290,13 +290,17 @@ final class MonitorStore {
         return history.samples.filter { $0.timestamp >= from && $0.timestamp <= to }
     }
 
-    private let detector: IncidentDetector
+    /// `var`, because a threshold the user changes has to reach the running
+    /// detector (TASK-69). Changed only through `applyAlertSettings()`, which
+    /// routes every change through `IncidentDetector.adopt` so no call site can
+    /// assign a policy and silently restart the sustained-duration clock.
+    private var detector: IncidentDetector
     private var detectorState = IncidentDetector.State()
     private let cadenceController: CadenceController
     private var cadenceState = CadenceController.State()
     private let icons = ProcessIconCache()
     private let pressureMonitor = MemoryPressureMonitor()
-    private let notificationGate = NotificationGate()
+    private var notificationGate = NotificationGate()
     private var notificationState = NotificationGate.State()
     let notifications = NotificationDelivery()
     private var previousPaging: PagingCounters?
@@ -350,23 +354,83 @@ final class MonitorStore {
             .appendingPathComponent("policies.json"))
     }()
 
+    /// The user's alert preferences, or nil for a store that is not meant to read
+    /// them — which is every test that drives the detector directly, and is why
+    /// this is injected rather than reached for through `AlertSettings.shared`.
+    private let alertSettings: AlertSettings?
+
     init(cadence: Duration = MetricsHistory.defaultCadence,
          history: MetricsHistory = MetricsHistory(),
          policy: IncidentPolicy = .default,
          policies: PolicyStore = MonitorStore.defaultPolicies,
-         storage: StorageScreenModel = .shared) {
+         storage: StorageScreenModel = .shared,
+         alertSettings: AlertSettings? = nil) {
         self.baseCadence = cadence
         self.history = history
         self.detector = IncidentDetector(policy: policy)
         self.cadenceController = CadenceController(normalInterval: cadence)
         self.policies = policies
         self.storage = storage
+        self.alertSettings = alertSettings
+    }
+
+    // MARK: - Applying the user's alert settings (TASK-69, FR-006, FR-014)
+
+    /// Pushes the saved alert settings into the running detector and notification
+    /// gate, and records that they are in force.
+    ///
+    /// Polled from the sampling loop rather than pushed from the Settings window.
+    /// A change therefore takes effect within one cadence — a few seconds — which
+    /// is the honest cost of not adding an observation path whose only job would be
+    /// to shave those seconds off. `markAppliedToMonitoring()` is what retires the
+    /// interface's "saved, but not yet in effect" notice; nothing else calls it, so
+    /// the notice is a live statement about this method rather than a constant.
+    ///
+    /// Returns whether the CPU breach start was re-dated from retained readings, so
+    /// a caller — and a test — can tell that case from an ordinary application.
+    @discardableResult
+    func applyAlertSettings() -> Bool {
+        guard let alertSettings else { return false }
+        let redated = detector.adopt(
+            alertSettings.incidentPolicy,
+            state: &detectorState,
+            retainedCPU: retainedCPUReadings)
+        notificationGate.settings = alertSettings.notificationSettings
+        alertSettings.markAppliedToMonitoring()
+        return redated
+    }
+
+    /// The thresholds the running detector is actually judging against.
+    ///
+    /// Exposed because "the setting is stored" and "the monitor is using it" were
+    /// the same claim in this app once, and were not the same fact. Anything that
+    /// wants to state what is in force reads it from the detector rather than
+    /// re-deriving it from the saved preference.
+    var incidentPolicyInForce: IncidentPolicy { detector.policy }
+
+    /// The rules the running notification gate is actually applying, for the same
+    /// reason.
+    var notificationSettingsInForce: NotificationSettings { notificationGate.settings }
+
+    /// The retained CPU series in the units the detector judges — fraction of total
+    /// machine capacity — so a changed threshold is re-decided against readings that
+    /// actually happened (FR-005, TASK-69).
+    private var retainedCPUReadings: [IncidentDetector.RetainedCPUReading] {
+        let capacity = Double(machine.logicalCores) * 100
+        guard capacity > 0 else { return [] }
+        return history.samples.map {
+            IncidentDetector.RetainedCPUReading(
+                at: $0.timestamp, busyFraction: $0.totalBusyPercentOfOneCore / capacity)
+        }
     }
 
     func start() {
         guard task == nil else { return }
         isRunning = true
         monitoringStartedAt = Date()
+        // Before the first sample, so the settings are in force from the first
+        // observation rather than from the second.
+        applyAlertSettings()
         // A dispatch source catches pressure transitions between samples, which
         // the cadence alone could not guarantee within FR-007's 2 seconds.
         pressureMonitor.start()
@@ -466,6 +530,12 @@ final class MonitorStore {
                 previousDisk = counters
             }
             refreshStorageIfDue(now: now)
+            // Read the user's thresholds before judging this observation, so a
+            // setting changed a moment ago is what this sample is judged against
+            // (TASK-69). Placed after `history.record` of the previous pass and
+            // before the observation, so a re-dated breach start is decided over
+            // readings that are already retained.
+            applyAlertSettings()
             // `var` because the attribution is folded in below: an incident records
             // what it was judged on (TASK-68), and that has to travel with the
             // observation the detector sees.

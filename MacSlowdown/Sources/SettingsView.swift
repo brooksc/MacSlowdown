@@ -258,6 +258,21 @@ private struct AlertsSettingsTab: View {
                 settings.useThresholdsFromSensitivity()
             }
         }
+
+        // TASK-69. A user who tightens a threshold does it because something is
+        // bothering them now, and an incident that then appears immediately and
+        // claims to have started minutes ago would look like a mistake. It is not:
+        // it is dated from readings already kept. Saying so here is what stops that
+        // being a surprise, since it is the only moment the choice is being made.
+        Text("A changed threshold is judged against the CPU readings MacSlowdown "
+             + "has already kept, so a slowdown that was under way is recorded from "
+             + "when it began — which can be earlier than the moment you changed "
+             + "this. Nothing is assumed for stretches that were not measured. "
+             + "Memory pressure is not in the retained readings, so its clock "
+             + "starts here.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Editing any figure is what marks the thresholds custom, so the plain choice
