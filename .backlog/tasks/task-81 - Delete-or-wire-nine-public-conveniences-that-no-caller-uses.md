@@ -4,7 +4,7 @@ title: Delete or wire nine public conveniences that no caller uses
 status: In Progress
 assignee: []
 created_date: '2026-08-09 18:52'
-updated_date: '2026-08-09 19:59'
+updated_date: '2026-08-09 20:28'
 labels:
   - core
 milestone: m-3
@@ -39,7 +39,49 @@ Default action is deletion, along with the tests that only exercise them. Anythi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each member listed is either deleted along with the tests that only exercised it, or kept with a written reason in probe/seam-allowlist.txt
-- [ ] #2 No behaviour change: the test suite passes with the same count minus only the tests removed alongside deleted code
+- [x] #1 Each member listed is either deleted along with the tests that only exercised it, or kept with a written reason in probe/seam-allowlist.txt
+- [x] #2 No behaviour change: the test suite passes with the same count minus only the tests removed alongside deleted code
 - [ ] #3 probe/seam-reachability.sh reports zero unexplained findings after this task and TASK-76 through TASK-80
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Done — six deleted, one wired, three kept, one entry wrong
+
+Branch `worktree-agent-a49250753dc5e51b8` on main `fded4a3`. Tests **970 passing, 1 failing** (`EndToEndIncidentTests.realSlowdownProducesOneIncident`, load-sensitive, failed identically at baseline). Baseline 953 passing. **Zero tests deleted** — see below. seam-reachability **16 -> 5 unexplained**; the five left are TASK-76-79's.
+
+### Deleted (6)
+Every one was a one-line wrapper over an expression the tests can state directly, so the assertions were rewritten rather than removed and no coverage moved:
+
+| Deleted | Assertions rewritten as |
+|---|---|
+| `MemoryStatistics.accountedFor` | the sum, inline in `MemorySignalsTests` (2) |
+| `PowerContext.hasBattery` | `batteryPercentage == nil` / `!= nil` (2) |
+| `FamilyMembership.isCertain` | not referenced by any test; its sibling `isUncertain` is wired and has a written reason to exist, this had neither |
+| `ProcessFamily.spawnedMemberCount` | a private helper in `ParentGroupingTests` (4). The app counts the same thing via `GroupingProvenance.byParent`, in one pass over all four evidence kinds, so it was never going to call a single-category property |
+| `SafetyPolicy.isProtected` | `policy.protection(for:) != nil` (6). `protection(for:)` returns the *reason*, which is what any UI must show; a bare bool invites showing protection without saying why |
+| `RedactionOptions.isAtLeastAsRedacted` | `fieldsLeftInComparedTo(_:).isEmpty` (4, one of them app-side). `weakerThanDefaultWarning`, which names the fields, is the wired form |
+
+### Wired (1) — the one that was a real defect
+`ProcessNaming.nameIsTruncatedCommand` is **not** a convenience. `displayName(command:)` marks a cut 16-byte `p_comm` with an ellipsis, and `ProcessNaming.accessibilityLabel(command:)` exists precisely because an ellipsis is silent to VoiceOver — but **neither inventory table used the spoken form**. Both build their own label from a row, so the FR-002 truncation disclosure was visual-only and FR-034 was unmet for every truncated row in two tables.
+
+`InventoryRow` and `AllProcessesRow` now carry `nameIsShortened`, set from `nameIsTruncatedCommand(command:)` at the point the row is built, and both spoken labels append it. The wording is one constant, `ProcessNaming.truncationNote`, so the two tables cannot drift. Five tests in `MeasuredButUnshownTests` drive it from the row builders — including the case that makes it more than a length check: a command that *was* cut but resolved to a real friendly name is not shortened on display.
+
+### Kept, with reasons in `probe/seam-allowlist.txt` (3)
+- **`transitions`** — not a convenience. It is the only source for what design 1e shows: "pressure reached critical at 3:16 PM and stayed there for 5 min 40 s" and the markers "crossed warning for 90 s", "normal for 60 s". The incident timeline draws CPU samples and none of those. Staged against **TASK-65.5**. Building it here would have been inventing scope. Its suite also covers FR-007's "transitions captured within 2 seconds", which would have gone with it.
+- **`ProcessIdentityResolver.resolutionCount`** — a deliberate test seam. CLAUDE.md makes "resolve once per process lifetime, never per-sweep" a hard rule (~760 ms per full sweep vs ~1.8 ms for the metrics sweep) and this counter is the only way to observe from outside that the cache is used. Deleting it deletes the test for a documented invariant with nothing to put in its place.
+- **`cachedCount`** — two declarations share the name. `ProcessIdentityResolver`'s is the case above. `ProcessIconCache`'s **already has a real caller**: `probe/Sources/icon-cost-probe.swift:97`, which the script does not search.
+
+### One table entry was wrong
+**`MetricsHistory.removeAll()` has a caller.** `MonitorStore.deleteRecordedHistory()` calls it so that "delete everything" is true of the retained series and not only of the files. TASK-72 landed that after the audit was written. Deleting it broke the build immediately; restored with a comment saying so.
+
+### Out of scope, untouched
+`PolicyStore.removeAll`, `PolicyStore.recordSuppression`, `RetentionPolicy`, and everything in `ApplicationPolicy.swift`, `PrivacySettings.swift`, `NotificationPolicy.swift` — another agent owned those this session. `LowStorageDetector.isSustained` stays allowlisted: `StorageSignals.swift` was not mine to edit, so "delete when someone is in the file" still stands.
+
+### Criterion #3 unchecked, deliberately
+
+It reads "zero unexplained findings **after this task and TASK-76 through TASK-80**". TASK-80 is done and contributes none; TASK-76-79 are not, and all five remaining findings are theirs (`ActionVerifier`, `verify`, `recordSuppression`, `addCorrection`, `removeCorrection`). Nothing on TASK-81's own list is reported. The criterion cannot be evaluated until those four land, so it is not mine to tick.
+
+Both tasks left In Progress rather than Done: TASK-80 #3 needs a person at the screen.
+<!-- SECTION:NOTES:END -->

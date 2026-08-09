@@ -43,12 +43,14 @@ enum IncidentHistory {
 
     /// How an incident ended, in the distinct vocabulary the design calls for.
     ///
-    /// **Only two of these four are derivable from what we store today.** Nothing
-    /// records that the user acted during an incident, and no suppression record
-    /// is linked to an incident, so `.recoveredAfterAction` and `.suppressedByRule`
-    /// are produced only when a caller supplies that evidence explicitly. They are
-    /// never inferred from timing — an incident that ended shortly after the user
-    /// did something is not evidence that they made it end (FR-050, FR-038).
+    /// `.suppressedByRule` is derivable as of TASK-76: the incident carries the
+    /// suppressions the notification gate recorded against it, and `Entry` reads
+    /// them. `.recoveredAfterAction` still is not — nothing produces an
+    /// `ActionVerification`, which is FR-050's open seam (TASK-78).
+    ///
+    /// Neither is ever inferred from timing. An incident that ended shortly after
+    /// the user did something is not evidence that they made it end (FR-050,
+    /// FR-038).
     enum Outcome: Equatable {
         case stillOpen
         /// Conditions cleared, and we hold no record of a user action. We do not
@@ -88,12 +90,11 @@ enum IncidentHistory {
     /// Derives the outcome from evidence, never from coincidence.
     ///
     /// - Parameters:
-    ///   - suppression: a recorded suppression for this incident, if the caller
-    ///     holds one. Today nothing links a `SuppressedDetection` to an incident,
-    ///     so the app passes nil.
+    ///   - suppression: a recorded suppression for this incident. `Entry` supplies
+    ///     the incident's own last one; a caller may override it.
     ///   - action: a recorded, successful action taken while the incident was
-    ///     open. Today nothing links an `ActionVerification` to an incident, so
-    ///     the app passes nil.
+    ///     open. Nothing produces one yet — `ActionVerifier` has no caller — so in
+    ///     practice this is still nil (TASK-78).
     static func outcome(
         for incident: Incident,
         suppression: SuppressedDetection? = nil,
@@ -139,7 +140,15 @@ enum IncidentHistory {
             at = incident.beganAt
             conditionLabels = incident.conditions.map(\.label).sorted()
             outcome = IncidentHistory.outcome(
-                for: incident, suppression: suppression, action: action)
+                // TASK-76: the incident now records its own suppressions, so the
+                // caller no longer has to supply evidence the incident already
+                // holds. Settings tells the user that a suppressed slowdown still
+                // appears here marked "not alerted", and until this line that
+                // sentence was false. An explicit argument still wins, and nothing
+                // is inferred from timing.
+                for: incident,
+                suppression: suppression ?? incident.suppressions.last,
+                action: action ?? incident.actions.last)
         }
 
         init(_ pattern: RelaunchPattern) {
