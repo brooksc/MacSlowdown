@@ -11,22 +11,6 @@ enum InspectorMetric: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// The user's rules, for the one action in the inspector that records a preference
-/// (FR-016).
-///
-/// A single store for the app because a policy is about an application, not about a
-/// window: setting it here and reading it in Settings must be the same fact.
-@MainActor
-enum InspectorPolicies {
-    static let store: PolicyStore = {
-        let base = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask).first
-        return PolicyStore(url: base?
-            .appendingPathComponent("MacSlowdown", isDirectory: true)
-            .appendingPathComponent("policies.json"))
-    }()
-}
-
 /// The plain-text block "Copy diagnostics" puts on the clipboard (FR-017).
 ///
 /// Pure so it can be checked against the cases that matter: a family we cannot
@@ -249,8 +233,14 @@ struct FamilyInspectorView: View {
 
     private var growth: MemoryGrowth? { history.growth(for: row.id) }
 
+    /// Exits observed for this family's processes, from the store's `LifecycleTracker`.
+    ///
+    /// Nil until monitoring has run long enough for zero to mean something. The
+    /// tracker watches the whole process table, so a family that has never been in
+    /// the busiest few is covered too — which the per-family series above is not.
     private var relaunches: Int? {
-        history.hasWatchedLongEnough(for: row.id) ? history.relaunchCount(for: row.id) : nil
+        guard store.hasObservedLongEnough(), let family else { return nil }
+        return store.relaunchCount(forCommands: Set(family.members.map(\.record.command)))
     }
 
     private var figures: some View {
@@ -372,7 +362,7 @@ struct FamilyInspectorView: View {
 
     private func currentClassification() -> PolicyClassification? {
         guard let resolved = primaryRecord?.resolved else { return nil }
-        return InspectorPolicies.store
+        return store.policies
             .policy(for: resolved, displayName: row.name)?.classification
     }
 
@@ -382,12 +372,12 @@ struct FamilyInspectorView: View {
             bundleID: resolved.bundleID, bundlePath: resolved.appBundlePath,
             displayName: row.name, classification: .expected)
         if expected {
-            InspectorPolicies.store.setPolicy(policy)
+            store.policies.setPolicy(policy)
             actionReport = "\(row.name) is now treated as expected. MacSlowdown will "
                 + "keep measuring and recording it; it just will not interrupt you "
                 + "about it."
         } else {
-            InspectorPolicies.store.removePolicy(id: policy.id)
+            store.policies.removePolicy(id: policy.id)
             actionReport = "\(row.name) is alerted about as usual again."
         }
         isExpected = expected

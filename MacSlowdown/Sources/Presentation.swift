@@ -20,7 +20,10 @@ enum Presentation {
     ///
     /// Aggregate because per-process I/O is blocked under the sandbox. Always a
     /// rate over the measured interval, never a cumulative total.
-    static func diskThroughput(_ rates: DiskRates) -> String {
+    /// Nil rates are stated as unavailable, never as zero: a disk driver that will
+    /// not report its statistics is not an idle disk (FR-002, FR-010).
+    static func diskThroughput(_ rates: DiskRates?) -> String {
+        guard let rates else { return "Not available" }
         let read = ByteCountFormatStyle().format(Int64(rates.readBytesPerSecond))
         let write = ByteCountFormatStyle().format(Int64(rates.writeBytesPerSecond))
         return "\(read)/s read · \(write)/s write"

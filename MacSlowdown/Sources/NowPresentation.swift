@@ -107,12 +107,16 @@ enum NowPresentation {
     /// Write throughput, because writes are what a slowdown is usually made of.
     /// Always a rate over the measured interval — the counters behind it are
     /// cumulative and are never shown as-is (FR-009).
-    static func diskWrite(_ rates: DiskRates) -> String {
-        "\(ByteCountFormatStyle().format(Int64(rates.writeBytesPerSecond)))/s"
+    /// Nil is "not available", never "0 B/s". The disk driver either reported its
+    /// counters or it did not, and only one of those is a measurement.
+    static func diskWrite(_ rates: DiskRates?) -> String {
+        guard let rates else { return "Not available" }
+        return "\(ByteCountFormatStyle().format(Int64(rates.writeBytesPerSecond)))/s"
     }
 
-    static func diskRead(_ rates: DiskRates) -> String {
-        "\(ByteCountFormatStyle().format(Int64(rates.readBytesPerSecond)))/s read"
+    static func diskRead(_ rates: DiskRates?) -> String {
+        guard let rates else { return "Read rate not available" }
+        return "\(ByteCountFormatStyle().format(Int64(rates.readBytesPerSecond)))/s read"
     }
 
     // MARK: - The sidebar footer
@@ -162,9 +166,14 @@ enum NowPresentation {
     /// Qualifiers to show as chips on a row (FR-002, FR-003, FR-038).
     ///
     /// Every chip here corresponds to something measured or to a stated limit of
-    /// what we may measure. There is deliberately no "expected workload" chip:
-    /// that classification is FR-016 user input, and nothing in the app owns a
-    /// `PolicyStore` yet, so the chip would have no source but invention.
+    /// what we may measure. There is still no "expected workload" chip, but the
+    /// reason has changed: TASK-66 gave the app a `PolicyStore` (`MonitorStore
+    /// .policies`), so the classification now has a real source. What remains is
+    /// that `InventoryRow` carries a bundle path and a name, while
+    /// `PolicyStore.policy(for:displayName:)` matches on a `ResolvedIdentity` —
+    /// so rendering the chip needs a lookup this pure function cannot do. Passing
+    /// the classification in is the change to make, and it belongs with whoever
+    /// designs the chip rather than being invented here.
     static func chips(for row: InventoryRow) -> [String] {
         var chips: [String] = []
         if row.kind == .systemProcesses { chips.append("Can't be broken down") }

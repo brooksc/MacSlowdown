@@ -18,10 +18,11 @@ struct IncidentDetailView: View {
     let store: MonitorStore
     /// Retained samples covering the incident window, if a caller can supply them.
     ///
-    /// Defaulted because `MonitorStore` keeps its `MetricsHistory` private, so today
-    /// no caller can. The timeline draws the recorded lifecycle either way and says
-    /// plainly when it has no series; wiring history through is a one-line change
-    /// for whoever owns the store.
+    /// `IncidentsView` supplies these from `MonitorStore.retainedSamples(around:)`.
+    /// Still defaulted, so a caller with no history — a preview, or an incident
+    /// older than the retained window — gets a timeline that draws the recorded
+    /// lifecycle and says plainly that it has no series, rather than one invented
+    /// to fill the space.
     var samples: [HistorySample] = []
     /// A before/after taken around a user action, if one was recorded (FR-050).
     var verification: ActionVerification? = nil
