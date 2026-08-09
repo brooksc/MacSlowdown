@@ -49,6 +49,13 @@ final class FamilyHistory {
     private(set) var series: [String: [FamilyHistoryPoint]] = [:]
     /// Times at which a member process of a family was seen to be replaced by
     /// another process running the same command.
+    ///
+    /// **Not what the interface shows.** TASK-66 wired `LifecycleTracker` into
+    /// `MonitorStore`, and the inspector's relaunch figure now comes from there —
+    /// the tracker watches the whole process table rather than only the families
+    /// tracked here. This remains as the series' own bookkeeping; anything
+    /// user-facing must read the store, or the two counts would differ with no way
+    /// for a reader to tell which was right.
     private(set) var relaunches: [String: [Date]] = [:]
     /// Previous tick's members, per tracked family: command name to identities.
     private var previousMembers: [String: [String: Set<ProcessIdentity>]] = [:]

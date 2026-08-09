@@ -82,7 +82,37 @@ final class MonitorStore {
     private(set) var thermalState: ThermalState = .nominal
     private(set) var power: PowerContext = PowerSignals.current()
     private(set) var pagingRates: PagingRates = .zero
-    private(set) var diskRates: DiskRates = .zero
+    /// Aggregate disk throughput, or nil when there is no rate to report (FR-009).
+    ///
+    /// Optional rather than `.zero` deliberately. A driver that will not report its
+    /// statistics and a genuinely idle disk are different facts, and defaulting to
+    /// zero presented the first as the second — the unavailable-reported-as-measured
+    /// failure FR-002 and FR-010 forbid. Nil also covers the first sample, where no
+    /// delta exists yet: a rate needs two readings.
+    private(set) var diskRates: DiskRates?
+    /// Whether the startup volume is currently below the low-storage warning line
+    /// (FR-041, FR-042).
+    ///
+    /// Scoped to the startup volume deliberately: it is the one whose exhaustion
+    /// degrades the machine. A full external disk is a problem for the user's files,
+    /// not a cause of the slowdown this app exists to explain, and raising an
+    /// incident for it would be a claim we cannot support.
+    ///
+    /// False when the startup volume did not report its capacity. That is "no
+    /// measurement", not "plenty of room" — but it is also not evidence of a
+    /// shortage, and FR-002 forbids inventing one.
+    private(set) var isLowStorage = false
+    /// When the volumes were last read, or nil before the first read.
+    private(set) var lastStorageCheck: Date?
+
+    /// The startup volume's capacity as the sampling loop last read it, or nil if
+    /// it has not been read yet or did not report.
+    ///
+    /// Exposed so every surface quotes the same figure. Two views calling
+    /// `StorageSignals.snapshot()` independently would read at different moments
+    /// and could disagree about free space, which a user would reasonably read as
+    /// one of them being wrong.
+    var startupVolume: VolumeCapacity? { storage.startupVolume?.capacity }
     /// Our own cost, measured the same way we measure anything else.
     ///
     /// The headless OverheadHarness reports ~16 MB, but that runs no SwiftUI. The
@@ -181,6 +211,36 @@ final class MonitorStore {
     private let baseCadence: Duration
     private var task: Task<Void, Never>?
 
+    // MARK: - Retained history (FR-005)
+
+    /// The retained series, for a view that wants to draw what we actually kept.
+    ///
+    /// Read access only. `MetricsHistory` is a reference type with `record` and
+    /// `removeAll` on it, so handing the object itself to a view would let the UI
+    /// write to the evidence; the sampling loop is the only thing that records.
+    ///
+    /// A view drawing these samples draws the same series FR-005 retains, rather
+    /// than accumulating a second one of its own — which would diverge the moment
+    /// the view appeared later than the store, or refreshed at a different rate.
+    var retainedSamples: [HistorySample] { history.samples }
+
+    /// The wall-clock span actually retained, which is never assumed to be the
+    /// retention window: the app may only have been running for a minute.
+    var retainedHistorySpan: Duration { history.coveredDuration }
+
+    /// The retained samples covering a closed or open incident, with a margin
+    /// either side so the run-up and the recovery are visible.
+    ///
+    /// Empty when the incident predates anything we still hold — the caller is
+    /// expected to say so rather than draw a shorter window as if it were the whole
+    /// episode.
+    func retainedSamples(around incident: Incident, margin: Duration = .seconds(120))
+        -> [HistorySample] {
+        let from = incident.beganAt.addingTimeInterval(-margin.totalSeconds)
+        let to = (incident.closedAt ?? Date()).addingTimeInterval(margin.totalSeconds)
+        return history.samples.filter { $0.timestamp >= from && $0.timestamp <= to }
+    }
+
     private let detector: IncidentDetector
     private var detectorState = IncidentDetector.State()
     private let cadenceController: CadenceController
@@ -194,22 +254,70 @@ final class MonitorStore {
     private var previousDisk: DiskCounters?
     private var previousOwn: UInt64?
 
+    /// Volume capacity, read on the sampling loop rather than by the storage screen.
+    ///
+    /// Driven from here so the capacity series accumulates whether or not anyone is
+    /// looking at it: a fortnight-long trend that only advances while the screen is
+    /// open would never fill in. The screen shares this model, so opening it shows
+    /// history already gathered instead of starting a new series.
+    private let storage: StorageScreenModel
+    private var lastStorageCheckAt: ContinuousClock.Instant?
+
+    private let lifecycle = LifecycleTracker()
+    /// Launches and exits observed since the app started, bounded to the tracker's
+    /// own window (FR-045, FR-046-as-narrowed).
+    private(set) var lifecycleEvents: [LifecycleEvent] = []
+    /// When monitoring began, so "no relaunches" can be told apart from "we have
+    /// not been watching long enough for that to mean anything".
+    private(set) var monitoringStartedAt: Date?
+
+    /// How often volume capacity is re-read.
+    ///
+    /// Not every sample: capacity reads touch the filesystem, and at a 2 s cadence
+    /// that is filesystem work on the measurement path FR-030 budgets. Half a minute
+    /// is well inside the 60 s the low-storage condition must be sustained for, so
+    /// nothing is missed by reading it this way — a shortage is still seen within
+    /// 30 s of appearing.
+    static let storageCheckInterval: Duration = .seconds(30)
+
     /// Kept small: FR-005 bounds retained evidence, and the UI shows recent
     /// history rather than an archive.
     static let retainedIncidents = 20
 
+    // MARK: - User policies (FR-016)
+
+    /// The app's rules about applications. One store for the whole app: a policy is
+    /// about an application, not about a window, so setting it in the inspector and
+    /// reading it in Settings has to be the same fact. A second store would disagree
+    /// with this one and the disagreement would be invisible.
+    let policies: PolicyStore
+
+    /// The single on-disk policy store, at the location the inspector already used.
+    static let defaultPolicies: PolicyStore = {
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask).first
+        return PolicyStore(url: base?
+            .appendingPathComponent("MacSlowdown", isDirectory: true)
+            .appendingPathComponent("policies.json"))
+    }()
+
     init(cadence: Duration = MetricsHistory.defaultCadence,
          history: MetricsHistory = MetricsHistory(),
-         policy: IncidentPolicy = .default) {
+         policy: IncidentPolicy = .default,
+         policies: PolicyStore = MonitorStore.defaultPolicies,
+         storage: StorageScreenModel = .shared) {
         self.baseCadence = cadence
         self.history = history
         self.detector = IncidentDetector(policy: policy)
         self.cadenceController = CadenceController(normalInterval: cadence)
+        self.policies = policies
+        self.storage = storage
     }
 
     func start() {
         guard task == nil else { return }
         isRunning = true
+        monitoringStartedAt = Date()
         // A dispatch source catches pressure transitions between samples, which
         // the cadence alone could not guarantee within FR-007's 2 seconds.
         pressureMonitor.start()
@@ -308,12 +416,14 @@ final class MonitorStore {
                 }
                 previousDisk = counters
             }
+            refreshStorageIfDue(now: now)
             let observation = SystemObservation(
                 at: Date(),
                 cpuBusyFraction: result.totalBusyPercentOfOneCore
                     / (Double(machine.logicalCores) * 100),
                 memoryPressure: memoryPressure,
-                thermalState: thermalState)
+                thermalState: thermalState,
+                lowStorage: isLowStorage)
 
             let event = detector.observe(observation, state: &detectorState)
             switch event {
@@ -357,6 +467,8 @@ final class MonitorStore {
                 at: Date(), incidentOpen: openIncident != nil,
                 conditionBreaching: breaching, state: &cadenceState)
 
+            recordLifecycle(from: previous, to: snapshot)
+
             history.record(result)
             resolver.prune(keeping: Set(snapshot.records.keys))
             // Persisting history is best-effort: it is evidence, not configuration,
@@ -366,5 +478,91 @@ final class MonitorStore {
             previous = snapshot
             previousHost = host
         }
+    }
+
+    // MARK: - Storage (FR-041, FR-042)
+
+    /// Re-reads volume capacity if enough time has passed, records it, and updates
+    /// the low-storage condition the detector is given.
+    func refreshStorageIfDue(now: ContinuousClock.Instant) {
+        if let last = lastStorageCheckAt,
+           now - last < Self.storageCheckInterval { return }
+        lastStorageCheckAt = now
+
+        // `refresh` reads the volumes and appends to the capacity history, which
+        // coalesces to its own quarter-hour interval. Driving it from here rather
+        // than from the storage screen is what makes the fortnight trend continuous.
+        storage.refresh()
+        lastStorageCheck = storage.lastChecked
+        isLowStorage = Self.isLowStorage(
+            startupVolume: storage.startupVolume?.capacity, detector: storage.detector)
+    }
+
+    /// Whether a startup-volume reading breaches the low-storage line.
+    ///
+    /// No reading means no claim either way — false, because absence of a
+    /// measurement is not evidence of a shortage (FR-002). Leaving a stale `true`
+    /// standing would keep an incident open on evidence we no longer hold.
+    nonisolated static func isLowStorage(
+        startupVolume: VolumeCapacity?, detector: LowStorageDetector
+    ) -> Bool {
+        guard let startupVolume else { return false }
+        return detector.isBelowThreshold(startupVolume)
+    }
+
+    // MARK: - Lifecycle (FR-045, FR-046 as narrowed)
+
+    /// Records launches and exits between two consecutive snapshots.
+    ///
+    /// This is the real `LifecycleTracker`, keyed on `(pid, start time)`, so a
+    /// recycled PID reads as one exit and one launch rather than as continuity.
+    /// Nothing here implies a hang: TASK-27 established that macOS reports a stalled
+    /// application exactly as it reports a healthy one.
+    func recordLifecycle(from earlier: ProcessSnapshot, to later: ProcessSnapshot) {
+        let events = lifecycle.events(from: earlier, to: later)
+        guard !events.isEmpty || !lifecycleEvents.isEmpty else { return }
+        let cutoff = Date().addingTimeInterval(-lifecycle.window.totalSeconds)
+        lifecycleEvents = (lifecycleEvents + events).filter { $0.at >= cutoff }
+    }
+
+    /// How long monitoring has been running, which bounds every claim above.
+    var observedDuration: Duration {
+        guard let monitoringStartedAt else { return .zero }
+        return .seconds(Date().timeIntervalSince(monitoringStartedAt))
+    }
+
+    /// Whether we have watched long enough for a count of zero to mean anything.
+    /// Before that, zero means "we have not been looking" (FR-002).
+    func hasObservedLongEnough(minimum: Duration = .seconds(120)) -> Bool {
+        observedDuration.totalSeconds >= minimum.totalSeconds
+    }
+
+    /// Relaunches observed for any of these commands within the tracker's window.
+    ///
+    /// A relaunch is an exit *matched by* a launch of the same command, counted as
+    /// `min(exits, launches)`. Exits alone would overstate it: an application the
+    /// user quit and did not reopen exited once and relaunched never, and reporting
+    /// that as a relaunch would be a claim the events do not support.
+    ///
+    /// Commands rather than identities, because a relaunched process has a new PID
+    /// by construction. `p_comm` is truncated to 16 bytes, so two applications whose
+    /// commands truncate to the same fragment are counted together — the
+    /// low-confidence case `RelaunchPattern` already names.
+    func relaunchCount(forCommands commands: Set<String>) -> Int {
+        var exits: [String: Int] = [:]
+        var launches: [String: Int] = [:]
+        for event in lifecycleEvents where commands.contains(event.command) {
+            switch event {
+            case .exited: exits[event.command, default: 0] += 1
+            case .launched: launches[event.command, default: 0] += 1
+            }
+        }
+        return exits.reduce(0) { $0 + min($1.value, launches[$1.key] ?? 0) }
+    }
+
+    /// Repeated exits that rise to a pattern, for the commands given (FR-046).
+    func relaunchPatterns(forCommands commands: Set<String>) -> [RelaunchPattern] {
+        lifecycle.relaunchPatterns(
+            in: lifecycleEvents.filter { commands.contains($0.command) })
     }
 }

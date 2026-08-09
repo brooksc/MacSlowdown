@@ -47,7 +47,8 @@ struct IncidentsView: View {
         .navigationTitle("Incidents")
         .inspector(isPresented: inspectorShown) {
             if let incident = all.first(where: { $0.id == selection }) {
-                IncidentDetailView(incident: incident, store: store)
+                IncidentDetailView(incident: incident, store: store,
+                                   samples: store.retainedSamples(around: incident))
                     .inspectorColumnWidth(min: 380, ideal: 460)
             }
         }
