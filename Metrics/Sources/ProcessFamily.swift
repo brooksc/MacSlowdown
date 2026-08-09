@@ -14,10 +14,24 @@ public enum FamilyMembership: Sendable, Equatable {
     /// `codex-code-mode` executing from inside ChatGPT.app. Attributing them to
     /// ChatGPT is defensible but not certain.
     case uncertain(reason: String)
+    /// The process was spawned by the application it is grouped under.
+    ///
+    /// Distinct from `.certain` because it is a different kind of evidence: the
+    /// executable lives outside the bundle entirely, and the association rests on
+    /// process lineage. A shell you started in a terminal is genuinely the
+    /// terminal's child, and its CPU is genuinely part of what that terminal is
+    /// costing you — but it is not part of the application.
+    case byParent(reason: String)
     /// The user placed this process here (FR-039).
     case userAssigned
 
     public var isCertain: Bool { self == .certain }
+
+    /// Whether this association needs qualifying to the user. Parent lineage is
+    /// evidence, not a guess, so it is not lumped in with uncertainty.
+    public var isUncertain: Bool {
+        if case .uncertain = self { true } else { false }
+    }
 }
 
 public struct FamilyMember: Sendable {
@@ -40,8 +54,12 @@ public struct ProcessFamily: Sendable, Identifiable {
     public let members: [FamilyMember]
 
     public var isStandalone: Bool { bundlePath == nil }
-    public var hasUncertainMembers: Bool {
-        members.contains { if case .uncertain = $0.membership { true } else { false } }
+    public var hasUncertainMembers: Bool { members.contains { $0.membership.isUncertain } }
+
+    /// Processes grouped here because this application started them, rather than
+    /// because they live inside its bundle.
+    public var spawnedMemberCount: Int {
+        members.count { if case .byParent = $0.membership { true } else { false } }
     }
     /// Members whose CPU and memory the sandbox denies us. They stay visible by
     /// name; their usage belongs in the unattributed bucket.
@@ -78,6 +96,7 @@ public enum FamilyGrouper {
     ) -> [ProcessFamily] {
         var bundled: [String: [FamilyMember]] = [:]
         var standalone: [ProcessFamily] = []
+        let parents = ParentIndex(inputs)
 
         for input in inputs {
             let identity = input.record.identity
@@ -91,7 +110,19 @@ public enum FamilyGrouper {
 
             let bundlePath = overrides.detached.contains(identity) ? nil : input.resolved.appBundlePath
             guard let bundlePath else {
-                standalone.append(standaloneFamily(input.record, input.resolved))
+                // No bundle of its own. If an application started it, that is the
+                // application responsible for its CPU — 14 shells under a terminal
+                // belong with the terminal, not as 14 unrelated rows.
+                if !overrides.detached.contains(identity),
+                   let parent = parents.bundleOfParent(of: input.record) {
+                    bundled[parent.bundlePath, default: []].append(
+                        FamilyMember(
+                            record: input.record, resolved: input.resolved,
+                            membership: .byParent(
+                                reason: "started by \(parent.parentCommand)")))
+                } else {
+                    standalone.append(standaloneFamily(input.record, input.resolved))
+                }
                 continue
             }
 
@@ -109,7 +140,7 @@ public enum FamilyGrouper {
                 displayName: members.compactMap { $0.resolved.friendlyName }.first
                     ?? displayName(forBundle: path),
                 bundlePath: path,
-                members: classify(members, bundlePath: path)
+                members: classify(members, bundlePath: path, parents: parents)
             )
         }
 
@@ -137,7 +168,9 @@ public enum FamilyGrouper {
     /// genuine helper. A member executing from inside the bundle whose signature
     /// says otherwise is flagged: it may be a legitimate subprocess or an unrelated
     /// binary that merely lives there.
-    static func classify(_ members: [FamilyMember], bundlePath: String) -> [FamilyMember] {
+    static func classify(
+        _ members: [FamilyMember], bundlePath: String, parents: ParentIndex
+    ) -> [FamilyMember] {
         let mainExecutablePrefix = bundlePath + "/Contents/MacOS/"
         let familyID = members.first {
             ($0.resolved.executablePath?.hasPrefix(mainExecutablePrefix) ?? false)
@@ -145,9 +178,18 @@ public enum FamilyGrouper {
 
         return members.map { member in
             if case .userAssigned = member.membership { return member }
+            if case .byParent = member.membership { return member }
+
+            // The parent link is independent evidence for what the path claims.
+            // Where they agree there is nothing left to qualify, so the member is
+            // certain even when the signature could not corroborate it.
+            let parentAgrees = parents.bundleOfParent(of: member.record)?.bundlePath == bundlePath
+
             guard let familyID, let memberID = member.resolved.bundleID else {
                 // No signature to corroborate with. The path is still evidence, but
                 // weaker on its own.
+                if parentAgrees { return FamilyMember(
+                    record: member.record, resolved: member.resolved, membership: .certain) }
                 return FamilyMember(
                     record: member.record, resolved: member.resolved,
                     membership: member.resolved.bundleID == nil
@@ -157,6 +199,8 @@ public enum FamilyGrouper {
             if memberID == familyID || memberID.hasPrefix(familyID + ".") {
                 return member  // certain
             }
+            if parentAgrees { return FamilyMember(
+                record: member.record, resolved: member.resolved, membership: .certain) }
             return FamilyMember(
                 record: member.record, resolved: member.resolved,
                 membership: .uncertain(
