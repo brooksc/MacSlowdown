@@ -23,6 +23,7 @@ final class FakeNotificationCentre: NotificationCentre {
     private(set) var statusReads = 0
     private(set) var requestCount = 0
     private(set) var delegate: UNUserNotificationCenterDelegate?
+    private(set) var categories: Set<UNNotificationCategory> = []
 
     func authorizationStatus() async -> UNAuthorizationStatus {
         statusReads += 1
@@ -42,6 +43,10 @@ final class FakeNotificationCentre: NotificationCentre {
 
     func setDelegate(_ delegate: UNUserNotificationCenterDelegate) {
         self.delegate = delegate
+    }
+
+    func setCategories(_ categories: Set<UNNotificationCategory>) {
+        self.categories = categories
     }
 }
 
@@ -182,10 +187,13 @@ struct NotificationContentTests {
             decision: .send(reason: "high"), incident: subject, leadingContributor: "bash")
 
         let content = try? #require(centre.added.first?.content)
-        let expected = NotificationGate.message(for: subject, leadingContributor: "bash")
+        let expected = NotificationDelivery.message(for: subject, leadingContributor: "bash")
         #expect(content?.title == expected.title)
         #expect(content?.body == expected.body)
         #expect(content?.body.contains("bash") == true)
+        #expect(content?.title
+            == NotificationGate.message(for: subject, leadingContributor: "bash").title,
+            "the title is the gate's, shared with everything else that describes an incident")
     }
 
     /// FR-013: a contributor we could not identify is omitted, not guessed at.
@@ -237,6 +245,241 @@ struct NotificationContentTests {
             let level = centre.added[index].content.interruptionLevel
             #expect(level == (severity == .severe ? .timeSensitive : .active))
         }
+    }
+}
+
+/// Design 1g: the banner says what is *not* wrong as well as what is, and carries
+/// two actions.
+@MainActor
+@Suite("The banner (design 1g)")
+struct NotificationBannerTests {
+    /// A notification naming only the failing resource invites the reader to
+    /// assume the machine is failing generally, and they then act on a belief the
+    /// app never measured.
+    @Test("A CPU incident with normal memory says memory pressure stayed normal")
+    func statesWhatIsNotWrong() {
+        let subject = incident(conditions: [.cpuSaturation])
+        let body = NotificationDelivery.message(
+            for: subject, leadingContributor: "Xcode").body
+
+        #expect(body.contains("Xcode"), "what is wrong")
+        #expect(body.contains("Memory pressure stayed normal"), "and what is not")
+    }
+
+    /// The reassurance is a measurement, not politeness: it is withheld when the
+    /// evidence does not support it.
+    @Test("Memory is never called fine when memory was the problem")
+    func noFalseReassurance() {
+        let underPressure = Incident(
+            id: UUID(), beganAt: Date(), triggeredAt: Date(),
+            recoveryStartedAt: nil, closedAt: Date(),
+            conditions: [.cpuSaturation, .memoryPressure], severity: .high,
+            peakCPUBusyFraction: 0.95, peakMemoryPressure: .critical)
+
+        let body = NotificationDelivery.message(
+            for: underPressure, leadingContributor: nil).body
+        #expect(!body.contains("Memory pressure stayed normal"))
+    }
+
+    /// The condition never opened, but the peak reading did rise. Two pieces of
+    /// evidence are required before the app tells someone their memory is fine.
+    @Test("A memory peak above normal withholds the memory reassurance")
+    func peakContradictsTheCondition() {
+        let spiked = Incident(
+            id: UUID(), beganAt: Date(), triggeredAt: Date(),
+            recoveryStartedAt: nil, closedAt: Date(),
+            conditions: [.cpuSaturation], severity: .high,
+            peakCPUBusyFraction: 0.95, peakMemoryPressure: .warning)
+
+        let reassurance = NotificationDelivery.reassurance(for: spiked)
+        #expect(reassurance?.contains("Memory") != true)
+        #expect(reassurance == "The machine did not report thermal pressure.",
+                "it falls through to something the incident does support")
+    }
+
+    @Test("An incident breaching everything we watch claims nothing is fine")
+    func nothingToReassureAbout() {
+        let everything = Incident(
+            id: UUID(), beganAt: Date(), triggeredAt: Date(),
+            recoveryStartedAt: nil, closedAt: Date(),
+            conditions: Set(IncidentCondition.allCases), severity: .severe,
+            peakCPUBusyFraction: 1, peakMemoryPressure: .critical)
+
+        #expect(NotificationDelivery.reassurance(for: everything) == nil)
+        let body = NotificationDelivery.message(
+            for: everything, leadingContributor: nil).body
+        #expect(body == NotificationGate.message(
+            for: everything, leadingContributor: nil).body)
+    }
+
+    @Test("Only one reassurance is offered, so the banner stays readable")
+    func atMostOneClause() {
+        let text = NotificationDelivery.reassurance(for: incident()) ?? ""
+        #expect(text.filter { $0 == "." }.count == 1)
+    }
+
+    @Test("The banner carries a details action and a mute action")
+    func bothActionsAreOffered() {
+        let category = NotificationDelivery.incidentCategory
+        let identifiers = category.actions.map(\.identifier)
+        #expect(identifiers.contains(NotificationDelivery.Action.showDetails.rawValue))
+        #expect(identifiers.contains(NotificationDelivery.Action.muteOneHour.rawValue))
+        #expect(category.actions.map(\.title) == ["Show details", "Mute 1 hour"])
+    }
+
+    /// Actions registered with the system, or the buttons never appear no matter
+    /// what the category says.
+    @Test("Registering installs the category the alerts are sent under")
+    func categoryIsRegistered() async {
+        let centre = FakeNotificationCentre()
+        centre.status = .authorized
+        let delivery = NotificationDelivery(centre: centre)
+        delivery.registerForForegroundPresentation()
+
+        #expect(centre.categories.map(\.identifier)
+            == [NotificationDelivery.Action.categoryIdentifier])
+
+        await delivery.deliver(
+            decision: .send(reason: "high"), incident: incident(), leadingContributor: nil)
+        #expect(centre.added.first?.content.categoryIdentifier
+            == NotificationDelivery.Action.categoryIdentifier)
+    }
+
+    @Test("Show details opens the app; Mute 1 hour mutes for exactly an hour")
+    func actionsDoWhatTheySay() {
+        let delivery = NotificationDelivery(centre: FakeNotificationCentre())
+        var shown = 0
+        var mutedFor: [Int] = []
+        delivery.onShowDetails = { shown += 1 }
+        delivery.onMute = { mutedFor.append($0) }
+
+        delivery.perform(actionIdentifier: NotificationDelivery.Action.showDetails.rawValue)
+        #expect(shown == 1)
+        #expect(mutedFor.isEmpty)
+
+        delivery.perform(actionIdentifier: NotificationDelivery.Action.muteOneHour.rawValue)
+        #expect(mutedFor == [60])
+        #expect(shown == 1, "muting must not also open a window")
+    }
+
+    @Test("Clicking the banner itself shows details")
+    func defaultActionShowsDetails() {
+        let delivery = NotificationDelivery(centre: FakeNotificationCentre())
+        var shown = 0
+        delivery.onShowDetails = { shown += 1 }
+
+        delivery.perform(actionIdentifier: UNNotificationDefaultActionIdentifier)
+        #expect(shown == 1)
+    }
+
+    /// Dismissing is not a request for anything.
+    @Test("An unrecognised action does nothing")
+    func unknownActionIsInert() {
+        let delivery = NotificationDelivery(centre: FakeNotificationCentre())
+        var touched = false
+        delivery.onShowDetails = { touched = true }
+        delivery.onMute = { _ in touched = true }
+
+        delivery.perform(actionIdentifier: UNNotificationDismissActionIdentifier)
+        #expect(!touched)
+    }
+}
+
+/// FR-015: muting suppresses the interruption and never the record.
+@MainActor
+@Suite("Alert outcomes")
+struct AlertOutcomeTests {
+    @Test("An incident that was announced is recorded as alerted")
+    func alertedIsRecorded() async {
+        let centre = FakeNotificationCentre()
+        centre.status = .authorized
+        let delivery = NotificationDelivery(centre: centre)
+        let subject = incident()
+
+        await delivery.deliver(
+            decision: .send(reason: "new high incident"), incident: subject,
+            leadingContributor: nil)
+
+        #expect(delivery.outcome(for: subject.id) == .alerted)
+    }
+
+    /// The property criterion 3 rests on: the suppression is recorded against the
+    /// incident, so the history can say the incident happened *and* that nothing
+    /// interrupted the user — rather than the incident simply vanishing.
+    @Test("An incident raised while muted is recorded as not alerted, with the reason")
+    func mutedIsRecordedAsNotAlerted() async {
+        let centre = FakeNotificationCentre()
+        centre.status = .authorized
+        let delivery = NotificationDelivery(centre: centre)
+        let subject = incident()
+
+        let sent = await delivery.deliver(
+            decision: .suppress(reason: "alerts are muted for another 42 minutes"),
+            incident: subject, leadingContributor: "Xcode")
+
+        #expect(!sent)
+        #expect(centre.added.isEmpty, "nothing interrupted the user")
+        #expect(delivery.outcome(for: subject.id)
+            == .notAlerted(reason: "alerts are muted for another 42 minutes"))
+        let note = delivery.outcome(for: subject.id)?.note ?? ""
+        #expect(note.hasPrefix("Not alerted"))
+        #expect(note.contains("still recorded"),
+                "\"not alerted\" alone reads as \"not recorded\"")
+    }
+
+    @Test("A denial is recorded too, so the silence is explainable")
+    func denialIsRecorded() async {
+        let centre = FakeNotificationCentre()
+        centre.status = .denied
+        let delivery = NotificationDelivery(centre: centre)
+        let subject = incident()
+
+        await delivery.deliver(
+            decision: .send(reason: "high"), incident: subject, leadingContributor: nil)
+
+        #expect(delivery.outcome(for: subject.id)?.wasAlerted == false)
+        #expect(delivery.outcome(for: subject.id)?.note.contains("turned off") == true)
+    }
+
+    /// FR-002: no record is not the same as "not alerted", and must not be shown
+    /// as either.
+    @Test("An incident no decision was made about has no outcome")
+    func noDecisionIsNotAnOutcome() {
+        let delivery = NotificationDelivery(centre: FakeNotificationCentre())
+        #expect(delivery.outcome(for: UUID()) == nil)
+    }
+
+    @Test("The record is bounded, so a long-running monitor cannot grow it forever")
+    func recordIsBounded() async {
+        let centre = FakeNotificationCentre()
+        centre.status = .authorized
+        let delivery = NotificationDelivery(centre: centre)
+
+        for _ in 0..<260 {
+            await delivery.deliver(
+                decision: .suppress(reason: "muted"), incident: incident(),
+                leadingContributor: nil)
+        }
+        #expect(delivery.outcomes.count == 200)
+    }
+
+    /// An escalation re-decides an incident that already has an outcome; the
+    /// latest decision is the one that stands, and it must not double-count.
+    @Test("Re-deciding the same incident replaces its outcome rather than adding one")
+    func redecidingReplaces() async {
+        let centre = FakeNotificationCentre()
+        centre.status = .authorized
+        let delivery = NotificationDelivery(centre: centre)
+        let subject = incident()
+
+        await delivery.deliver(
+            decision: .suppress(reason: "muted"), incident: subject, leadingContributor: nil)
+        await delivery.deliver(
+            decision: .send(reason: "severity rose to severe"), incident: subject,
+            leadingContributor: nil)
+
+        #expect(delivery.outcomes.count == 1)
+        #expect(delivery.outcome(for: subject.id) == .alerted)
     }
 }
 

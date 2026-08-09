@@ -22,6 +22,15 @@ struct MacSlowdownApp: App {
         // item is inserted and whether or not a window is ever opened.
         let open = openWindow
         MainWindowOpener.action = { open(id: MainWindow.id) }
+        // Same mechanism, same reason: only a SwiftUI scope can open a window, and
+        // the decision to open the first-run one is made outside any view.
+        FirstRunWindowOpener.action = { open(id: FirstRunWindow.id) }
+        // The banner's buttons (design 1g). Wired here rather than inside
+        // `NotificationDelivery` so that type does not have to know what a monitor
+        // or a window is.
+        store.notifications.onShowDetails = { MainWindowOpener.open() }
+        store.notifications.onMute = { minutes in store.mute(forMinutes: minutes) }
+        FirstRunWindowOpener.presentOnceAfterLaunch()
         return scenes
     }
 
@@ -43,8 +52,27 @@ struct MacSlowdownApp: App {
 
         Window("MacSlowdown", id: MainWindow.id) {
             MainWindowView(store: store)
+                // The mute sheet needs a window to sit in, and this is the only
+                // one that is always available while the app has a menu bar.
+                .muteAlertsSheet(store: store)
         }
         .defaultSize(width: 900, height: 600)
+        .commands {
+            CommandGroup(after: .appSettings) {
+                Button("Mute Alerts…") { MuteSheetPresenter.shared.present() }
+                    .keyboardShortcut("m", modifiers: [.command, .option])
+            }
+        }
+
+        // First run (design 1g). A `Window` rather than a sheet: at first launch
+        // there may be no window for a sheet to attach to — the app is a menu bar
+        // utility and opens nothing by default.
+        Window("Welcome to MacSlowdown", id: FirstRunWindow.id) {
+            FirstRunView(state: .shared)
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+        .commandsRemoved()
 
         Settings {
             SettingsView(showMenuBarItem: $showMenuBarItem)

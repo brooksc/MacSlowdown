@@ -17,6 +17,7 @@ protocol NotificationCentre {
     func requestAuthorization() async -> Bool
     func add(_ request: UNNotificationRequest) async throws
     func setDelegate(_ delegate: UNUserNotificationCenterDelegate)
+    func setCategories(_ categories: Set<UNNotificationCategory>)
 }
 
 /// The real notification centre.
@@ -43,6 +44,10 @@ struct SystemNotificationCentre: NotificationCentre {
 
     func setDelegate(_ delegate: UNUserNotificationCenterDelegate) {
         UNUserNotificationCenter.current().delegate = delegate
+    }
+
+    func setCategories(_ categories: Set<UNNotificationCategory>) {
+        UNUserNotificationCenter.current().setNotificationCategories(categories)
     }
 }
 
@@ -84,8 +89,59 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// What happened to an incident's alert (FR-014, FR-016).
+    ///
+    /// Recorded rather than discarded so the Incidents list can say why nothing
+    /// interrupted the user. The distinction that matters for FR-015: an incident
+    /// raised while alerts are muted is **not alerted**, and is still recorded —
+    /// muting suppresses the interruption, never the observation.
+    enum AlertOutcome: Equatable {
+        case alerted
+        case notAlerted(reason: String)
+
+        var wasAlerted: Bool { self == .alerted }
+
+        /// The sentence for the history. It always restates that the incident was
+        /// kept, because "not alerted" on its own reads as "not recorded".
+        var note: String {
+            switch self {
+            case .alerted: "You were alerted about this."
+            case .notAlerted(let reason): "Not alerted — \(reason). It was still recorded."
+            }
+        }
+    }
+
+    /// The banner's buttons (design 1g).
+    enum Action: String {
+        case showDetails = "com.brooksc.MacSlowdown.showDetails"
+        case muteOneHour = "com.brooksc.MacSlowdown.muteOneHour"
+
+        static let categoryIdentifier = "com.brooksc.MacSlowdown.incident"
+        /// The banner offers one duration; the full set lives in the mute sheet.
+        static let muteMinutes = 60
+
+        var title: String {
+            switch self {
+            case .showDetails: "Show details"
+            case .muteOneHour: "Mute 1 hour"
+            }
+        }
+    }
+
     private(set) var authorisation: Authorisation = .notDetermined
     private(set) var deliveredCount = 0
+
+    /// What became of each incident's alert, newest last, bounded so a long-running
+    /// monitor cannot grow this without limit.
+    private(set) var outcomes: [UUID: AlertOutcome] = [:]
+    private var outcomeOrder: [UUID] = []
+    private static let retainedOutcomes = 200
+
+    /// Set by the app so the banner's buttons do something. Closures rather than a
+    /// direct reference to the store, because a notification action arriving is not
+    /// a reason for this type to know what a monitor is.
+    var onShowDetails: (() -> Void)?
+    var onMute: ((Int) -> Void)?
 
     private let centre: any NotificationCentre
 
@@ -94,7 +150,7 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         super.init()
     }
 
-    /// Registers for foreground presentation.
+    /// Registers for foreground presentation, and registers the banner's actions.
     ///
     /// Called once from the app delegate, where bundle identity is settled. Without
     /// this, an alert raised while a MacSlowdown window is frontmost goes silently
@@ -102,6 +158,60 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     /// delivered correctly and showed nothing, because the window was in front.
     func registerForForegroundPresentation() {
         centre.setDelegate(self)
+        centre.setCategories([Self.incidentCategory])
+    }
+
+    /// The two actions the design puts on the banner. Both are safe: one opens our
+    /// own window, the other quietens us. Neither touches another process (FR-037).
+    static var incidentCategory: UNNotificationCategory {
+        UNNotificationCategory(
+            identifier: Action.categoryIdentifier,
+            actions: [Action.showDetails, Action.muteOneHour].map {
+                UNNotificationAction(identifier: $0.rawValue, title: $0.title, options: [])
+            },
+            intentIdentifiers: [],
+            options: [])
+    }
+
+    /// What a tapped action means, separated from the delegate callback that
+    /// receives it because `UNNotificationResponse` cannot be constructed, leaving
+    /// the callback itself unreachable from a test. This is the part with the
+    /// behaviour in it.
+    func perform(actionIdentifier: String) {
+        switch Action(rawValue: actionIdentifier) {
+        case .showDetails:
+            onShowDetails?()
+        case .muteOneHour:
+            onMute?(Action.muteMinutes)
+        case nil:
+            // `UNNotificationDefaultActionIdentifier` — the body itself was
+            // clicked — and anything unrecognised both mean "show me".
+            if actionIdentifier == UNNotificationDefaultActionIdentifier {
+                onShowDetails?()
+            }
+        }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let identifier = response.actionIdentifier
+        await MainActor.run { self.perform(actionIdentifier: identifier) }
+    }
+
+    /// What became of a given incident's alert, or nil when no decision has been
+    /// recorded for it. Nil is not "alerted" and not "suppressed" — it is no
+    /// record, and must not be presented as either (FR-002).
+    func outcome(for incident: UUID) -> AlertOutcome? { outcomes[incident] }
+
+    private func record(_ outcome: AlertOutcome, for incident: UUID) {
+        if outcomes.updateValue(outcome, forKey: incident) == nil {
+            outcomeOrder.append(incident)
+        }
+        while outcomeOrder.count > Self.retainedOutcomes {
+            outcomes.removeValue(forKey: outcomeOrder.removeFirst())
+        }
     }
 
     /// Shows the alert even when MacSlowdown is the active application. The gate
@@ -149,15 +259,23 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         incident: Incident,
         leadingContributor: String?
     ) async -> Bool {
-        guard decision.shouldSend else { return false }
+        guard decision.shouldSend else {
+            record(.notAlerted(reason: decision.reason), for: incident.id)
+            return false
+        }
         await refreshAuthorisation()
-        guard authorisation.canDeliver else { return false }
+        guard authorisation.canDeliver else {
+            record(.notAlerted(reason: "notifications are turned off for MacSlowdown"),
+                   for: incident.id)
+            return false
+        }
 
-        let (title, body) = NotificationGate.message(
+        let (title, body) = Self.message(
             for: incident, leadingContributor: leadingContributor)
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
+        content.categoryIdentifier = Action.categoryIdentifier
         // Interruption stays gentle: the app is reporting, not demanding.
         content.interruptionLevel = incident.severity == .severe ? .timeSensitive : .active
 
@@ -166,9 +284,57 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         do {
             try await centre.add(request)
             deliveredCount += 1
+            record(.alerted, for: incident.id)
             return true
         } catch {
+            record(.notAlerted(reason: "the system did not accept the notification"),
+                   for: incident.id)
             return false
         }
+    }
+
+    // MARK: - Wording
+
+    /// The banner's text (design 1g).
+    ///
+    /// The title and the account of what went wrong come from `NotificationGate`,
+    /// which the whole app shares. What is added here is the clause saying what is
+    /// **not** wrong — "Memory pressure stayed normal" alongside "CPU saturation
+    /// for 6 minutes".
+    ///
+    /// That clause is not politeness. A notification naming only the failing
+    /// resource invites the reader to assume the machine is failing generally, and
+    /// the reader then acts on a belief the app never measured. It stays a
+    /// measurement: every clause comes from a condition the detector watched
+    /// throughout this incident and never saw breach.
+    static func message(
+        for incident: Incident, leadingContributor: String?
+    ) -> (title: String, body: String) {
+        let (title, body) = NotificationGate.message(
+            for: incident, leadingContributor: leadingContributor)
+        guard let reassurance = reassurance(for: incident) else { return (title, body) }
+        return (title, "\(body) \(reassurance)")
+    }
+
+    /// The single strongest thing this incident shows is holding up, or nil when
+    /// every condition we watch was breaching and there is nothing reassuring to
+    /// report. One clause only: a banner is two lines, and listing everything that
+    /// is fine buries what is not.
+    static func reassurance(for incident: Incident) -> String? {
+        var clauses: [String] = []
+        // The memory claim is corroborated twice — the condition never opened, and
+        // the peak pressure reading stayed normal — because memory is the resource
+        // users most often assume is at fault when the machine is slow.
+        if !incident.conditions.contains(.memoryPressure),
+           incident.peakMemoryPressure == .normal {
+            clauses.append("Memory pressure stayed normal.")
+        }
+        if !incident.conditions.contains(.thermalPressure) {
+            clauses.append("The machine did not report thermal pressure.")
+        }
+        if !incident.conditions.contains(.lowStorage) {
+            clauses.append("Storage did not run low.")
+        }
+        return clauses.first
     }
 }
