@@ -1,9 +1,10 @@
 ---
 id: TASK-65.10
 title: 'Screen 1j — Settings: per-app rules and Privacy'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:24'
+updated_date: '2026-08-09 04:45'
 labels:
   - ui
 milestone: m-3

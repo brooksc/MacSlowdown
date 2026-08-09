@@ -3,9 +3,10 @@ id: TASK-65.9
 title: >-
   Screen 1i — Settings: Alerts, plain defaults with thresholds behind a
   disclosure
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:23'
+updated_date: '2026-08-09 04:45'
 labels:
   - ui
 milestone: m-3

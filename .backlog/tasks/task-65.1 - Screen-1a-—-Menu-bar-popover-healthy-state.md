@@ -1,9 +1,10 @@
 ---
 id: TASK-65.1
 title: 'Screen 1a — Menu bar popover, healthy state'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:21'
+updated_date: '2026-08-09 04:43'
 labels:
   - ui
 milestone: m-1

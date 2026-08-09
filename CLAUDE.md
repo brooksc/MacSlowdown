@@ -17,12 +17,21 @@ safe actions, export and privacy controls, and the FR-030 overhead harness.
 - Run: `./run-menubar.sh`
 - Test: `nice env TUIST_SKIP_UPDATE_CHECK=1 tuist xcodebuild test -scheme AllTests \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath .build`
-  — currently **382 passing**. Two bundles: `MetricsTests` (plain) and
+  — currently **516 passing**. Two bundles: `MetricsTests` (plain) and
   `MacSlowdownTests` (app-hosted; `AppDelegate` skips launch work under XCTest so
   a test run does not start monitoring or put a status item in your menu bar).
-- FR-030 measurement: `probe/overhead/run.sh 300` — standalone and authoritative.
-  Run it for **at least 300 s**; a 90 s run reads high because a one-off
-  cold-cache cost has not yet amortised (TASK-62).
+- FR-030 measurement: `probe/overhead/run.sh 300` — standalone but **no longer a
+  gate**; the numeric budget is deferred (see Performance budget below). Run for
+  at least 300 s; a 90 s run reads high (TASK-62).
+
+**Three tests measure the real machine and fail on a busy one.** They are not
+flaky in the usual sense — they synthesise CPU load and assert on separation, so
+they report the machine's state honestly and decline to run when it is too busy:
+`CPUWorkloadTests.workloadIsAttributed`, `CPUWorkloadTests.singleCoreWorkload`,
+`EndToEndIncidentTests.realSlowdownProducesOneIncident` (which fails at its own
+"baseline CPU too high" guard), `EndToEndIncidentTests.cadenceRisesUnderLoad`.
+Re-run any failure in isolation with `-only-testing:` on a quiet machine before
+treating it as a regression. Building several things at once will fail them.
 
 The app-hosted bundle occasionally fails to bootstrap under load
 ("Early unexpected exit"). Re-run before investigating; it is the test runner,
@@ -253,22 +262,52 @@ color alone.**
 
 ## Where the work stands
 
-Open, in dependency order. Read the Backlog entry before starting any of them —
-each records what was measured and what was deliberately not done.
+Read the Backlog entry before starting any of them — each records what was
+measured and what was deliberately not done.
 
-- **TASK-62** (high) — cold-start identity resolution costs 819 ms in one burst.
-  Affects FR-030 headroom and delays the first reading under FR-032.
-- **TASK-63** — the inventory opens alphabetically instead of busiest-first.
-  SwiftUI overwrites a `Table`'s `sortOrder` during layout; four approaches
-  failed, and the untried ones are listed in the task.
-- **TASK-58** — richer popover over the FR-005 history. Large; the user wants to
-  scope it in conversation first. **Do not start it unprompted.**
+**A design now exists.** `design/` holds the Claude Design screens (16 app screens,
+menu bar icon states, six app-icon directions) as rendered references, with
+`TASK-65` as the conformance umbrella and one subtask per screen. Treat the mocks
+as **directional**: structure, information hierarchy and copy intent are the
+requirement; the placeholder machine and invented numbers are not.
+
+**The largest live risk is unverified UI.** A great deal was built without anyone
+looking at it — roughly two dozen acceptance criteria across the TASK-65 subtasks
+are deliberately unchecked because they need a person at the screen. Do not treat
+those tasks as done. In particular **nobody has confirmed the Incidents pane
+renders** (TASK-51.1 fixed it without establishing the cause and said plainly that
+if it is still blank, the fix is wrong).
+
+- **TASK-66** (high) — the single highest-value item. `MonitorStore` never wires
+  up capabilities the `Metrics` framework already has and tests: **low-storage
+  incidents can never open** (FR-041/042 cannot fire in the running product),
+  retained history is unreachable so no sparkline in the design is buildable,
+  no `PolicyStore` owner so FR-016 is framework-only, and `LifecycleTracker` is
+  undriven. Four tasks unblock behind it. This pattern — framework ahead of app —
+  is worth checking for elsewhere.
+- **TASK-67** — AppKit logs a reentrant `NSTableView` delegate warning every ~2 s
+  from the inventory, and says it will become an assert. Noise now, crash later.
+- **TASK-51.1** — Incidents empty state. Fixed but **not diagnosed**; needs eyes.
+- **TASK-11.1** — the Dock icon is now a real route back when the menu bar item is
+  hidden. Rests on `@Environment(\.openWindow)` resolving in `App` scope, which is
+  **unverified at runtime**. If it no-ops, the fallback is Scene-level registration.
+- **TASK-65.x** — the remaining design screens. Several are blocked behind TASK-66.
+- **TASK-58** — richer popover over FR-005 history. Large; the user wants to scope
+  it in conversation first. **Do not start it unprompted.**
 - **TASK-15** (parked, high) — accessibility baseline. Needs a person with
   VoiceOver. Several UI criteria elsewhere are parked waiting on it.
 - **TASK-45** (parked, high) — re-validate every Tier 0 finding on macOS 26.
   Everything measured so far is macOS 27 only, and the spec targets both.
 - **TASK-50** — the Apple DTS question on `sysctl KERN_PROC_ALL`. The user's
   action, not a work item.
+
+Recently settled, so nobody re-opens them: TASK-62 (cold-start identity cut ~70%),
+TASK-63 (**not a defect** — the table always sorted CPU-descending; what looked
+wrong was the alphabetical tail of a correctly sorted list seen from a scrolled
+viewport), TASK-57.1 (the processes named `2.1.220` were Claude Code itself —
+its binaries are named after their version), TASK-55.1 (resident size is the wrong
+statistic for our own memory; `NSImage.tiffRepresentation` cost ~148 MB per icon
+cache miss and is gone).
 
 ## Phasing
 

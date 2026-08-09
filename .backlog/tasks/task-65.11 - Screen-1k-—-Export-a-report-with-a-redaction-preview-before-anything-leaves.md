@@ -1,9 +1,10 @@
 ---
 id: TASK-65.11
 title: 'Screen 1k — Export a report, with a redaction preview before anything leaves'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:24'
+updated_date: '2026-08-09 04:47'
 labels:
   - ui
 milestone: m-3

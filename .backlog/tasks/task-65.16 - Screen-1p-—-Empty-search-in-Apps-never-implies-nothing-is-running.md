@@ -1,9 +1,10 @@
 ---
 id: TASK-65.16
 title: Screen 1p — Empty search in Apps never implies nothing is running
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:25'
+updated_date: '2026-08-09 04:44'
 labels:
   - ui
 milestone: m-1

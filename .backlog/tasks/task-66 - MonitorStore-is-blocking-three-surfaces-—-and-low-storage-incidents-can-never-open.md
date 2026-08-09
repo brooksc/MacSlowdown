@@ -3,10 +3,10 @@ id: TASK-66
 title: >-
   MonitorStore is blocking three surfaces — and low-storage incidents can never
   open
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 03:31'
-updated_date: '2026-08-09 03:32'
+updated_date: '2026-08-09 04:43'
 labels:
   - core
 milestone: m-3

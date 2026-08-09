@@ -3,9 +3,10 @@ id: TASK-65.13
 title: >-
   Screen 1m — All processes: the peer view, with unmeasurable processes shown
   honestly
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:25'
+updated_date: '2026-08-09 04:44'
 labels:
   - ui
   - core

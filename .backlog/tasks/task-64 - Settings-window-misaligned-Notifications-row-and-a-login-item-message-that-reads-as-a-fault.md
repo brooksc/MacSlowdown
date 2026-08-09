@@ -3,9 +3,10 @@ id: TASK-64
 title: >-
   Settings window: misaligned Notifications row and a login-item message that
   reads as a fault
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:14'
+updated_date: '2026-08-09 04:45'
 labels:
   - ui
 milestone: m-3
