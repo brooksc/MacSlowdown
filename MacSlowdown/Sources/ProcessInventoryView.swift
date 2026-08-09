@@ -1,12 +1,12 @@
 import Metrics
 import SwiftUI
 
-/// Current inventory of applications and processes (FR-002), with search (FR-027)
-/// and per-family expansion (FR-003).
+/// Current inventory of applications and processes (FR-002), with search (FR-027),
+/// per-family expansion (FR-003) and an inspector for the selected application.
 ///
 /// Collapsed by default. The question a user has is "which application is using
 /// the most", and a flat list of 800 processes buries that under helpers. The
-/// aggregate answers it; the expansion explains it.
+/// aggregate answers it; the expansion explains it; the inspector accounts for it.
 struct ProcessInventoryView: View {
     let store: MonitorStore
     @State private var query = ""
@@ -16,7 +16,18 @@ struct ProcessInventoryView: View {
     @State private var selection: InventoryRow.ID?
     @State private var expanded: Set<InventoryRow.ID> = []
     @State private var sortOrder = Presentation.defaultInventorySort
+    @State private var scope: Scope = .apps
+    @State private var history = FamilyHistory()
 
+    /// Which list is on screen. `allProcesses` is the peer view (TASK-65.13); the
+    /// control exists here so the count of what is *not* in the Apps list is
+    /// visible from the Apps list, which is the honesty the design is after.
+    enum Scope: String, CaseIterable, Identifiable {
+        case apps, allProcesses
+        var id: String { rawValue }
+    }
+
+    private var census: InventoryCensus { InventoryCensus.of(store.families) }
 
     private var rows: [InventoryRow] {
         let all = store.inventory
@@ -25,6 +36,21 @@ struct ProcessInventoryView: View {
                 || $0.children.contains { $0.name.localizedCaseInsensitiveContains(query) }
         }
         return Presentation.sortedInventory(matching, by: sortOrder)
+    }
+
+    /// The selected row, wherever it sits in the tree.
+    private var selectedRow: InventoryRow? {
+        guard let selection else { return nil }
+        for row in rows {
+            if row.id == selection { return row }
+            if let child = row.children.first(where: { $0.id == selection }) { return child }
+        }
+        return nil
+    }
+
+    private var selectedFamily: ProcessFamily? {
+        guard let selection else { return nil }
+        return store.families.first { $0.id == selection }
     }
 
     var body: some View {
@@ -38,10 +64,64 @@ struct ProcessInventoryView: View {
                     Text(explanation)
                 }
             } else {
-                table
+                VStack(spacing: 0) {
+                    scopeControl
+                    Divider()
+                    content
+                }
             }
         }
         .navigationTitle("Apps & Processes")
+        .onChange(of: store.lastUpdate) { _, _ in
+            history.record(rows: store.inventory, families: store.families,
+                           selected: selection)
+        }
+        .onChange(of: selection) { _, _ in
+            history.record(rows: store.inventory, families: store.families,
+                           selected: selection)
+        }
+    }
+
+    private var scopeControl: some View {
+        HStack {
+            Picker("Show", selection: $scope) {
+                Text("Apps · \(census.applicationCount)").tag(Scope.apps)
+                Text("All processes · \(census.totalProcesses)").tag(Scope.allProcesses)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            Spacer()
+        }
+        .padding(10)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch scope {
+        case .apps:
+            HStack(spacing: 0) {
+                table
+                if let selectedRow, selectedRow.kind != .member {
+                    Divider()
+                    FamilyInspectorView(
+                        store: store, history: history,
+                        row: selectedRow, family: selectedFamily)
+                        .frame(width: 340)
+                }
+            }
+        case .allProcesses:
+            // TASK-65.13 owns this list. Saying so is better than a table that
+            // silently shows the same applications under a different heading.
+            ContentUnavailableView {
+                Label("All processes is not built yet", systemImage: "list.bullet")
+            } description: {
+                Text("\(census.totalProcesses) processes were read on the last sweep, "
+                     + "\(census.notMeasurableProcesses) of which macOS will not report "
+                     + "usage for. Until this list exists, the applications among them "
+                     + "are under Apps.")
+            }
+        }
     }
 
     private func expansion(for id: InventoryRow.ID) -> Binding<Bool> {
@@ -54,7 +134,7 @@ struct ProcessInventoryView: View {
 
     private var table: some View {
         Table(of: InventoryRow.self, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Application", value: \.name) { row in
+            TableColumn("Name", value: \.name) { row in
                 nameCell(row)
             }
             TableColumn("CPU", value: \.cpuSortKey) { row in
@@ -62,11 +142,20 @@ struct ProcessInventoryView: View {
                     CPUPresentation.percentOfOneCore(row.percentOfOneCore)
                 }
             }
-            TableColumn("Resident memory", value: \.memorySortKey) { row in
+            TableColumn("Memory", value: \.memorySortKey) { row in
                 measurement(row) {
                     row.residentBytes == 0
                         ? "—" : ByteCountFormatStyle().format(Int64(row.residentBytes))
                 }
+            }
+            // A family has no PID of its own, and a dash says that better than the
+            // PID of whichever member happened to be first.
+            TableColumn("PID", value: \.pidSortKey) { row in
+                Text(row.pid.map(String.init) ?? "—").monospacedDigit()
+            }
+            TableColumn("Started", value: \.startedSortKey) { row in
+                Text(row.startedAt.map { $0.formatted(date: .omitted, time: .shortened) } ?? "—")
+                    .monospacedDigit()
             }
             TableColumn("Processes", value: \.processCount) { row in
                 Text(row.kind == .member ? "" : "\(row.processCount)").monospacedDigit()
@@ -84,7 +173,6 @@ struct ProcessInventoryView: View {
         }
         .searchable(text: $query, prompt: "Search applications")
         .safeAreaInset(edge: .bottom) { footer }
-
     }
 
     @ViewBuilder
@@ -102,7 +190,15 @@ struct ProcessInventoryView: View {
 
             Text(row.name)
 
-            if let qualification = row.qualification {
+            if row.isGroupedByGuess {
+                // The chip is a word, not a colour: severity and doubt are never
+                // carried by colour alone (FR-034).
+                Text("Grouped by guess")
+                    .font(.caption2)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+                    .help(row.qualification ?? "")
+            } else if let qualification = row.qualification {
                 // Stated in words rather than carried by an icon a user has to
                 // hover to decode.
                 Text(qualification)
@@ -117,11 +213,16 @@ struct ProcessInventoryView: View {
 
     private func accessibilityLabel(_ row: InventoryRow) -> String {
         var parts = [row.name]
+        if row.isGroupedByGuess { parts.append("grouped by guess") }
         if let qualification = row.qualification { parts.append(qualification) }
         if row.kind != .member { parts.append("\(row.processCount) processes") }
         parts.append(row.isMeasurable
             ? "\(CPUPresentation.percentOfOneCore(row.percentOfOneCore)) of one core"
             : "usage unavailable")
+        if let pid = row.pid { parts.append("PID \(pid)") }
+        if let startedAt = row.startedAt {
+            parts.append("started \(startedAt.formatted(date: .omitted, time: .shortened))")
+        }
         if row.hasChildren {
             parts.append(expanded.contains(row.id) ? "expanded" : "collapsed")
         }
@@ -142,6 +243,15 @@ struct ProcessInventoryView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 3) {
+            // FR-002/FR-038: the census and the freshness are the first two lines,
+            // because everything above them is only true of what we were allowed
+            // to read and of when we last read it.
+            HStack(spacing: 8) {
+                Text(census.summary).bold()
+                Text(InventoryCensus.freshness(lastUpdate: store.lastUpdate))
+            }
+            .accessibilityElement(children: .combine)
+            Text(InventoryCensus.explanation)
             Text(CPUPresentation.convention())
             if let note = CPUPresentation.topologyNote() {
                 Text(note)
@@ -149,8 +259,8 @@ struct ProcessInventoryView: View {
             Text("Resident memory. Activity Monitor's Memory column shows a different "
                  + "measure (footprint), so the numbers will not match exactly.")
             Text("Per-app disk activity is not available to App Store apps.")
-            Text("Click a column heading to sort, or a triangle to see the individual "
-                 + "processes an application is running.")
+            Text("Click a column heading to sort, a triangle to see the individual "
+                 + "processes an application is running, or a row to inspect it.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
