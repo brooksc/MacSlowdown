@@ -10,5 +10,12 @@
 	     Requesting anything further is where App Review rejections cluster. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Write access to exactly the file the user picks in a Save dialog, and
+	     nothing else. FR-028's export has to produce a file the user can attach
+	     themselves; without this the Save panel returns a URL the sandbox will not
+	     let us write. It grants no ambient file access: Powerbox extends the
+	     sandbox only to the chosen file, only when the user chooses it. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>

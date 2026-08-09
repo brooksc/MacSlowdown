@@ -26,6 +26,8 @@ struct IncidentDetailView: View {
     /// A before/after taken around a user action, if one was recorded (FR-050).
     var verification: ActionVerification? = nil
 
+    @State private var isExporting = false
+
     private var summary: IncidentSummary {
         IncidentSummarizer.summarize(incident: incident, attribution: store.attribution)
     }
@@ -90,13 +92,37 @@ struct IncidentDetailView: View {
                     .font(.title3).bold()
                     .fixedSize(horizontal: false, vertical: true)
                 SeverityChip(severity: incident.severity)
+                Spacer()
+                // FR-028: exporting shows what would leave before anything does.
+                Button("Export…") { isExporting = true }
+                    .help("Check what's in a report before you send it. Nothing is uploaded.")
             }
             Text(IncidentVerdict.paragraph(
                 incident: incident, attribution: store.attribution, duration: duration))
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .accessibilityElement(children: .combine)
+        .sheet(isPresented: $isExporting) {
+            ExportReportView(
+                model: ExportReportModel(
+                    incident: incident, summary: summary, attribution: store.attribution,
+                    contributorPaths: contributorPaths, machine: store.machine),
+                onClose: { isExporting = false })
+        }
+    }
+
+    /// Paths for the processes named in the report, where the app has them, so the
+    /// "File paths" control acts on something real rather than being inert.
+    private var contributorPaths: [ProcessIdentity: String] {
+        var paths: [ProcessIdentity: String] = [:]
+        for family in store.families {
+            for member in family.members {
+                if let path = member.resolved.executablePath {
+                    paths[member.record.identity] = path
+                }
+            }
+        }
+        return paths
     }
 
     // MARK: - Confidence legend (FR-038, stated up front)
