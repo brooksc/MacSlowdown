@@ -48,6 +48,26 @@ struct IncidentsView: View {
             Divider()
             footer
         }
+        // The fix for the blank pane, and it is not cosmetic. Measured on screen
+        // 2026-08-09 with the window at a correct 900x600: the detail column was
+        // 900x600 at y=271 and the split view `.inspector` builds inside it was
+        // **900x4085 at y=-1445** — 1716 pt above the window and 2369 pt below.
+        // Every element was present in the accessibility tree and drawn, just
+        // outside the visible slice, with the header at the top of that 4085 pt
+        // layout and the footer at the bottom. That is why the title and toolbar
+        // appeared (they belong to the window) while even the *unconditional*
+        // Divider and footer did not.
+        //
+        // Same pathology as TASK-75 — caption text under `fixedSize` answers with
+        // thousands of points when nothing proposes a width — but the thing that
+        // grew here is the inspector's split view, not the window, so TASK-75's
+        // bound on `detailPane` in `MainWindowView` did not reach it. `.inspector`
+        // has to be attached to content that already knows its own bounds.
+        //
+        // This also explains why sixteen offscreen configurations drew correctly:
+        // an `NSHostingView` supplies the height, so the split view could never
+        // demand one.
+        .frame(minHeight: 320, idealHeight: 480, maxHeight: .infinity)
         .navigationTitle("Incidents")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
