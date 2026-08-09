@@ -15,3 +15,6 @@ Derived/
 
 # local build output
 .build/
+
+# Agent worktrees (isolation dirs, not project content)
+.claude/worktrees/
