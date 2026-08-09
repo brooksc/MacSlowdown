@@ -4,13 +4,13 @@ title: Incidents renders blank instead of its empty state
 status: In Progress
 assignee: []
 created_date: '2026-08-09 02:14'
-updated_date: '2026-08-09 03:35'
+updated_date: '2026-08-09 18:28'
 labels:
   - ui
 milestone: m-3
 dependencies: []
 parent_task_id: TASK-51
-priority: medium
+priority: high
 ---
 
 ## Description
@@ -140,4 +140,40 @@ no incidents recorded, select Incidents, and confirm the empty state appears —
 and, if it does not, re-open this task with the offscreen dead ends above already
 crossed off. Criterion #4 is left unchecked deliberately: the investigation is
 recorded, but the cause was not established.
+
+## VERIFIED ON SCREEN 2026-08-09: STILL BLANK. THE FIX DID NOT WORK.
+
+Run on macOS 27, built Debug app, no incidents recorded. Selecting Incidents shows the navigation title and the 7-days/30-days range picker in the toolbar, and **nothing else**. Screenshot: `screenshots/verify/03-incidents.png`.
+
+This session's own warning was right: 'If it is still blank, the fix is wrong.' It is, and it was.
+
+## The new evidence narrows it sharply
+
+Since that fix, TASK-65.6 **rewrote this file completely** — different body structure, header, `DayStrip`, list, footer. The rewrite is also blank. So two independent implementations of `IncidentsView` render nothing, which eliminates almost everything specific to either one.
+
+More telling: the current body is
+
+```
+VStack {
+    if all.isEmpty { empty } else { header; Divider(); list }
+    Divider()
+    footer
+}
+```
+
+**The `Divider()` and the `footer` are unconditional, and neither appears either.** So this is not `ContentUnavailableView` failing to draw — the entire `VStack` produces nothing. That is a much stronger clue than anything in the earlier investigation, and it rules out the empty-state view itself as the subject.
+
+## Prime suspect: `.inspector(isPresented:)`
+
+It is the one construct **both** implementations kept. TASK-51.1 suspected it and replaced `.constant` with a real two-way binding; TASK-65.6 rewrote everything around it and kept the same corrected binding. Neither removed it, and this is the only pane in the app that uses it.
+
+The other three panes — Now, Apps & Processes, Storage — all render correctly in the same window on the same run, so the detail column, the split view and the window are all fine.
+
+## What to try next, in order
+
+1. **Remove `.inspector` entirely** and confirm the pane renders. If it does, the cause is settled and the incident detail needs a different presentation — a sheet, a navigation push, or an inspector attached at the `NavigationSplitView` level rather than inside the detail column.
+2. If it still renders nothing without the inspector, bisect the body: title only, then title plus one `Text`, then the footer alone. Something is collapsing the `VStack` to zero height.
+3. Note the offscreen harness in `IncidentsViewRenderTests.swift` **draws this view correctly in 16 configurations**, including a `MainWindowView` replica at the real window size. So whatever this is, it does not reproduce in an `NSHostingView` — it needs the live scene. Do not trust a green render test here.
+
+Raised to High: three of four main surfaces work and this one shows nothing, and it is the surface the whole product exists to deliver.
 <!-- SECTION:NOTES:END -->
