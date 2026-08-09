@@ -58,9 +58,6 @@ public struct MemoryStatistics: Sendable, Equatable {
     /// Compressed to save space rather than swapped to disk.
     public let compressed: UInt64
     public let pageSize: UInt64
-
-    /// Total physical memory the kernel accounts for here.
-    public var accountedFor: UInt64 { free + active + inactive + wired + compressed }
 }
 
 public enum MemorySignals {

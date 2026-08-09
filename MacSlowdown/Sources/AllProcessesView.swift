@@ -151,6 +151,9 @@ struct AllProcessesView: View {
 
     private func accessibilityLabel(_ row: AllProcessesRow) -> String {
         var parts = [row.name]
+        // The ellipsis in `row.name` is silent to VoiceOver, so the cut is said in
+        // words instead (FR-002, FR-034).
+        if row.nameIsShortened { parts.append(ProcessNaming.truncationNote) }
         if let subtitle = row.subtitle { parts.append(subtitle) }
         parts.append(row.isMeasurable
             ? "\(row.cpuText) of one core, \(row.memoryText) resident"

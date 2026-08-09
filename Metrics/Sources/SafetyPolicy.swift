@@ -90,10 +90,6 @@ public struct SafetyPolicy: Sendable {
         return nil
     }
 
-    public func isProtected(_ record: ProcessRecord) -> Bool {
-        protection(for: record) != nil
-    }
-
     /// Whether an action may be offered for a process.
     ///
     /// Protection currently withholds only `activate` and `revealInFinder`, because

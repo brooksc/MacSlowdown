@@ -25,8 +25,6 @@ public enum FamilyMembership: Sendable, Equatable {
     /// The user placed this process here (FR-039).
     case userAssigned
 
-    public var isCertain: Bool { self == .certain }
-
     /// Whether this association needs qualifying to the user. Parent lineage is
     /// evidence, not a guess, so it is not lumped in with uncertainty.
     public var isUncertain: Bool {
@@ -56,11 +54,6 @@ public struct ProcessFamily: Sendable, Identifiable {
     public var isStandalone: Bool { bundlePath == nil }
     public var hasUncertainMembers: Bool { members.contains { $0.membership.isUncertain } }
 
-    /// Processes grouped here because this application started them, rather than
-    /// because they live inside its bundle.
-    public var spawnedMemberCount: Int {
-        members.count { if case .byParent = $0.membership { true } else { false } }
-    }
     /// Members whose CPU and memory the sandbox denies us. They stay visible by
     /// name; their usage belongs in the unattributed bucket.
     public var notMeasurableCount: Int { members.count(where: { !$0.record.isMeasurable }) }

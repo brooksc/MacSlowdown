@@ -4,6 +4,16 @@ import Testing
 
 @testable import Metrics
 
+/// How many members were grouped by parent lineage rather than by bundle.
+///
+/// A local helper rather than a property on `ProcessFamily`: the app counts the
+/// same thing, but it does so in one pass across all four kinds of evidence
+/// (`GroupingProvenance`), so a single-category property on the framework type
+/// had no caller outside these assertions (TASK-81).
+private func spawnedMemberCount(_ family: ProcessFamily?) -> Int? {
+    family?.members.count { if case .byParent = $0.membership { true } else { false } }
+}
+
 private func record(
     pid: pid_t, ppid: pid_t, startTime: UInt64, command: String
 ) -> ProcessRecord {
@@ -116,7 +126,7 @@ struct ParentGroupingTests {
         #expect(families.count == 1, "14 shells and a terminal is one family, not fifteen")
 
         #expect(families.first?.members.count == 15)
-        #expect(families.first?.spawnedMemberCount == 14)
+        #expect(spawnedMemberCount(families.first) == 14)
     }
 
     /// FR-003 keeps the individual records beneath the aggregate: grouping must
@@ -174,7 +184,7 @@ struct ParentGroupingTests {
         ]
         let family = FamilyGrouper.group(inputs).first
         #expect(family?.displayName == "Warp")
-        #expect(family?.spawnedMemberCount == 1)
+        #expect(spawnedMemberCount(family) == 1)
     }
 
     /// Lineage is evidence, not a guess, so it must not trip the uncertainty
@@ -189,7 +199,7 @@ struct ParentGroupingTests {
         ]
         let family = FamilyGrouper.group(inputs).first
         #expect(family?.hasUncertainMembers == false)
-        #expect(family?.spawnedMemberCount == 1)
+        #expect(spawnedMemberCount(family) == 1)
     }
 
     /// The corroboration case: the path says the binary belongs here, the
@@ -265,7 +275,7 @@ struct ParentGroupingTests {
         let families = FamilyGrouper.group(inputs)
         #expect(families.count == 1)
         #expect(families.first?.isStandalone == true)
-        #expect(families.first?.spawnedMemberCount == 0)
+        #expect(spawnedMemberCount(families.first) == 0)
     }
 
     /// FR-039: a user correction outranks anything we inferred.

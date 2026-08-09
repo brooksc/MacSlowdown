@@ -45,9 +45,18 @@ public enum ProcessNaming {
         return isNonName(command) ? unidentified(shown) : shown
     }
 
+    /// How truncation is said aloud, since an ellipsis conveys nothing to
+    /// VoiceOver (FR-002, FR-034).
+    ///
+    /// A constant rather than a literal because two surfaces need it: the naming
+    /// path below, and the inventory tables, which build their own spoken label
+    /// from a row and cannot call `accessibilityLabel(command:)`. One wording, so
+    /// the two cannot drift.
+    public static let truncationNote = "name shortened by the system"
+
     /// Spoken form, since an ellipsis conveys nothing to VoiceOver (FR-034).
     public static func accessibilityLabel(command: String) -> String {
-        let suffix = isTruncated(command) ? ", name shortened by the system" : ""
+        let suffix = isTruncated(command) ? ", \(truncationNote)" : ""
         return isNonName(command)
             ? "Unidentified process, \(command)\(suffix)"
             : command + suffix

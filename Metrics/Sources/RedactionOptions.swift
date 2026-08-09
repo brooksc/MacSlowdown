@@ -68,11 +68,6 @@ public struct RedactionOptions: Sendable, Equatable {
             .map(\.0.name)
     }
 
-    /// Whether these choices hide everything `other` hides.
-    public func isAtLeastAsRedacted(as other: RedactionOptions) -> Bool {
-        fieldsLeftInComparedTo(other).isEmpty
-    }
-
     /// One sentence naming what is hidden and what is not, for a caller that has to
     /// state its redaction rather than show it — an App Intent running unattended,
     /// where nobody is looking at a preview (FR-028).
