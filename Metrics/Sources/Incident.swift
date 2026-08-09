@@ -45,6 +45,50 @@ public enum IncidentCondition: String, Sendable, CaseIterable, Codable {
     }
 }
 
+/// What an incident is about — the single rule every surface narrating one must
+/// consult (TASK-82).
+///
+/// Derived from the conditions, never stored, so it cannot fall out of date with
+/// them. `Incident.narrative` is the only producer.
+public enum IncidentNarrative: String, Sendable, Equatable, Codable {
+    /// The machine ran short of something. What was busy is the subject, and the
+    /// CPU attribution — the largest measurable contributor, the unattributable
+    /// share — is evidence about the thing being described.
+    case resource
+    /// An application failed while no resource condition was breached. The subject
+    /// is the process that kept exiting; the busiest process is a coincidence of
+    /// timing, not evidence (FR-046 as narrowed, design 1o).
+    case applicationLifecycle
+
+    /// Whether an account of this incident may be told in terms of CPU
+    /// attribution.
+    ///
+    /// False for a lifecycle episode, and *not* because the numbers are missing —
+    /// they are usually present and often large. They are simply about something
+    /// else. Leading with "38% of busy CPU could not be attributed" and naming the
+    /// busiest application with high confidence answers a question nobody asked and
+    /// points the reader at evidence that does not bear on the failure (FR-013,
+    /// FR-038).
+    public var narratesResourceAttribution: Bool { self == .resource }
+
+    /// Why an absent resource narrative is not a clean bill of health.
+    ///
+    /// Suppressing the CPU account must not turn into the opposite assertion. This
+    /// says exactly what is known — no sustained resource condition was *recorded*
+    /// — and stops there, on the same footing as `ResourceVerdict.notObserved`:
+    /// we did not observe a problem, not that there was none.
+    ///
+    /// Deliberately narrower than that verdict rather than a copy of it. This
+    /// speaks only about the conditions the detector recorded; the verdict speaks
+    /// about retained samples across the episode's window, and can say more when
+    /// samples exist and less when they do not.
+    public static let noResourceConditionRecorded =
+        "No sustained CPU, memory, storage or thermal condition was recorded while this "
+        + "was happening. That is what we did not observe, not a finding that the machine "
+        + "was fine — and we cannot see why a process ended, so nothing here rules a "
+        + "resource cause out."
+}
+
 public enum IncidentSeverity: Int, Sendable, Comparable, Codable {
     case moderate, high, severe
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
@@ -373,6 +417,38 @@ extension Incident {
         guard covers(suppression.at) else { return false }
         suppressions.append(suppression)
         return true
+    }
+
+    /// What this incident is about, and therefore how it may be described
+    /// (TASK-82).
+    ///
+    /// Read this rather than testing the conditions at a call site. Two surfaces
+    /// already asked the same question independently and answered it differently:
+    /// `IncidentDetailView` suppressed the unattributable-CPU report for a
+    /// lifecycle episode while `IncidentSummarizer` narrated the same episode as a
+    /// CPU problem, and because each was locally correct nothing failed.
+    public var narrative: IncidentNarrative {
+        conditions.contains(where: \.isResourceCondition) ? .resource : .applicationLifecycle
+    }
+
+    /// The repeated-quit finding this incident is about, where it has one.
+    ///
+    /// The subject of a repeated-quit incident is **the command that kept
+    /// exiting**, never the largest CPU contributor. Those are routinely different
+    /// processes — observed 2026-08-09 with `yes` exiting thirty times while Xcode
+    /// was busy — and the CPU leader is not evidence about a lifecycle episode at
+    /// all: it is the busiest thing we were permitted to measure while the episode
+    /// happened to be running.
+    ///
+    /// Ordered so two callers cannot disagree: most exits first, then the earliest
+    /// episode, then the command. `lifecycleFindings` is sorted by exit count alone,
+    /// which leaves ties to dictionary order.
+    public var lifecycleSubject: RelaunchPattern? {
+        lifecycleFindings.min { first, second in
+            if first.exits != second.exits { return first.exits > second.exits }
+            if first.firstAt != second.firstAt { return first.firstAt < second.firstAt }
+            return first.command < second.command
+        }
     }
 
     /// How this incident ended, derived only from what was recorded.

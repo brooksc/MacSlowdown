@@ -219,7 +219,10 @@ enum MemoryTrendBeforeExits {
 
 struct RepeatedQuitReport {
     let command: String
-    let displayName: String
+    /// The application's name, where grouping knew one. Nil is the ordinary case:
+    /// only ~15% of the process table lives in a `.app`, so most repeated-quit
+    /// subjects are known only by the kernel's command.
+    let applicationName: String?
     let pattern: RelaunchPattern
     /// Oldest first.
     let sessions: [AppSession]
@@ -269,9 +272,25 @@ struct RepeatedQuitReport {
 
     // MARK: Narrative
 
+    /// How this subject is named inside a sentence.
+    ///
+    /// Observed on screen 2026-08-09: "yes quit unexpectedly 30 times in 1 minute".
+    /// The command was correct and the sentence was unreadable — a lowercase
+    /// command at the head of a clause reads as an English word. `ProcessNaming`
+    /// owns the rule so the incident row and this report cannot disagree about how
+    /// the same process is named (TASK-82).
+    var subject: String {
+        ProcessNaming.sentenceSubject(command: command, applicationName: applicationName)
+    }
+
+    var subjectAtSentenceStart: String {
+        ProcessNaming.sentenceSubject(
+            command: command, applicationName: applicationName, capitalized: true)
+    }
+
     var headline: String {
         let minutes = max(1, Int((window.duration / 60).rounded()))
-        return "\(displayName) quit unexpectedly \(Self.count(pattern.exits)) times in "
+        return "\(subjectAtSentenceStart) quit unexpectedly \(Self.count(pattern.exits)) times in "
             + "\(minutes) minute\(minutes == 1 ? "" : "s")"
     }
 
@@ -426,7 +445,7 @@ struct RepeatedQuitReport {
         let open = sessions.last { $0.isOpen }
         return RepeatedQuitReport(
             command: pattern.command,
-            displayName: displayName ?? pattern.command,
+            applicationName: displayName,
             pattern: pattern,
             sessions: sessions,
             exits: exits,

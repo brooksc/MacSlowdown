@@ -94,6 +94,46 @@ public enum IncidentSummarizer {
                 evidence: .measured))
         }
 
+        // The subject of a repeated-quit episode, named wherever one was recorded —
+        // including on an incident that also breached a resource threshold, where
+        // the two findings are about different processes and the reader needs both
+        // names (TASK-82).
+        if let subject = incident.lifecycleSubject {
+            conclusions.append(Conclusion(
+                "\(ProcessNaming.sentenceSubject(command: subject.command, capitalized: true)) "
+                    + "exited \(subject.exits) times over that window, each time replaced by a "
+                    + "process with a new PID.",
+                evidence: .measured))
+            conclusions.append(Conclusion(RelaunchPattern.limitation, evidence: .measured))
+        }
+
+        // MARK: The lifecycle account, which is a different kind of account
+        //
+        // A repeated-quit episode is not a resource episode narrated with different
+        // numbers — it is the case where the machine was, as far as we measured,
+        // fine. Everything below this branch is about what was busy, and none of it
+        // bears on why an application failed (TASK-82).
+        //
+        // Note what is *not* emitted: no hypothesis. The one the detail screen makes
+        // ("it probably met the same problem each time") is built there from the
+        // pattern's own `causeConfidence` and is not copied here — a second copy is
+        // how the two surfaces came to disagree in the first place. A banner that
+        // states the episode and stops is the honest short form.
+        //
+        // The ruled-out list below is skipped for the same reason. "Not a storage
+        // problem — free space stayed above the warning level" is a fair thing to
+        // say about a slowdown; said about an application that kept exiting it
+        // volunteers a clean bill of health for a cause nobody proposed, on evidence
+        // that cannot support one.
+        guard incident.narrative.narratesResourceAttribution else {
+            ruledOut.append(Conclusion(
+                IncidentNarrative.noResourceConditionRecorded, evidence: .measured))
+            return IncidentSummary(
+                headline: Self.headline(incident: incident, duration: duration),
+                conclusions: conclusions,
+                ruledOut: ruledOut)
+        }
+
         // MARK: Calculated
 
         if let recorded = incident.attribution {

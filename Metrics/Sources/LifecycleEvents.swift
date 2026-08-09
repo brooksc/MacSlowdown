@@ -104,6 +104,28 @@ public struct RelaunchPattern: Sendable, Equatable, Identifiable, Codable {
 public struct LifecycleTracker: Sendable {
     /// A relaunch needs at least this many exits inside the window to count as a
     /// pattern rather than an ordinary restart.
+    ///
+    /// **Re-examined against FR-006 on 2026-08-09 and deliberately unchanged — the
+    /// count is the wrong dial** (TASK-82 criterion #5, follow-up in TASK-84).
+    ///
+    /// Measured, not reasoned: one 901 s window on a developer Mac, sampled at 2 s,
+    /// grouping disappearances by basename truncated to 16 bytes as `p_comm` is.
+    /// **28 commands reached three exits** — `swift-frontend` 112, `swift-plugin-ser`
+    /// 63, `mdworker_shared` 61, `yes` 60, `zsh` 42, `xcodebuild` 19, and 22 more.
+    /// Raising the count cannot separate those from a real failure, because normal
+    /// build churn reaches 112 and a user who relaunches a broken app gives up at
+    /// three or four. Requiring a matched relaunch leaves 23 of the 28, because a
+    /// build spawns the same compiler over and over.
+    ///
+    /// TASK-71 read `minimumExits` as FR-006's sustained-not-transient guard. FR-006
+    /// forbids alerting on *one event too short to matter*; what this predicate
+    /// admits is *many events that were each entirely normal*. Multiplicity is not
+    /// duration.
+    ///
+    /// The filter that works is FR-046's own noun: **application**. Exactly one of
+    /// the 28 lived in a `.app`. That change needs identity resolution the tracker
+    /// is not given, and it costs recall on genuinely failing daemons, so it is a
+    /// product decision and is recorded in TASK-84 rather than made here.
     public var minimumExits: Int
     public var window: Duration
 

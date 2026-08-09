@@ -175,29 +175,12 @@ struct IncidentsView: View {
     /// it would open an empty inspector.
     @ViewBuilder
     private func row(for entry: IncidentHistory.Entry) -> some View {
-        let content = IncidentRow(
-            entry: entry, leadingContributor: leadingContributor(for: entry))
+        let content = IncidentRow(entry: entry)
         if case .resource(let incident) = entry.kind {
             content.tag(incident.id)
         } else {
             content
         }
-    }
-
-    /// The application the incident was attributed to *while it was happening*.
-    ///
-    /// This used to read live state and could therefore only speak for an open
-    /// incident — naming whatever happens to be busy now beside a slowdown that
-    /// ended an hour ago. TASK-68 made incidents record their own attribution, so
-    /// a closed incident now answers from what it measured at the time.
-    ///
-    /// Still a heuristic, and labelled as one in the row: the leading contributor
-    /// is the largest share we were permitted to measure, not a proven cause
-    /// (FR-013, FR-038). No fallback to live state — an incident that recorded
-    /// nothing says nothing, rather than borrowing the present to describe the past.
-    private func leadingContributor(for entry: IncidentHistory.Entry) -> String? {
-        guard case .resource(let incident) = entry.kind else { return nil }
-        return incident.attribution?.leadingApplication?.displayName
     }
 
     // MARK: - Empty state and footer
@@ -263,8 +246,12 @@ struct DayStrip: View {
 
 struct IncidentRow: View {
     let entry: IncidentHistory.Entry
-    /// Present only for an open incident, and only as a measured-now leader.
-    var leadingContributor: String?
+
+    /// Which application the row is about. Derived by `IncidentHistory.Entry`, not
+    /// here: this view used to name the largest CPU contributor for every row,
+    /// which is the wrong subject for a repeated-quit episode and disagreed with
+    /// the detail inspector about the same incident (TASK-82).
+    private var subject: IncidentHistory.Entry.Subject? { entry.subject }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -307,10 +294,12 @@ struct IncidentRow: View {
         switch entry.kind {
         case .resource(let incident):
             let conditions = incident.conditions.map(\.label).sorted().joined(separator: " and ")
-            if let leadingContributor { return "\(conditions) — \(leadingContributor)" }
+            if let subject { return "\(conditions) — \(subject.text)" }
             return conditions
-        case .repeatedQuits(let pattern):
-            return "\(pattern.command) quit unexpectedly, repeatedly"
+        case .repeatedQuits:
+            // Sentence form, because this is a sentence: "yes quit unexpectedly,
+            // repeatedly" reads as the English word (TASK-82).
+            return "\(subject?.sentenceTextAtStart ?? "A process") quit unexpectedly, repeatedly"
         }
     }
 
@@ -331,9 +320,16 @@ struct IncidentRow: View {
     /// The caveat that cannot be separated from the claim (FR-013).
     private var caveat: String? {
         switch entry.kind {
-        case .resource:
-            guard let leadingContributor else { return nil }
-            return "\(leadingContributor) is the largest contributor we can measure right "
+        case .resource(let incident):
+            // A lifecycle-only incident names the process that kept exiting, which
+            // is a measured fact and not a contributor claim. Reusing the
+            // contributor caveat there would attach "largest contributor" to a
+            // process we never said was busy (TASK-82).
+            guard let subject else { return nil }
+            guard incident.narrative.narratesResourceAttribution else {
+                return "We can see that it exited and started again, not why."
+            }
+            return "\(subject.text) is the largest contributor we can measure right "
                 + "now — heuristic, not a cause."
         case .repeatedQuits(let pattern):
             return "We can see that it exited and started again, not why — "
@@ -361,6 +357,13 @@ struct IncidentRow: View {
 
     private var accessibilityLabel: String {
         let prefix = severity.map { "\($0) incident: " } ?? ""
-        return prefix + title + ". " + subtitle + (caveat.map { " \($0)" } ?? "")
+        // An ellipsis conveys nothing to VoiceOver, so a name the kernel shortened
+        // is said to be shortened — the same treatment `AllProcessesView` and
+        // `ProcessInventoryView` already give it (FR-002, FR-034, TASK-81).
+        var spoken = prefix + title + ". " + subtitle + (caveat.map { " \($0)" } ?? "")
+        if let subject, subject.isShortenedCommand {
+            spoken += " \(subject.accessibilityText), \(ProcessNaming.truncationNote)."
+        }
+        return spoken
     }
 }

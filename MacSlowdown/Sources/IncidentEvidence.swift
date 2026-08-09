@@ -183,10 +183,19 @@ enum IncidentVerdict {
             let peak = Int((incident.peakCPUBusyFraction * 100).rounded())
             sentences.append("Total CPU peaked at \(peak)% of this Mac's capacity.")
         }
-        if let leader = attribution?.contributors.first {
+        // The busiest process is not the subject of a lifecycle episode, and naming
+        // it here would put a CPU figure at the head of an account of an
+        // application that kept exiting (TASK-82). One rule, on the incident,
+        // consulted rather than re-derived.
+        if incident.narrative.narratesResourceAttribution,
+           let leader = attribution?.contributors.first {
             sentences.append("\(leader.label) was the largest single user of CPU we are "
                              + "permitted to measure at "
                              + "\(Int(leader.percentOfOneCore.rounded()))% of one core.")
+        } else if let quitting = incident.lifecycleSubject {
+            sentences.append(
+                "\(ProcessNaming.sentenceSubject(command: quitting.command, capitalized: true)) "
+                + "exited \(quitting.exits) times across that window.")
         }
         sentences.append(incident.isOpen
             ? "Conditions have not yet returned to normal for long enough to close it."

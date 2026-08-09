@@ -166,6 +166,90 @@ enum IncidentHistory {
         /// instead of as two differently-spelled findings.
         static let repeatedQuitsLabel = IncidentCondition.repeatedApplicationQuits.label
 
+        /// Which application the row is about (TASK-82).
+        ///
+        /// The rule lives here, not in the view, because the view already got it
+        /// wrong once by asking a simpler question: it read
+        /// `incident.attribution?.leadingApplication`, the largest *CPU*
+        /// contributor, for every row. Observed on screen 2026-08-09, the list said
+        /// "Repeated unexpected quits — Xcode" while the detail for that same row
+        /// said `yes` had quit thirty times. Both were reporting a real
+        /// measurement; only one of them was about the incident.
+        ///
+        /// So: a lifecycle episode is about the process that kept exiting, and a
+        /// resource episode is about what was busy. `Incident.narrative` decides
+        /// which, and it is the same rule the summariser and the detail view use.
+        var subject: Subject? {
+            switch kind {
+            case .repeatedQuits(let pattern):
+                return Subject(command: pattern.command, applicationName: nil)
+            case .resource(let incident):
+                if let quitting = incident.lifecycleSubject, !incident.narrative
+                    .narratesResourceAttribution {
+                    return Subject(command: quitting.command, applicationName: nil)
+                }
+                guard let leader = incident.attribution?.leadingApplication else { return nil }
+                return Subject(command: nil, applicationName: leader.displayName)
+            }
+        }
+
+        /// A row's subject, named the way FR-002 requires.
+        ///
+        /// Two things it will not do. It will not present a `p_comm` fragment as
+        /// though it were the application's name — the row that read
+        /// "BackgroundShortc…" gave no indication that the name was cut off by the
+        /// kernel rather than by us. And it will not drop a bare command into the
+        /// head of a sentence, where `yes` reads as a word.
+        struct Subject: Equatable {
+            /// The kernel's command, when that is all we have.
+            let command: String?
+            /// A resolved application name, which needs no scaffolding.
+            let applicationName: String?
+
+            /// For a row's title, where the subject stands on its own.
+            var text: String {
+                if let applicationName { return applicationName }
+                guard let command else { return "" }
+                return ProcessNaming.labelled(command: command)
+            }
+
+            /// For a sentence, where a bare command must be introduced as one.
+            var sentenceText: String {
+                ProcessNaming.sentenceSubject(
+                    command: command ?? "", applicationName: applicationName)
+            }
+
+            /// The same, beginning a sentence.
+            var sentenceTextAtStart: String {
+                ProcessNaming.sentenceSubject(
+                    command: command ?? "", applicationName: applicationName, capitalized: true)
+            }
+
+            /// Spoken form: an ellipsis conveys nothing to VoiceOver, so truncation
+            /// is said in words (FR-034), exactly as the two inventory tables do.
+            var accessibilityText: String {
+                if let applicationName { return applicationName }
+                guard let command else { return "" }
+                return ProcessNaming.accessibilityLabel(command: command)
+            }
+
+            /// True when what is shown is the kernel's shortened command rather
+            /// than a name (FR-002). `ProcessNaming.nameIsTruncatedCommand` asks
+            /// the same question of a resolved identity; here the identity is gone
+            /// and only the command survived on the pattern, so the two halves —
+            /// no friendly name, and a command at the 16-byte limit — are tested
+            /// directly.
+            ///
+            /// A resolved `applicationName` is taken at face value. Grouping may
+            /// itself have fallen back to a labelled command to produce it, and by
+            /// the time it reaches here the evidence for that is gone — so this
+            /// under-reports rather than guessing from the shape of a string.
+            var isShortenedCommand: Bool {
+                guard applicationName == nil, let command else { return false }
+                return ProcessNaming.isTruncated(command)
+            }
+        }
+
         var isOpen: Bool {
             if case .resource(let incident) = kind { return incident.isOpen }
             return false
