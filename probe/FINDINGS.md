@@ -744,3 +744,139 @@ only on the path fallback.
 
 Measured after the change: 0 of 797 processes still display a version or a bare
 identifier; all eight `claude` processes resolve to `claude`.
+
+---
+
+# Our own memory: resident size is the wrong number for FR-030 (TASK-55.1)
+
+**Date:** August 8, 2026 · macOS 27.0 (26A5388g), M2, 8 logical cores
+**Probes:** `Sources/self-memory-probe.swift` (built with `build-probe.sh`),
+`memlog.sh` and `footprintlog.sh` against the running app.
+
+TASK-55.1 opened on three readings taken minutes apart from the running Debug
+app — 418.4 MB and 307.4 MB on the Now screen's `MacSlowdown itself:` line, and
+2.26 GB on the Apps & Processes row — against TASK-55's closing figure of 92 MB
+and FR-030's 100 MB budget.
+
+## The two surfaces never disagreed. Resident size is just unstable.
+
+Both surfaces read `pti_resident_size`, from the same sweep. Nothing in the code
+makes them differ for a one-process family, and nothing was found that does.
+
+What differs is *when*. Over a 755 s log of the running app, resident size read
+**3321 MB**, then fell to **884 MB in about ten seconds** without the app doing
+anything, and held at **809–874 MB** for the remaining 555 s. Over the same
+window `phys_footprint` never moved: **396 MB** before the fall, 396 MB after.
+
+`vmmap` explains it. 3.0 GB of the 3.3 GB resident total was mapped files under
+`/Library/Caches/com.apple.iconservices.store/*.isdata` — 3012 regions of the
+system icon store, clean, shared and file-backed. The kernel evicts those for
+free the moment anything else wants the pages, which is exactly what happened.
+
+**Rule: resident size is not a cost you are charged for.** It counts clean shared
+file-backed pages that cost nothing to drop. Two honest readings of our own
+resident size can differ by 2.5 GB minutes apart. Quoting one as *the* memory
+figure — on either surface — reports the machine's page cache, not our footprint.
+
+`phys_footprint` is the stable number, and it is the one Activity Monitor shows.
+We cannot read it for other processes (`proc_pid_rusage` is self-only, see above),
+which is why FR-043 reports resident size for *them*. For **ourselves** it is
+readable, and it is the only figure a budget can be held against.
+
+Long-run figures for the running Debug app, 1191 s:
+
+| Statistic | Resident size | phys_footprint |
+|---|---|---|
+| Range over the run | 809 – 3323 MB | 218 – 397 MB |
+| Median after t=150 s | 837 MB | **292 MB** |
+| Trend | flat after eviction | flat, two discrete steps |
+
+Steady, not climbing. The steps up (291 → 327 MB) coincide with new applications
+being sighted for the first time; between them the figure is flat to ±2 MB over
+17 minutes. That is a fixed cost per newly-seen application, not unbounded growth
+— it is **not** evidence of a leak, and must not be described as one (FR-044).
+
+## Where the 292 MB goes: `NSImage.tiffRepresentation` costs 70 MB per icon
+
+`ProcessIconCache` decides whether an icon is real or a generic placeholder by
+comparing `candidate.tiffRepresentation` against the generic icon's. FR-002
+requires that distinction. The comparison is what costs.
+
+Measured by `self-memory-probe`, sandboxed, 117 naming bundles on this machine —
+each stage in its own process so one cannot contaminate the next:
+
+| Stage | Resident | phys_footprint |
+|---|---|---|
+| `sysctl KERN_PROC_ALL`, 808 pids | +0.6 MB | +0.6 MB |
+| `proc_pidpath`, 775 paths | +0.2 MB | +0.3 MB |
+| `Info.plist` names, 113/117 | +2.3 MB | +1.2 MB |
+| `NSWorkspace.runningApplications` | +0.5 MB | +0.2 MB |
+| **one** `icon(for: .unixExecutable).tiffRepresentation` | **+196 MB** | **+148 MB** |
+| 117 × `icon(forFile:)`, pooled, images retained | +18.5 MB | **+5.9 MB** |
+| 117 × `tiffRepresentation`, pooled | +1698 MB | +1693 MB |
+| 117 × the app's exact sequence, unpooled | +7017 MB | +7958 MB |
+
+`tiffRepresentation` of an icon from IconServices is **70 MB**. The image carries
+representations to 1024×1024 across every scale, and asking for TIFF flattens all
+of them into one contiguous `Data`. Doing it 117 times moves ~8 GB through malloc.
+
+Two things follow that are easy to get backwards:
+
+- **Holding the icons is nearly free.** Retaining all 117 `NSImage`s costs 5.9 MB
+  of footprint, and rasterising them at 16 pt adds 2.5 MB. The cache is not the
+  problem; the equality test performed once per cache miss is.
+- **Draining the autorelease pool does not give it back**, and neither does
+  releasing the cache — measured, not assumed. Pooling each call cuts the peak
+  from 8109 MB to 1843 MB, but 1.8 GB stays resident in malloc's large-block
+  free list. `vmmap` on the running app shows the same shape: a
+  `Malloc Large (empty)` region of 320 MB virtual, 103 MB resident. The app's
+  292 MB steady footprint is largely this high-water mark, not live objects.
+
+## A 32 pt rasterised comparison is equivalent and costs 0.17 MB
+
+Draw both icons into a 32×32 RGBA bitmap and compare the PNG bytes. Measured over
+the same 117 bundles:
+
+| Method | Agrees with `tiffRepresentation` | Footprint cost |
+|---|---|---|
+| `NSImage.name()` | **0/117 — does not discriminate** | +0.03 MB |
+| 32 pt rasterised comparison | **117/117** | **+0.17 MB** |
+
+All 117 bundles classified as "real", so agreement alone would also be scored by
+a method that always answers "real". The negative control settles it: for
+`/bin/ls` and `/usr/bin/true` both methods answer *generic*, and for a
+non-existent path both answer *real* (IconServices returns the generic **document**
+icon there, which is not the unix-executable icon either method compares against).
+The cheap method discriminates; it is not just agreeing by accident.
+
+This is a **proposed** replacement measured in a probe, not a change made to
+`ProcessNaming.swift` — that file was owned by another session at the time.
+
+## The headless harness was never wrong, it was answering a different question
+
+`probe/overhead/run.sh 300` on the same machine, same day:
+
+```
+sweeps: 145 over 302.0s
+cpu:    0.830% of one core steady state (budget 1.0%) OK
+memory: 20.7 MB resident, +13.0 MB growth (budget 100 MB) OK
+disk:   0.00 MB/hour projected (budget 10 MB/hour) OK
+```
+
+20.7 MB is the true cost of the sampling path. The gap to the app's 292 MB is
+AppKit, SwiftUI and the icon comparison above — none of which the harness links.
+Both numbers are honest; FR-030's budget applies to the second.
+
+## What is still unmeasured
+
+The **Release** build has not been measured, and neither has a freshly launched
+app. Both require putting a menu bar item on screen, which needs the user
+present. TASK-55's 92 MB is consistent with a reading taken before the inventory
+had been opened — the icon cost is incurred per application *first displayed*, so
+a launched-but-unbrowsed app legitimately reads far lower than one that has shown
+the full process table. That is a hypothesis fitting the evidence, not a
+measurement.
+
+**Rule for the next person: measure our own memory as `phys_footprint`, over at
+least 300 s, and say which build and which screens were opened.** A figure without
+those three qualifiers is not comparable to any other figure.
