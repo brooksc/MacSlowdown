@@ -1,0 +1,9 @@
+<!--
+  Icon Composer layer 1 (bottom): the incident band.
+  Full 1024 canvas, no mask, flat and opaque as Apple's guidance requires.
+  Set the layer's opacity to 48% in Icon Composer; the background gradient is
+  added in Icon Composer itself, not exported.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="336" y="0" width="352" height="1024" fill="#FFC257"/>
+</svg>

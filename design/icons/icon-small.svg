@@ -1,0 +1,40 @@
+<!--
+  MacSlowdown app icon — direction 3b, small-size artwork (16, 32 and 64 px).
+
+  Drawing a distinct simplified form for the small sizes is standard practice,
+  not a compromise: the large trace's undulation is noise below 128 px and eats
+  the contrast the band needs.
+
+  Every coordinate is a multiple of 64, so at 16 px every edge lands exactly on a
+  pixel boundary (64 units = 1 px at 16, 1 px at 32 and 64 too). Nothing is
+  softened by antialiasing, which is what keeps the 2 px trace and the 6 px band
+  reading at 16.
+
+    band      x 320..704   -> px  5..11
+    risers    x 320, 704   -> px  4..6 and 10..12  (straddling the band's edges)
+    plateau   y 320        -> px  4..6
+    settled   y 704        -> px 10..12
+    tails     x 128..896   -> px  1..15 including the round caps
+
+  Full-bleed and fully opaque, for the same macOS 26 masking reason as
+  icon-large.svg.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="slate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5E6D90"/>
+      <stop offset="1" stop-color="#242C3C"/>
+    </linearGradient>
+    <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC257" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#FF9A2E" stop-opacity="0.38"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#slate)"/>
+  <rect x="320" y="0" width="384" height="1024" fill="url(#band)"/>
+
+  <path d="M 128 704 L 320 704 L 320 320 L 704 320 L 704 704 L 896 704"
+        fill="none" stroke="#FFA524" stroke-width="128"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
