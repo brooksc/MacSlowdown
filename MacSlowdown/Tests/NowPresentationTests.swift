@@ -278,3 +278,138 @@ struct NowFootnoteTests {
         #expect(notes.contains { $0.contains("footprint") })
     }
 }
+
+// MARK: - Per-metric freshness (TASK-65.14, design 1n)
+
+@Suite("Now, when our own sampling falls behind")
+struct NowFreshnessTests {
+    private let cadence = Duration.seconds(2)
+
+    @Test("A reading within the promised interval is current; a late one carries its age")
+    func agesAreDerivedFromTheReadingTimestamp() {
+        let now = Date()
+        #expect(NowPresentation.metricFreshness(
+            observedAt: now.addingTimeInterval(-1), now: now, cadence: cadence)
+            == .current(age: .seconds(1)))
+        #expect(NowPresentation.metricFreshness(
+            observedAt: now.addingTimeInterval(-45), now: now, cadence: cadence)
+            == .stale(age: .seconds(45)))
+    }
+
+    /// The failure this screen exists to prevent. `MonitorStore.freshness` can only
+    /// be recomputed when a sample arrives, so a loop that has stopped arriving
+    /// leaves it saying `.current` indefinitely. Deriving the age from the reading's
+    /// timestamp and a clock of our own is what catches that (FR-032).
+    @Test("A loop that has stopped arriving reads as stale, not as current")
+    func aStalledLoopIsNotCurrent() {
+        let now = Date()
+        let freshness = NowPresentation.metricFreshness(
+            observedAt: now.addingTimeInterval(-120), now: now, cadence: cadence)
+        #expect(freshness.isStale)
+        #expect(freshness.caption == "as of 2 minutes ago")
+    }
+
+    @Test("No reading yet is neither current nor stale")
+    func noReadingYet() {
+        let freshness = NowPresentation.metricFreshness(
+            observedAt: nil, now: Date(), cadence: cadence)
+        #expect(freshness == .noReadingYet)
+        #expect(!freshness.isStale)
+        #expect(freshness.caption == "no reading yet")
+    }
+
+    /// FR-031's investigation cadence is 1 s. Twice that is 2 s, which a render a
+    /// moment before the next sample would cross — so the threshold has a floor.
+    @Test("A 1 s investigation cadence does not read as stale between samples")
+    func investigationCadenceHasAFloor() {
+        #expect(NowPresentation.staleThreshold(cadence: .seconds(1)) == .seconds(3))
+        #expect(NowPresentation.staleThreshold(cadence: .seconds(2)) == .seconds(4))
+        #expect(NowPresentation.staleThreshold(cadence: .seconds(5)) == .seconds(10))
+    }
+
+    /// FR-034: dimming a value is a colour. The age has to be a word and a glyph as
+    /// well, and it has to reach VoiceOver.
+    @Test("Staleness is carried by a word and a glyph, and is spoken")
+    func stalenessIsNeverColourAlone() {
+        let stale = NowPresentation.MetricFreshness.stale(age: .seconds(45))
+        #expect(stale.caption == "as of 45 seconds ago")
+        #expect(stale.symbolName == "exclamationmark.triangle")
+        #expect(stale.spoken == "not current, as of 45 seconds ago")
+        #expect(stale.rowCaption == "45 s ago")
+
+        let current = NowPresentation.MetricFreshness.current(age: .seconds(1))
+        #expect(current.caption == "current")
+        #expect(current.symbolName == nil)
+        // A current row carries no age: it would be noise on every row of an
+        // ordinary screen.
+        #expect(current.rowCaption == nil)
+    }
+
+    /// Memory pressure is the one metric on this screen with an age of its own,
+    /// because the kernel pushes it through a dispatch source. Everything else is
+    /// written in a single pass of the sampling loop and shares one age exactly.
+    @Test("An event-driven reading is current regardless of the sampling loop")
+    func eventDrivenReadingsAreCurrent() {
+        let pushed = NowPresentation.MetricFreshness.reportedOnChange
+        #expect(!pushed.isStale)
+        #expect(pushed.caption == "current · reported when it changes")
+        #expect(pushed.spoken.contains("reported by the system when it changes"))
+    }
+
+    @Test("The banner says sampling is behind and that recording has not stopped")
+    func bannerSaysRecordingContinues() {
+        let banner = NowPresentation.catchingUpBanner(cadence: .seconds(1))
+        #expect(banner.headline == "These readings are catching up")
+        #expect(banner.body.contains("last reading we trust"))
+        #expect(banner.body.contains("Recording is still running"))
+        #expect(banner.body.contains("nothing is being lost"))
+        #expect(banner.retry == "Retrying every 1 s")
+    }
+
+    @Test("The contributor list is headed with the age of the reading it came from")
+    func contributorHeaderCarriesTheAge() {
+        #expect(NowPresentation.contributorHeaderNote(.stale(age: .seconds(45)))
+            == "from the reading 45 seconds ago — not updating right now")
+        #expect(NowPresentation.contributorHeaderNote(.current(age: .seconds(1))) == nil)
+        #expect(NowPresentation.contributorHeaderNote(.reportedOnChange) == nil)
+    }
+
+    /// FR-002: the screen must say that a greyed figure is a record, not a forecast.
+    @Test("The footer refuses to estimate anything forward")
+    func footerRefusesToExtrapolate() {
+        #expect(NowPresentation.staleFootnotes.contains {
+            $0.contains("last complete reading")
+                && $0.contains("Nothing here is estimated forward")
+        })
+    }
+
+    /// TASK-65.14 criterion #5. Design 1n promises "the menu bar icon runs on a
+    /// higher-priority path, so it keeps updating even while this window is
+    /// behind". It does not: `MonitorStore` is `@MainActor`, its sampling loop runs
+    /// on the main actor, and both surfaces read the same `@Observable` state. The
+    /// claim is removed, and this pins the removal so nobody restores the
+    /// reassurance without first making it true.
+    @Test("The menu bar is not claimed to be more up to date than the window")
+    func theMenuBarIsNotClaimedToBeFresher() {
+        let text = NowPresentation.staleFootnotes.joined(separator: " ")
+        #expect(!text.lowercased().contains("higher-priority"))
+        #expect(!text.lowercased().contains("keeps updating"))
+        #expect(text.contains("never more up to date than this window"))
+    }
+
+    /// The other half of the same verdict: the icon is not merely no fresher, it is
+    /// allowed to be up to `MenuBarIcon.minimumInterval` *behind* the window,
+    /// because TASK-65.17's rate limiter holds a state change back (design 2d).
+    @Test("The menu bar icon may lag the window by up to the rate limit")
+    func theIconMayLagTheWindow() {
+        let start = ContinuousClock.now
+        let severe = MenuBarIconPresentation(
+            state: .incident, showsBadge: true, cappedByExpectedWorkload: false,
+            accessibilityLabel: "incident")
+        let decision = MenuBarIconRateLimiter.decide(
+            displayed: .normal, desired: severe,
+            lastChangeAt: start, now: start.advanced(by: .milliseconds(500)),
+            minimumInterval: MenuBarIcon.minimumInterval)
+        #expect(decision == .hold(remaining: .milliseconds(1500)))
+    }
+}

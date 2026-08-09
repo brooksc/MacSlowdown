@@ -122,6 +122,13 @@ struct NowView: View {
     /// What the last action actually did (FR-017). Never assumed from the call
     /// returning.
     @State private var lastActionOutcome: String?
+    /// The clock the ages on this screen are measured against.
+    ///
+    /// Deliberately not the sampling cadence (DR-03). Ages have to advance while
+    /// *no* sample is arriving — that is the entire condition design 1n describes —
+    /// and a screen that only redraws when the store changes would sit on
+    /// "current" throughout a stall.
+    @State private var now = Date()
 
     private var rows: [InventoryRow] {
         NowPresentation.matching(
@@ -136,14 +143,28 @@ struct NowView: View {
         store.cadence?.interval ?? MetricsHistory.defaultCadence
     }
 
+    /// The age of everything the sampling loop writes in one pass: CPU, the
+    /// contributor list, disk throughput, swap, paging, thermals and power.
+    private var sampleFreshness: NowPresentation.MetricFreshness {
+        NowPresentation.metricFreshness(
+            observedAt: store.lastUpdate, now: now, cadence: cadenceInterval)
+    }
+
+    /// Memory pressure is the one metric with a life of its own: the kernel pushes
+    /// a transition through a dispatch source, so while that is running the level
+    /// is current no matter how far behind the loop is.
+    private var memoryFreshness: NowPresentation.MetricFreshness {
+        store.memoryPressureIsLive ? .reportedOnChange : sampleFreshness
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let explanation = store.enumeration.explanation {
                     enumerationBanner(explanation)
                 }
-                if case .stale(let age) = store.freshness {
-                    staleBanner(age: age)
+                if sampleFreshness.isStale {
+                    catchingUpBanner
                 }
 
                 if let incident = store.openIncident {
@@ -161,9 +182,20 @@ struct NowView: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .task { await tickAgeClock() }
         .searchable(text: $query, prompt: "Search contributors")
         .navigationTitle("Now")
         .navigationSubtitle(NowPresentation.machineIdentity(store.machine))
+    }
+
+    /// Advances `now` once a second while this screen is on it, and stops when it
+    /// is not. Cancelled by SwiftUI with the view, so nothing ticks in the
+    /// background for a screen nobody is looking at.
+    private func tickAgeClock() async {
+        while !Task.isCancelled {
+            now = Date()
+            try? await Task.sleep(for: .seconds(1))
+        }
     }
 
     // MARK: - Verdict
@@ -208,6 +240,7 @@ struct NowView: View {
                 } ?? [],
                 unavailableReason: store.attribution == nil
                     ? "CPU is measured between two samples." : nil,
+                freshness: sampleFreshness,
                 // The retained series, not one this view accumulated: the card and
                 // the incident report draw the same evidence (FR-005).
                 history: HistorySparklineBlock(
@@ -222,7 +255,8 @@ struct NowView: View {
                 value: store.memoryPressure.label,
                 unit: nil,
                 details: memoryDetails,
-                help: store.memoryPressure.explanation)
+                help: store.memoryPressure.explanation,
+                freshness: memoryFreshness)
 
             MetricCard(
                 title: "Disk",
@@ -236,6 +270,10 @@ struct NowView: View {
                 // this screen — this card's help and a footnote — and either could
                 // have drifted from what the app actually does (FR-009).
                 help: DiskSignals.perApplicationUnavailable,
+                // The same pass as the CPU attribution, so the same age. Design 1n
+                // shows this card as current while CPU is stale; in this app that
+                // would be a distinction we cannot support.
+                freshness: sampleFreshness,
                 // Design 1c shows a sparkline here. `MetricsHistory` retains CPU and
                 // nothing else, so there is no series to draw — stated rather than
                 // filled in from readings taken while this screen happened to be open.
@@ -248,7 +286,8 @@ struct NowView: View {
                 value: store.thermalState.label,
                 unit: nil,
                 details: [store.power.summary],
-                help: store.thermalState.explanation)
+                help: store.thermalState.explanation,
+                freshness: sampleFreshness)
         }
     }
 
@@ -279,6 +318,23 @@ struct NowView: View {
     @ViewBuilder
     private var contributors: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // FR-032: the list is headed with the age of the reading it came from,
+            // so a table of figures cannot be read as live when it is not.
+            if let note = NowPresentation.contributorHeaderNote(sampleFreshness) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .imageScale(.small)
+                        .accessibilityHidden(true)
+                    Text("Contributors").bold()
+                    Text(note).foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Contributors, \(note)")
+            }
             ContributorHeader()
             Divider()
 
@@ -305,13 +361,15 @@ struct NowView: View {
                         row: row, store: store,
                         isExpanded: expanded.contains(row.id),
                         toggle: { toggle(row.id) },
-                        retained: retained, cadence: cadenceInterval)
+                        retained: retained, cadence: cadenceInterval,
+                        age: sampleFreshness.rowCaption)
                     if row.hasChildren, expanded.contains(row.id) {
                         ForEach(row.children) { child in
                             ContributorRow(
                                 row: child, store: store, isExpanded: false,
                                 toggle: {}, isChild: true,
-                                retained: retained, cadence: cadenceInterval)
+                                retained: retained, cadence: cadenceInterval,
+                                age: sampleFreshness.rowCaption)
                         }
                     }
                     Divider()
@@ -334,6 +392,15 @@ struct NowView: View {
 
     private var footnotes: some View {
         VStack(alignment: .leading, spacing: 3) {
+            // First, because while readings are late this is the note that governs
+            // every figure above it (FR-002, FR-032).
+            if sampleFreshness.isStale {
+                ForEach(NowPresentation.staleFootnotes, id: \.self) { note in
+                    Text(note)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             ForEach(NowPresentation.footnotes(), id: \.self) { note in
                 Text(note).fixedSize(horizontal: false, vertical: true)
             }
@@ -370,14 +437,18 @@ struct NowView: View {
     }
 
     /// FR-032/FR-002: a late reading is shown as the last complete one, with its
-    /// age. Nothing is estimated forward.
-    private func staleBanner(age: Duration) -> some View {
-        Label {
+    /// age, and the screen says that recording has not stopped. Nothing is
+    /// estimated forward (design 1n).
+    private var catchingUpBanner: some View {
+        let copy = NowPresentation.catchingUpBanner(cadence: cadenceInterval)
+        return Label {
             VStack(alignment: .leading, spacing: 2) {
-                Text("These readings are catching up").font(.headline)
-                Text("The system was too busy to sample on time, so this is the last "
-                     + "reading we trust, from \(Int(age.totalSeconds)) seconds ago — "
-                     + "not a guess at what is happening now.")
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(copy.headline).font(.headline)
+                    Spacer(minLength: 8)
+                    Text(copy.retry).font(.caption).foregroundStyle(.secondary)
+                }
+                Text(copy.body)
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -388,8 +459,7 @@ struct NowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Readings are catching up. Showing the last complete "
-                            + "reading from \(Int(age.totalSeconds)) seconds ago.")
+        .accessibilityLabel("\(copy.headline). \(copy.body) \(copy.retry).")
     }
 }
 
@@ -488,6 +558,10 @@ struct MetricCard: View {
     var details: [String] = []
     var help: String?
     var unavailableReason: String?
+    /// How old this card's reading is (design 1n). Defaults to current so a card
+    /// that has not been given one cannot silently claim freshness it was never
+    /// told about — every call site on the Now screen passes one.
+    var freshness: NowPresentation.MetricFreshness = .current(age: .zero)
     /// A short curve over what was retained, for the metrics we actually keep a
     /// series for. Nil is not "flat" — it is "no series", and `historyNote` is how
     /// that gets said.
@@ -504,7 +578,13 @@ struct MetricCard: View {
 
             if let value {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(value).font(.title).bold().monospacedDigit()
+                    // Greyed while late, exactly as design 1n draws it — but the
+                    // caption below carries the same fact in words and a glyph,
+                    // because dimming is a colour and colour never carries meaning
+                    // on its own (FR-034).
+                    Text(value)
+                        .font(.title).bold().monospacedDigit()
+                        .foregroundStyle(freshness.isStale ? .secondary : .primary)
                     if let unit {
                         Text(unit).font(.caption).foregroundStyle(.secondary)
                     }
@@ -515,6 +595,17 @@ struct MetricCard: View {
                     Text(unavailableReason).font(.caption).foregroundStyle(.secondary)
                 }
             }
+
+            // "as of 45 seconds ago" or "current" — the age of *this* card's
+            // reading, not of the screen (FR-002, FR-032).
+            HStack(spacing: 4) {
+                if let symbol = freshness.symbolName {
+                    Image(systemName: symbol).imageScale(.small).accessibilityHidden(true)
+                }
+                Text(freshness.caption)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
 
             ForEach(details, id: \.self) { detail in
                 Text(detail)
@@ -549,6 +640,9 @@ struct MetricCard: View {
         } else {
             parts.append("unavailable")
         }
+        // Immediately after the figure, so the age is heard as a qualifier on it
+        // rather than as a trailing remark (FR-034).
+        parts.append(freshness.spoken)
         parts.append(contentsOf: details)
         // Folded in rather than left to `children: .combine`, which an explicit
         // label overrides — a sparkline VoiceOver cannot reach is not accessible.
@@ -587,6 +681,10 @@ struct ContributorRow: View {
     /// the same snapshot the CPU card used.
     var retained: [HistorySample] = []
     var cadence: Duration = MetricsHistory.defaultCadence
+    /// The age of the reading this row came from, or nil while it is current.
+    /// Every row on the screen comes from the same sampling pass, so they all
+    /// carry the same age — which is the truth, not a simplification.
+    var age: String?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -634,6 +732,14 @@ struct ContributorRow: View {
             .frame(width: 130, alignment: .trailing)
 
             history.frame(width: 110, alignment: .trailing)
+
+            if let age {
+                Text(age)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(width: 64, alignment: .trailing)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -712,6 +818,7 @@ struct ContributorRow: View {
         } else {
             parts.append("usage unavailable")
         }
+        if let age { parts.append("from the reading \(age)") }
         parts.append(historyAccessibility)
         if row.hasChildren { parts.append(isExpanded ? "expanded" : "collapsed") }
         return parts.joined(separator: ", ")

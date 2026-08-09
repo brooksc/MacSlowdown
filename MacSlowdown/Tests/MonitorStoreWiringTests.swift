@@ -414,3 +414,29 @@ struct LifecycleWiringTests {
         #expect(!store.hasObservedLongEnough())
     }
 }
+
+/// TASK-65.14: the Now screen's per-metric freshness is only honest if the metric
+/// it calls "current while the rest is late" really is pushed to us rather than
+/// copied on the next sweep.
+@MainActor
+@Suite("Memory pressure does not wait on the sampling loop")
+struct MemoryPressureLivenessTests {
+    @Test("A store that is not running makes no claim that pressure is live")
+    func notRunningIsNotLive() {
+        let store = MonitorStore()
+        #expect(!store.memoryPressureIsLive)
+    }
+
+    /// Starting the store subscribes to the kernel's dispatch source, which is what
+    /// entitles the pressure card to say "current" while every other figure on the
+    /// screen carries an age. Stopping withdraws the claim rather than leaving it
+    /// standing over a subscription that is gone (FR-002).
+    @Test("Starting subscribes to the kernel's notifications, and stopping withdraws")
+    func startingMakesPressureLive() {
+        let store = MonitorStore()
+        store.start()
+        #expect(store.memoryPressureIsLive)
+        store.stop()
+        #expect(!store.memoryPressureIsLive)
+    }
+}
