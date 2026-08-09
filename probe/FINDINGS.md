@@ -939,3 +939,97 @@ Two rules worth keeping:
   passes *while the path is present*. `ExportDocument` now encodes with
   `.withoutEscapingSlashes` so redaction is verifiable by reading the file. Any
   future absence check over JSON must confirm its control finds the value.
+## SwiftUI's `Table` reenters its own `NSTableView` delegate when rows reorder
+
+The running app logs this every ~2 s, from the Apps table (TASK-67):
+
+```
+WARNING: Application performed a reentrant operation in its NSTableView delegate.
+This warning will become an assert in the future.
+```
+
+The string is AppKit's, extracted from the shared cache at
+`/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/`. Note the path: the
+copies under `/System/Library/dyld/` are listed by `ls` but cannot be opened.
+
+**Reproduced without the screen**, in `MacSlowdown/Tests/`: the real view in an
+`NSHostingView` inside an offscreen `NSWindow`, driven by the real `MonitorStore`
+at a 1 s cadence, with fd 2 redirected to a pipe. AppKit emits this through
+`NSLog`, so stderr catches it; it is *not* in `log show`.
+
+Two traps, both hit while writing it:
+
+- **A nested `RunLoop.run(until:)` does not drive the store.** The first harness
+  looked correct, ran 57 layout passes, and reported a clean log — because the
+  sampling task never got a turn, so the table held **zero rows** the entire time.
+  Use an `async` test and `await Task.sleep`, which yields to the app's own run
+  loop. Always assert the table was populated and did change, or a clean result
+  means only that nothing happened.
+- `xcodebuild` does not pass the shell environment to the test process. Gate a
+  probe on `TEST_RUNNER_FOO=1`, which arrives as `FOO`.
+
+**What reenters: row reordering, and nothing else we could find.** Measured over
+8–25 s windows against one live store (warnings per run):
+
+| Variant | Warnings |
+|---|---|
+| Frozen rows, never changed | 0 |
+| New array each sample, identical rows | 0 |
+| Same identities, changing values, fixed order | 0 |
+| Rows rotated by **one** position each sample | 0 |
+| Rows **shuffled** each sample — identical ids *and* values | **21** |
+| 15 rows, re-sorted each sample | **6** |
+| The shipping Apps table | **13–16** |
+
+The shuffle control is the decisive one: identities, values and count are all
+identical between updates and only the order differs. A single row moving is not
+enough; a bulk reorder always is. Row count is irrelevant — 15 rows reordering
+warns.
+
+**Ruled out, each by its own variant.** None of these is the cause, and none of
+them fixes it: the `sortOrder` binding; the selection binding; sortable
+`TableColumn(value:)`; `DisclosureTableRow` (TASK-61); icons in the cell body;
+the `safeAreaInset` footer; the `onChange` per-family history recording
+(TASK-65.4); `.searchable`; `Section` in the rows builder; the data-driven
+`Table(data)` initialiser; `.transaction { $0.disablesAnimations = true }`;
+duplicate row identities (there are none — 0 in 743 flattened rows); and adding
+`Equatable` to `InventoryRow`. So it is not TASK-56, -60, -61, -65.4 or -65.13:
+those only change how much work each update does.
+
+**Both tables are susceptible; only one triggers it.** Shuffling
+`AllProcessesRow` warns 21 times, exactly like the Apps rows — the row type is
+irrelevant. The All processes table measured **0 warnings across five 25 s runs**
+because, as composed, its order does not really move: nearly every one of its
+~720 rows ties at zero CPU and is held in place by the name tie-break, while the
+Apps table's ~425 family rows carry aggregated CPU that jitters, so ranks swap on
+every sample.
+
+**Beware the obvious metric.** Counting rows whose *absolute index* changed
+reported ~700 of 721 rows "moved" when a single process appearing at the top had
+shifted everything below it by one. Compare rank within the ids common to both
+orderings instead.
+
+**No fix was made.** This is SwiftUI's `Table`, not our code, and every
+workaround tried either did not work or is not ours to choose. The options, for
+the product owner:
+
+- **Accept it and file a Feedback.** It is noise today; AppKit says it becomes an
+  assert, which would be a crash in a shipping build on some future macOS.
+- **Stop re-sorting every sample** — hold the order and re-rank on a slower beat,
+  or only when a rank changes materially. Reduces the frequency (a sample that
+  moves nothing warns not at all) but does not eliminate it, and it is a
+  behaviour change, not a bug fix.
+- **Replace `Table` with `NSTableView` behind `NSViewRepresentable`**, where the
+  update batching is ours. The only option that removes the reentrant call, and
+  it means rebuilding sorting, disclosure, selection and accessibility by hand.
+- **Rejected: making row identity encode position.** It would avoid the move path
+  by replacing every row instead, and it would destroy selection and expansion
+  stability across samples, which FR-027 requires.
+
+Re-run the evidence with:
+
+```
+TEST_RUNNER_TASK67_PROBE=1 xcodebuild test -workspace MacSlowdown.xcworkspace \
+  -scheme AllTests -destination 'platform=macOS,arch=arm64' -derivedDataPath .build \
+  -only-testing:MacSlowdownTests/InventoryTableBisectProbe
+```
