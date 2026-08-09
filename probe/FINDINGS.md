@@ -912,3 +912,30 @@ measurement.
 **Rule for the next person: measure our own memory as `phys_footprint`, over at
 least 300 s, and say which build and which screens were opened.** A figure without
 those three qualifiers is not comparable to any other figure.
+
+## Every report-producing path renders the same document (TASK-70)
+
+`probe/Sources/export-paths-probe.swift`, sandboxed, on real data: 732 processes,
+662 families, a real CPU-saturation incident opened and closed by the real
+`IncidentDetector` (peak 100%), 503 contributors. Ten genuinely sensitive values
+— the operator's user name, five contributor names, four executable paths —
+searched in files written to disk by both report-producing paths in both formats:
+
+```
+hidden:  40 of 40 sensitive values absent when hidden
+control: 40 of 40 present when nothing is hidden
+bytes:   8 of 8 renderings identical across both paths
+```
+
+Two rules worth keeping:
+
+- **Count occurrences against a contributor-free baseline, never test for a bare
+  substring.** This run had a live process literally named `MacSlowdown`, and the
+  report's own scaffolding says "MacSlowdown" in its title — a naive
+  `!text.contains(name)` would have failed on a correctly redacted file. The same
+  collision bit TASK-65.11.
+- **`JSONEncoder` escapes forward slashes unless you ask it not to.** A path is
+  written `\/Users\/…`, so a check that the raw path is absent from the JSON
+  passes *while the path is present*. `ExportDocument` now encodes with
+  `.withoutEscapingSlashes` so redaction is verifiable by reading the file. Any
+  future absence check over JSON must confirm its control finds the value.
