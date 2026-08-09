@@ -1,9 +1,10 @@
 ---
 id: TASK-51.1
 title: Incidents renders blank instead of its empty state
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:14'
+updated_date: '2026-08-09 02:44'
 labels:
   - ui
 milestone: m-3

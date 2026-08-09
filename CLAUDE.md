@@ -217,16 +217,33 @@ must carry a confidence label (FR-013). Avoid "optimize," "clean," "boost,"
 "free up memory," "fix." Prefer stating what was measured, over what interval,
 and what remains uncertain.
 
-## Performance budget
+## Performance budget — deferred, still measured
 
-The tool must not become part of the slowdown (FR-030). Initial targets:
-idle CPU median ≤1% of one core, resident memory ≤100 MB, disk writes
-≤10 MB/hour absent incidents. Sampling is two-stage (FR-031): normal cadence
-~2–5s, investigation cadence ~1s.
+**The numeric budget no longer gates work** (product owner, 2026-08-08). Focus is
+functionality and UX; optimisation comes later, against evidence. Do not block a
+feature, fail a task, or redesign for size because a figure is over budget.
 
-Treat these as tests, not aspirations — per-process sampling across hundreds of
-processes at a 2s cadence can blow the budget on its own. Separate sampling
-cadence from UI refresh (DR-03).
+What has *not* changed: the tool must not become part of the slowdown. That
+objective still drives adaptive sampling (FR-031: normal cadence ~2–5 s,
+investigation ~1 s) and keeping sampling cadence separate from UI refresh
+(DR-03). Keep measuring, keep reporting, don't gate.
+
+Reference figures to revisit before release: idle CPU median ≤1% of one core,
+disk writes ≤10 MB/hour absent incidents.
+
+Two measurement facts that outlive the deferral:
+
+- **Never state a memory budget in resident size.** Ours ranged 809–3323 MB over
+  one 1191 s run with no behaviour change, while `phys_footprint` held 218–397 MB.
+  ~3 GB of the peak was clean, shared, file-backed icon-cache mappings the kernel
+  evicts for free. Use **`phys_footprint`, median over ≥300 s**.
+- **The headless harness is not representative** — it runs no SwiftUI. Same day:
+  harness 0.830% CPU / 20.7 MB, running Debug app 292 MB footprint median. Judge
+  the app by the app.
+
+At deferral the footprint median was 292 MB, most of it one avoidable allocation
+pattern (`NSImage.tiffRepresentation` per icon cache miss, ~+148 MB per call).
+See TASK-55.1, TASK-55.2.
 
 ## Accessibility
 

@@ -1,9 +1,10 @@
 ---
 id: TASK-65.4
 title: 'Screen 1d — Apps &amp; processes: family grouping expanded, with an inspector'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:22'
+updated_date: '2026-08-09 03:09'
 labels:
   - ui
 milestone: m-1

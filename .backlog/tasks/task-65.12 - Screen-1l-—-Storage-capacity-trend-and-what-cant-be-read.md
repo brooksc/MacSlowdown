@@ -1,9 +1,10 @@
 ---
 id: TASK-65.12
 title: 'Screen 1l — Storage: capacity, trend, and what can''t be read'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:24'
+updated_date: '2026-08-09 03:09'
 labels:
   - ui
 milestone: m-2

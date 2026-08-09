@@ -603,11 +603,36 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Trigger                       | Performance tests run.                                                                                                                                                               |
 | Expected behavior             | Use adaptive sampling, bounded queues, batched persistence and reduced UI refresh when hidden.                                                                                       |
 | Expected outcome              | Utility remains unobtrusive.                                                                                                                                                         |
-| Acceptance criteria           | Idle CPU median ≤1% of one core on reference hardware; resident memory target ≤100 MB; disk writes ≤10 MB/hour absent incidents; thresholds may be revised with documented evidence. |
+| Acceptance criteria           | **Deferred — measured and reported, not gated.** The overhead harness continues to run and its figures are recorded, but no numeric threshold blocks work on functionality or UX. Reference figures, to be revisited before release: idle CPU median ≤1% of one core; resident memory ≤100 MB; disk writes ≤10 MB/hour absent incidents. |
 | Confidence level              | High                                                                                                                                                                                 |
 | Design freedom                | Architecture open; numeric targets are initial recommendations.                                                                                                                      |
-| Open questions or assumptions | Reference hardware and acceptable variance.                                                                                                                                          |
-| Human-review status           | Approved                                                                                                                                                                             |
+| Open questions or assumptions | Reference hardware and acceptable variance. Which memory quantity the budget names — see the deferral note below.                                                                     |
+| Human-review status           | Approved; acceptance criteria deferred by the product owner 2026-08-08.                                                                                                              |
+
+**Deferral note (2026-08-08).** The numeric budget is deferred by the product owner so
+that functionality and UX are not blocked on optimisation. Overhead is still measured and
+still reported; it simply does not gate delivery. Optimise later, against evidence.
+
+The objective — *avoid becoming part of the slowdown* — is **not** deferred. It remains
+the reason this requirement exists, and it still governs design choices such as adaptive
+sampling (FR-031) and separating sampling cadence from UI refresh (DR-03).
+
+Two measurement findings must survive this deferral, because they change what any future
+threshold can even mean:
+
+- **"Resident memory" is not a testable quantity for this app.** Measured over 1191 s, our
+  resident size ranged 809–3323 MB while `phys_footprint` ranged 218–397 MB, with no
+  change in behaviour. Roughly 3 GB of the peak was clean, shared, file-backed mappings of
+  the icon services cache, which the kernel evicts for free. A budget naming resident size
+  can be passed or failed by when you happen to look. Any revived budget should name
+  **`phys_footprint`**, as a **median over at least 300 s**.
+- **The headless harness is not representative.** It runs no SwiftUI. On the same day it
+  reported 0.830% CPU and 20.7 MB while the running Debug app showed a 292 MB footprint
+  median. A figure this requirement is judged on has to come from the app, not the harness.
+
+Recorded so a later reader does not mistake deferral for absence of a problem: at the time
+of deferral the app's footprint median was 292 MB, and a single avoidable allocation
+pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 
 ## FR-031 — The system shall increase sampling resolution during suspected incidents and reduce it after recovery.
 

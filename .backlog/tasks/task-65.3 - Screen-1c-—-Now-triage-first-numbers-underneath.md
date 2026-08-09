@@ -1,9 +1,10 @@
 ---
 id: TASK-65.3
 title: 'Screen 1c — Now: triage first, numbers underneath'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 02:22'
+updated_date: '2026-08-09 03:08'
 labels:
   - ui
 milestone: m-1
