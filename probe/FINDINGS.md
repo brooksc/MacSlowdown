@@ -1064,3 +1064,138 @@ TEST_RUNNER_TASK67_PROBE=1 xcodebuild test -workspace MacSlowdown.xcworkspace \
   -scheme AllTests -destination 'platform=macOS,arch=arm64' -derivedDataPath .build \
   -only-testing:MacSlowdownTests/InventoryTableReentrancyTests
 ```
+
+---
+
+# Per-application network attribution (`net-probe.swift`) — FR-051, TASK-40
+
+**Verdict: per-process network attribution is NOT available to a sandboxed Mac
+App Store build.** Aggregate, machine-wide throughput *is*, with no entitlement
+beyond `app-sandbox`. The backlog's suspicion was right about the destination
+and wrong about the reason: the private `NetworkStatistics` framework is not
+merely off-limits by policy, it is **blocked by the sandbox at runtime**, and
+the public per-process route (`libproc` socket descriptors) never carried byte
+counters in the first place.
+
+Measured on macOS 27 / M2 with `probe/run-net-probe.sh 6`, which drives a
+verified loopback transfer (256 MB payload, local HTTP server, `curl` loop;
+the script asserts `200 268435456` before sampling) across the window and reads
+every counter twice. Sandboxed run is a signed `.app` launched with `open`,
+entitlements = `com.apple.security.app-sandbox` only — **no**
+`com.apple.security.network.client`, **no** NetworkExtension entitlement.
+
+## What each route yields
+
+| Route | Unsandboxed | Sandboxed | Carries per-process bytes? |
+|---|---|---|---|
+| `getifaddrs` + `struct if_data` | 26/46 entries have `if_data` | **26/46, identical** | No — per *interface* |
+| `sysctl NET_RT_IFLIST2` + `if_msghdr2`/`if_data64` | 12736 B, 138 messages, 26 interfaces | **identical** | No — per *interface* |
+| `libproc` `PROC_PIDLISTFDS` + `PROC_PIDFDSOCKETINFO` | **445/447 own-uid pids**, 523 socket FDs, 523/523 socket infos | **1/447 — self only**, 649 × EPERM, **0 sockets** | No — see below |
+| `sysctl net.inet.{tcp,udp}.pcblist[_n]` | **48 bytes** (header, zero entries) | **48 bytes** | No entries at all |
+| `NWPathMonitor` | `satisfied`, interfaces, expensive/constrained | identical | No counter of any kind in the API |
+| exec `/usr/bin/nettop` | exit 0, 37 lines of `bytes_in,bytes_out` | **exit 70, `nettop: NStatManagerCreate failed`** | n/a — private framework |
+
+Counts are from one representative run; the process table held 647–650 pids
+(447 own-uid, 203 other-uid).
+
+## The four things worth remembering
+
+**1. `libproc` socket enumeration is one of the few places the sandbox itself is
+the limit.** Everywhere else measured in this project, own-uid works and
+other-uid is denied identically sandboxed and unsandboxed. Not here:
+unsandboxed we get an FD list for **445 of 447** own-uid processes; sandboxed we
+get **1 of 447** — our own — and 649 EPERM. So the "measurability is decided by
+uid, exactly" rule does **not** generalise to file descriptors.
+
+**2. It would not have helped anyway.** `struct socket_info`
+(`sys/proc_info.h`) carries `soi_type`, `soi_protocol`, `soi_family`,
+`soi_state` and `soi_rcv`/`soi_snd` (`sockbuf_info`). `sbi_cc` is **current
+queue occupancy, not a cumulative counter**; there is no rx/tx byte or packet
+total in the struct. Unsandboxed, under a transfer of hundreds of MB, `curl`
+showed `1 socket, 196608 queued_B` — a queue depth, which cannot be
+differenced into a rate. The one externalised socket struct that *is* public,
+`struct xsocket` in `sys/socketvar.h`, likewise has occupancy and `so_uid` and
+no byte totals and no pid.
+
+**3. The kernel PCB tables are empty for a non-root user, sandbox or not.**
+`net.inet.tcp.pcblist_n` returns **48 bytes** — the generation header with zero
+socket entries — from the probe, and `sysctl -b net.inet.tcp.pcblist_n | wc -c`
+returns 48 from a plain terminal too. Corroborated by `netstat -an` as a normal
+user on macOS 27: it prints the UNIX-domain section and **zero Internet
+connections**. Even if the table were populated, decoding it means hardcoding
+kernel-private ABI: `xinpgen`, `xsocket_n`, `xsockstat_n` and `xtcpcb_n` are
+**not in the public SDK** (zero hits for `pcblist` or `xsocket_n` across
+`MacOSX.sdk/usr/include`).
+
+**4. Aggregate interface counters wrap at 2^32 — including the "64-bit" ones.**
+Measured, not inferred. During a 3.9 GB/6 s loopback transfer, `lo0` read
+`before=1688087552 after=1281142784` through **`if_data64.ifi_ibytes`**, a
+`u_int64_t` field. The kernel's loopback statistic is 32-bit-wide underneath, so
+`NET_RT_IFLIST2` does not save you from wrap; a naive subtraction produces
+1.8×10^19. `if_data.ifi_ibytes` (route 1) is declared `u_int32_t` and wraps for
+the same reason. **Any FR-051 implementation must detect a counter that ran
+backwards and correct modulo 2^32**, and must not present the corrected figure
+without saying so.
+
+## `nettop` and NetworkStatistics
+
+`otool -L /usr/bin/nettop` shows it links
+`/System/Library/PrivateFrameworks/NetworkStatistics.framework`. Nothing here
+links or `dlopen`s it. The probe only *executes* `nettop`, because "shell out to
+the system tool" is the workaround someone eventually proposes, and it should be
+refused on evidence. It fails from inside the sandbox: **`NStatManagerCreate
+failed`, exit 70**, while succeeding with 37 rows unsandboxed. So the private
+route is closed by the sandbox as well as by App Review.
+
+## NetworkExtension (researched, not measured)
+
+`NEFilterDataProvider` **would** deliver what FR-051 asks for: on macOS
+`NEFilterFlow.sourceAppAuditToken` identifies the originating process and
+`handleInboundDataFromFlow:readBytesStartOffset:` / `handleOutboundData...`
+give byte offsets per flow. The cost is the entitlement
+**`com.apple.developer.networking.networkextension`**, value
+`content-filter-provider` (app-extension packaging, App Store) or
+`content-filter-provider-systemextension` (Developer ID). It is a restricted
+entitlement granted only on request for stated use cases, and Apple DTS's
+guidance (TN3134) is that a *distributed* macOS content filter must be
+configured by an MDM configuration profile rather than by the app. A
+general-purpose diagnostic utility is not a case Apple grants this for, and
+building on it would put the whole product behind an approval we do not have.
+**Treat this as a "no" with the entitlement named**, not as an option.
+
+## Consequence for FR-051
+
+Aggregate-only, exactly as FR-009 was scoped to aggregate-only for disk. What an
+aggregate-only FR-051 can honestly say:
+
+- machine-wide bytes in/out per second, per interface, from a delta of
+  `if_data64` with wrap correction;
+- which interface carried it (Wi-Fi, Ethernet, loopback, VPN `utun*`), and
+  `NWPath`'s expensive/constrained flags;
+- that sustained transfer coincided in time with an incident.
+
+What it can **never** say, and must not imply:
+
+- which application or process the bytes belonged to;
+- how much any one app transferred;
+- anything about latency — throughput is not latency, and FR-051 already says so.
+
+Per-process attribution must therefore be reported as **explicitly unavailable**
+in the UI, the same way other-uid CPU is surfaced as unattributed system
+activity. Loopback deserves its own note: `lo0` carried 3.9 GB in 6 s here from
+one local file transfer, so folding it into a single "network" figure would make
+purely local traffic look like a WAN transfer.
+
+## Reproducing
+
+```sh
+./run-net-probe.sh 6        # builds both, drives the load, prints both reports
+```
+
+The sandboxed report is written to
+`~/Library/Containers/com.brooksc.MacSlowdown.Probe.net-probe/Data/net-probe-result.txt`.
+The script kills the load generators by pattern as well as by pid: an orphaned
+`python3 -m http.server` holding the port makes the next run measure a stream of
+404s while appearing to have run under load. That happened once, and the
+sandboxed pass under-reported by three orders of magnitude before the load check
+was added.
