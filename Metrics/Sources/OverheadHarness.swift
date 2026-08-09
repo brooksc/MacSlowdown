@@ -109,14 +109,18 @@ public enum OverheadHarness {
             if let previousHost, let host {
                 let attribution = CPUAttributionCalculator.attribution(
                     from: previous, to: snapshot,
-                    hostEarlier: previousHost, hostLater: host)
+                    hostEarlier: previousHost, hostLater: host,
+                    naming: { resolver.identity(for: $0).friendlyName })
                 history.record(attribution)
 
-                // Identity resolution for the leading contributors, which is what
-                // a UI would request. Cached after the first sighting.
-                for contributor in attribution.contributors.prefix(history.topContributorCount) {
-                    _ = resolver.identity(for: contributor.identity)
-                }
+                // Group every process, which is what the app does on each sweep —
+                // the inventory lists all families, not just the leading few. This
+                // resolves identity and friendly names for the whole table, so the
+                // filesystem work naming added is inside the measurement rather
+                // than outside it. Measuring only the top contributors flattered
+                // the figure and would have hidden exactly the regression FR-030
+                // exists to catch.
+                _ = FamilyGrouper.group(snapshot: snapshot, resolver: resolver)
 
                 // Detection, summarisation and cadence selection, as the app does.
                 let observation = SystemObservation(

@@ -44,6 +44,14 @@ struct ProcessInventoryView: View {
         Table(rows, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Application", value: \.family.displayName) { row in
                 HStack(spacing: 6) {
+                    // Decoration only: the name carries the meaning, so a missing
+                    // icon costs nothing and VoiceOver ignores it (FR-034).
+                    if let icon = store.icon(for: row.family) {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 16, height: 16)
+                            .accessibilityHidden(true)
+                    }
                     Text(row.family.displayName)
                     if row.family.hasUncertainMembers {
                         Image(systemName: "questionmark.circle")

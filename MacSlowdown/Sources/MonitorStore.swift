@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import Metrics
@@ -148,6 +149,16 @@ final class MonitorStore {
     /// apart — which is exactly how the popover came to show "Spotify Helper (".
     func displayName(for usage: ProcessCPUUsage) -> String { usage.label }
 
+    /// The application's own icon, or nil. Nil means "no icon", never a generic
+    /// placeholder standing in for one (FR-002).
+    func icon(for usage: ProcessCPUUsage) -> NSImage? {
+        icons.icon(forExecutablePath: resolver.identity(for: usage.identity).executablePath)
+    }
+
+    func icon(for family: ProcessFamily) -> NSImage? {
+        icons.icon(forExecutablePath: family.members.first?.resolved.executablePath)
+    }
+
     func accessibilityName(for usage: ProcessCPUUsage) -> String {
         usage.displayName ?? ProcessNaming.accessibilityLabel(command: usage.command)
     }
@@ -162,6 +173,7 @@ final class MonitorStore {
     private var detectorState = IncidentDetector.State()
     private let cadenceController: CadenceController
     private var cadenceState = CadenceController.State()
+    private let icons = ProcessIconCache()
     private let pressureMonitor = MemoryPressureMonitor()
     private let notificationGate = NotificationGate()
     private var notificationState = NotificationGate.State()

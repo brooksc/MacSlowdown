@@ -70,12 +70,20 @@ struct MenuBarContentView: View {
                     Text(CPUPresentation.percentOfOneCore(usage.percentOfOneCore))
                         .monospacedDigit()
                 } label: {
-                    // The resolved name, never the kernel's 16-byte command. The
-                    // store owns naming so this row, the table and the notification
-                    // cannot disagree.
-                    Text(store.displayName(for: usage))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: 5) {
+                        if let icon = store.icon(for: usage) {
+                            Image(nsImage: icon)
+                                .resizable()
+                                .frame(width: 14, height: 14)
+                                .accessibilityHidden(true)
+                        }
+                        // The resolved name, never the kernel's 16-byte command.
+                        // The store owns naming so this row, the table and the
+                        // notification cannot disagree.
+                        Text(store.displayName(for: usage))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 .font(.callout)
                 .accessibilityElement(children: .combine)

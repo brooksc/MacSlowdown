@@ -580,3 +580,54 @@ re-matched every sample.
 - `Device Utilization %` is the headline; `Renderer Utilization %` and
   `Tiler Utilization %` are available if a breakdown is ever wanted.
 - GPU temperature and frequency remain unavailable and must not be implied.
+
+## The overhead harness was measuring the wrong thing
+
+Found while re-measuring FR-030 after adding friendly names.
+
+`OverheadHarness` resolved identity only for the top few contributors, but the
+app calls `FamilyGrouper.group` on **every** sweep, which resolves identity for
+every process in the table. The harness was measuring a cheaper loop than the
+one that ships. It now calls `FamilyGrouper.group`, so the figure reflects the
+real path.
+
+The corrected figure exposes a cliff:
+
+| | Cost |
+|---|---|
+| Cold grouping, 844 processes, first sighting | **819 ms** |
+| Warm grouping, everything cached | **2.90 ms** |
+| Sampler sweep alone | 2.03 ms |
+| Identity + naming, per process, cold | 0.821 ms |
+
+**282× between the first sweep and every one after it.** That one-off dominates
+any short measurement:
+
+| Run length | CPU, % of one core | Budget |
+|---|---|---|
+| 90 s | **1.348%** | OVER |
+| 300 s | 0.963% | OK, 4% headroom |
+
+Same code, same machine. A number that moves that much with run length is not a
+number to rely on — see TASK-62.
+
+**Naming was not the cause.** Identity plus naming costs 0.821 ms per process
+against roughly 0.76 ms for identity alone; the signature call dominates. The
+breach was pre-existing work the harness had never measured.
+
+**Rule: an overhead harness must exercise the path the app actually runs.** A
+harness that samples a cheaper loop reports a budget nobody is held to, and it
+will report success right up until a user notices.
+
+## Test-host flakiness worth recognising
+
+The app-hosted `MacSlowdownTests` bundle occasionally fails to launch under load:
+
+```
+MacSlowdown (91102) encountered an error (Early unexpected exit, operation never
+finished bootstrapping - no restart will be attempted.)
+```
+
+Observed once while the machine was busy; an immediate re-run passed with all
+350 tests. This is the test runner failing to bootstrap, not a product defect —
+`MetricsTests` completes normally in the same run. Re-run before investigating.

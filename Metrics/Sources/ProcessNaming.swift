@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import UniformTypeIdentifiers
 
 /// Turns a process into a name a person recognises (FR-003, FR-013).
 ///
@@ -51,8 +52,8 @@ public enum ProcessNaming {
     /// never yields anything better than the command.
     static let namedBundleSuffixes = [".app", ".appex"]
 
-    /// The outermost bundle of a kind that names things.
-    static func namingBundle(for path: String) -> String? {
+    /// The outermost bundle of a kind that names things. Also the icon source.
+    public static func namingBundle(for path: String) -> String? {
         let components = path.split(separator: "/", omittingEmptySubsequences: false)
         guard let index = components.firstIndex(where: { component in
             namedBundleSuffixes.contains { component.hasSuffix($0) }
@@ -95,6 +96,37 @@ public enum ProcessNaming {
             return nil
         }
         return bundleName(atPath: bundle)
+    }
+}
+
+/// Real application icons, or nothing (FR-002).
+///
+/// `NSWorkspace.icon(forFile:)` **never returns nil** — it returns a generic
+/// document or executable icon when it cannot read the bundle. Treating non-nil
+/// as success would put a fake icon beside three quarters of the process table
+/// and imply we identified something we did not.
+@MainActor
+public final class ProcessIconCache {
+    /// Cached by bundle path rather than by process: every Helium helper shares
+    /// one icon, and the table redraws on every sample.
+    private var cache: [String: NSImage?] = [:]
+    private lazy var generic = NSWorkspace.shared.icon(for: .unixExecutable)
+        .tiffRepresentation
+
+    public init() {}
+
+    public var cachedCount: Int { cache.count }
+
+    /// The application's own icon, or nil when only a generic one is available.
+    public func icon(forExecutablePath path: String?) -> NSImage? {
+        guard let path, let bundle = ProcessNaming.namingBundle(for: path) else { return nil }
+        if let cached = cache[bundle] { return cached }
+
+        let candidate = NSWorkspace.shared.icon(forFile: bundle)
+        let resolved: NSImage? =
+            candidate.tiffRepresentation == generic ? nil : candidate
+        cache[bundle] = resolved
+        return resolved
     }
 }
 
