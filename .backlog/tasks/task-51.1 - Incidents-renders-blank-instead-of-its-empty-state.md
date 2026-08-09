@@ -4,7 +4,7 @@ title: Incidents renders blank instead of its empty state
 status: In Progress
 assignee: []
 created_date: '2026-08-09 02:14'
-updated_date: '2026-08-09 18:28'
+updated_date: '2026-08-09 18:34'
 labels:
   - ui
 milestone: m-3
@@ -176,4 +176,16 @@ The other three panes — Now, Apps & Processes, Storage — all render correctl
 3. Note the offscreen harness in `IncidentsViewRenderTests.swift` **draws this view correctly in 16 configurations**, including a `MainWindowView` replica at the real window size. So whatever this is, it does not reproduce in an `NSHostingView` — it needs the live scene. Do not trust a green render test here.
 
 Raised to High: three of four main surfaces work and this one shows nothing, and it is the surface the whole product exists to deliver.
+
+## LIKELY SOLVED BY TASK-75 — do not chase `.inspector` yet
+
+Measured immediately after the note above: with Apps & Processes selected, the main window is **1300 x 3599 points on a 1107-point screen**. The inventory table is laid out at its full intrinsic height for ~720 rows and the window grows to fit it.
+
+That almost certainly explains this pane too. `ContentUnavailableView` **centres itself vertically**. In a detail column thousands of points tall it sits roughly 1800 pt below the fold, and the unconditional `Divider` and footer sit at the very bottom — all outside the visible slice. Every observation fits: the title and toolbar render because they belong to the window; the body looks empty; and the *unconditional* elements are missing too, which no theory about `ContentUnavailableView` alone could explain.
+
+**The earlier investigation was right about the mechanism and wrong about the venue.** It found the persisted `NSSplitView` frames recording 6020 pt, tested exactly this, and recorded 'SwiftUI clamps. Hypothesis dead.' — but it tested in an offscreen `NSHostingView`, which *supplies* the height and therefore clamps. A real `Window` scene does not. That is why the harness draws this view correctly in 16 configurations while the running app shows nothing.
+
+**Do TASK-75 first, then re-check this pane before touching it.** If the pane renders once the window stops growing, close the remaining criteria and drop the `.inspector` suspicion rather than pursuing it — it was a reasonable suspect but there is now a better-evidenced explanation.
+
+General lesson worth carrying: **an offscreen render harness cannot answer a question about window sizing**, because the harness decides the size.
 <!-- SECTION:NOTES:END -->
