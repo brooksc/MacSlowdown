@@ -301,12 +301,12 @@ enum PopoverPresentation {
     // evidence class and confidence (FR-013, FR-038), and the contributor list is
     // stated as a share that adds to 100% so a user can check the arithmetic.
     //
-    // **No sparkline.** Design 1b shows total CPU over the last 15 minutes with the
-    // incident start marked. `MetricsHistory` is what FR-005 retains, and
-    // `MonitorStore` holds it privately with no accessor, so the retained series is
-    // not reachable from a view. Accumulating a second series here would draw a
-    // curve that is not the one we keep as evidence, which is a quiet fabrication.
-    // Omitted until the history is exposed (TASK-66).
+    // **The sparkline** is total CPU over the retained window with the incident
+    // start marked, drawn from `MonitorStore.retainedSamples` — the same series
+    // FR-005 keeps as evidence, never one accumulated in the view. Its rules live in
+    // `SparklinePresentation`: no interpolation across a gap, no padding out to the
+    // nominal window, and a sentence rather than a flat line when too little has
+    // been retained to mean anything.
 
     /// "CPU has been maxed for 6 min".
     ///

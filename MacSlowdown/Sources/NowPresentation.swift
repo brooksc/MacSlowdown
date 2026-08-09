@@ -197,6 +197,27 @@ enum NowPresentation {
         return nil
     }
 
+    // MARK: - Retained history
+
+    /// Why the disk card carries no curve.
+    ///
+    /// Design 1c charts disk throughput. `MetricsHistory` retains CPU — the machine
+    /// total, the attributed and unattributed split, and a bounded set of leading
+    /// contributors — and nothing else. Accumulating a disk series inside this
+    /// screen would produce a curve that exists only while the screen is open and
+    /// that no incident report could corroborate, so the absence is stated instead
+    /// (FR-002, FR-005).
+    static let diskHistoryNote =
+        "No history is retained for disk throughput, so there is no trend here — "
+        + "only the rate over the last interval."
+
+    /// The footnote explaining the table's history column.
+    static let historyColumnNote =
+        "Retained history covers the machine total and the activity we are not "
+        + "permitted to attribute. Applications are not kept as individual series, "
+        + "so those cells read “not retained” rather than showing a curve drawn "
+        + "from partial records."
+
     // MARK: - Footnotes
 
     /// The caveats that must travel with the figures above them.
@@ -207,6 +228,7 @@ enum NowPresentation {
                      + "machine-wide figure above is shown.")
         notes.append("Resident memory. Activity Monitor's Memory column shows a different "
                      + "measure (footprint), so the numbers will not match exactly.")
+        notes.append(historyColumnNote)
         return notes
     }
 

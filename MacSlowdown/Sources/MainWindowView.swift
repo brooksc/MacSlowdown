@@ -109,6 +109,14 @@ struct NowView: View {
             NowPresentation.contributorRows(store.inventory, limit: 5), query: query)
     }
 
+    /// The series FR-005 retains, read once per render so the card and the table
+    /// cannot be drawn from two different snapshots of it.
+    private var retained: [HistorySample] { store.retainedSamples }
+
+    private var cadenceInterval: Duration {
+        store.cadence?.interval ?? MetricsHistory.defaultCadence
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -180,7 +188,13 @@ struct NowView: View {
                     [CPUPresentation.machineRelative($0.totalBusyPercentOfOneCore)]
                 } ?? [],
                 unavailableReason: store.attribution == nil
-                    ? "CPU is measured between two samples." : nil)
+                    ? "CPU is measured between two samples." : nil,
+                // The retained series, not one this view accumulated: the card and
+                // the incident report draw the same evidence (FR-005).
+                history: HistorySparklineBlock(
+                    title: "Total CPU",
+                    points: SparklinePresentation.totalBusySeries(retained),
+                    cadence: cadenceInterval))
 
             MetricCard(
                 title: "Memory pressure",
@@ -199,7 +213,11 @@ struct NowView: View {
                 unit: "write",
                 details: [NowPresentation.diskRead(store.diskRates)],
                 help: "Machine-wide. Per-process disk activity is not reported to App "
-                    + "Store apps, so this cannot be broken down by application.")
+                    + "Store apps, so this cannot be broken down by application.",
+                // Design 1c shows a sparkline here. `MetricsHistory` retains CPU and
+                // nothing else, so there is no series to draw — stated rather than
+                // filled in from readings taken while this screen happened to be open.
+                historyNote: NowPresentation.diskHistoryNote)
 
             MetricCard(
                 title: "Thermals & power",
@@ -266,12 +284,14 @@ struct NowView: View {
                     ContributorRow(
                         row: row, store: store,
                         isExpanded: expanded.contains(row.id),
-                        toggle: { toggle(row.id) })
+                        toggle: { toggle(row.id) },
+                        retained: retained, cadence: cadenceInterval)
                     if row.hasChildren, expanded.contains(row.id) {
                         ForEach(row.children) { child in
                             ContributorRow(
                                 row: child, store: store, isExpanded: false,
-                                toggle: {}, isChild: true)
+                                toggle: {}, isChild: true,
+                                retained: retained, cadence: cadenceInterval)
                         }
                     }
                     Divider()
@@ -448,6 +468,12 @@ struct MetricCard: View {
     var details: [String] = []
     var help: String?
     var unavailableReason: String?
+    /// A short curve over what was retained, for the metrics we actually keep a
+    /// series for. Nil is not "flat" — it is "no series", and `historyNote` is how
+    /// that gets said.
+    var history: HistorySparklineBlock?
+    /// Why there is no curve, for a metric the design charts but we do not retain.
+    var historyNote: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -476,6 +502,16 @@ struct MetricCard: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            if let history {
+                history.padding(.top, 2)
+            }
+            if let historyNote {
+                Text(historyNote)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -494,6 +530,10 @@ struct MetricCard: View {
             parts.append("unavailable")
         }
         parts.append(contentsOf: details)
+        // Folded in rather than left to `children: .combine`, which an explicit
+        // label overrides — a sparkline VoiceOver cannot reach is not accessible.
+        if let history { parts.append(history.accessibleSummary) }
+        if let historyNote { parts.append(historyNote) }
         return parts.joined(separator: ", ")
     }
 }
@@ -504,6 +544,9 @@ struct ContributorHeader: View {
             Text("App").frame(maxWidth: .infinity, alignment: .leading)
             Text("CPU").frame(width: 90, alignment: .trailing)
             Text("Resident memory").frame(width: 130, alignment: .trailing)
+            // Named for what is retained rather than "Last 5 min": the span is
+            // whatever we have kept, and the cell states it.
+            Text("Retained history").frame(width: 110, alignment: .trailing)
         }
         .font(.caption).bold()
         .foregroundStyle(.secondary)
@@ -520,6 +563,10 @@ struct ContributorRow: View {
     let isExpanded: Bool
     let toggle: () -> Void
     var isChild = false
+    /// The retained series, passed down so every row on the screen is drawn from
+    /// the same snapshot the CPU card used.
+    var retained: [HistorySample] = []
+    var cadence: Duration = MetricsHistory.defaultCadence
 
     var body: some View {
         HStack(spacing: 8) {
@@ -565,12 +612,59 @@ struct ContributorRow: View {
                     ? "—" : ByteCountFormatStyle().format(Int64(row.residentBytes))
             }
             .frame(width: 130, alignment: .trailing)
+
+            history.frame(width: 110, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .padding(.leading, isChild ? 22 : 0)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// The retained history cell.
+    ///
+    /// Exactly one kind of row has a series behind it. "System processes" carries
+    /// `unattributedPercentOfOneCore` (see `InventoryRow`), and every retained
+    /// sample records that figure — so its curve has the same coverage as the
+    /// machine total. Application rows do not: `MetricsHistory` keeps a bounded
+    /// set of leading *processes*, so a per-app curve would be assembled from
+    /// readings we only sometimes recorded. It says "not retained" instead, which
+    /// is a statement about our records, not about the application.
+    @ViewBuilder
+    private var history: some View {
+        if row.kind == .systemProcesses {
+            let points = SparklinePresentation.unattributedSeries(retained)
+            switch SparklinePresentation.readiness(points) {
+            case .tooFew(let sentence):
+                Text("Too few readings")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help(sentence)
+            case .ready:
+                HistorySparkline(
+                    points: points,
+                    gapThreshold: SparklinePresentation.gapThreshold(cadence: cadence),
+                    height: 20,
+                    summary: historyAccessibility)
+            }
+        } else {
+            Text("Not retained")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .help(SparklinePresentation.perFamilyHistoryExplanation)
+        }
+    }
+
+    private var historyAccessibility: String {
+        guard row.kind == .systemProcesses else {
+            return "No retained history. " + SparklinePresentation.perFamilyHistoryExplanation
+        }
+        return SparklinePresentation.accessibilitySummary(
+            title: "Unattributed system activity",
+            points: SparklinePresentation.unattributedSeries(retained),
+            window: MetricsHistory.defaultRetention,
+            gapThreshold: SparklinePresentation.gapThreshold(cadence: cadence))
     }
 
     /// FR-002: a value we were refused reads as unavailable, never as zero.
@@ -598,6 +692,7 @@ struct ContributorRow: View {
         } else {
             parts.append("usage unavailable")
         }
+        parts.append(historyAccessibility)
         if row.hasChildren { parts.append(isExpanded ? "expanded" : "collapsed") }
         return parts.joined(separator: ", ")
     }
