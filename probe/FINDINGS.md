@@ -701,3 +701,46 @@ one-off startup cost into an idle median measures the observer, not the app.
 - Compile probes against `Metrics/Sources/*.swift` directly when they need
   internal API. Widening `public` to satisfy a probe puts test-only surface in
   the shipping framework.
+
+## An executable's file name is not always a name (`version-name-probe.swift`)
+
+The inventory showed four rows called `2.1.220` and one called `com.apple.Safari…`
+(TASK-57.1). Neither came from a fallback taking a path component, which was the
+hypothesis. Both came from the *file name of the executable itself*.
+
+**Claude Code installs one binary per version and names the file after the
+version.** `~/.local/bin/claude` is a symlink to
+`~/.local/share/claude/versions/2.1.226`, so `proc_pidpath` returns that path,
+`p_comm` is `2.1.226`, and nothing else on disk carries a name — no `.app`, no
+`.appex`, no Launch Services registration. Eight processes were running under
+four version numbers on the measured machine. The command was the correct answer
+by every rule we had; the rule was wrong.
+
+The Safari row is the same shape from the other end: `p_comm` cut at 16 bytes
+made `com.apple.Safari.History` read as `com.apple.Safari…`, which a user reads
+as Safari. **The executable file name is not truncated**, so the path recovers
+the whole identifier — 29 processes were showing a cut-off reverse-DNS fragment.
+
+**A declared name can also be an identifier.** `PressAndHold.app` declares
+`CFBundleName` = `com.apple.PressAndHold`, and `CoreSimulatorService` registers
+with Launch Services under its own identifier. Having a source for a string does
+not make the string a name, so the check has to sit after the declared name, not
+only on the path fallback.
+
+**Rules.**
+
+- Treat a bare version number and a reverse-DNS identifier as *non-names*
+  wherever they come from — Launch Services, `Info.plist`, or `p_comm`. Show
+  them as `Unidentified process (…)` with the evidence beside the label, never
+  as the application's name (FR-002, FR-038).
+- Where the executable is version-named, the directory above it names the
+  program: `.../claude/versions/2.1.226` is `claude`. Search **at most two**
+  levels and skip structural components (`bin`, `versions`, `Contents`, …).
+  Never accept a directory directly under `/Users` or `/home` — that is an
+  account name, and it is not a process name (A-05).
+- Only members that live *inside* a bundle may name the family. A spawned member
+  carries its own name, and members arrive in dictionary order, so any-member
+  naming made the row's title depend on that order.
+
+Measured after the change: 0 of 797 processes still display a version or a bare
+identifier; all eight `claude` processes resolve to `claude`.

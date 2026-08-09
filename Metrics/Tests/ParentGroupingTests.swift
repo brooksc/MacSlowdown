@@ -154,6 +154,29 @@ struct ParentGroupingTests {
         #expect(reason.contains("Warp"))
     }
 
+    /// A spawned child brings its own name — `claude`, `zsh` — and members arrive in
+    /// whatever order the snapshot's dictionary yields. Letting any member name the
+    /// family would make the row's title depend on that order.
+    @Test("A spawned child never supplies the family's name")
+    func spawnedChildDoesNotNameTheFamily() {
+        let warp = ResolvedIdentity(
+            executablePath: "/Applications/Warp.app/Contents/MacOS/stable",
+            appBundlePath: "/Applications/Warp.app", bundleID: "dev.warp.Warp",
+            teamID: nil, friendlyName: "Warp")
+        let child = ResolvedIdentity(
+            executablePath: "/Users/someone/.local/share/claude/versions/2.1.226",
+            appBundlePath: nil, bundleID: nil, teamID: nil, friendlyName: "claude")
+
+        // The child first, which is the order that used to name the family "claude".
+        let inputs: [Input] = [
+            (record(pid: 200, ppid: 100, startTime: 500, command: "2.1.226"), child),
+            (record(pid: 100, ppid: 1, startTime: 100, command: "stable"), warp),
+        ]
+        let family = FamilyGrouper.group(inputs).first
+        #expect(family?.displayName == "Warp")
+        #expect(family?.spawnedMemberCount == 1)
+    }
+
     /// Lineage is evidence, not a guess, so it must not trip the uncertainty
     /// marker that exists for unconfirmed path claims.
     @Test("A spawned child does not make the family uncertain")
