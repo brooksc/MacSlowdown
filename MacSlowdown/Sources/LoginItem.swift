@@ -20,6 +20,12 @@ final class LoginItem {
         /// The user disabled it in System Settings; macOS requires them to
         /// re-enable it there, so the app must explain rather than silently fail.
         case requiresApproval
+        /// `notFound`, from a copy that is not in an Applications folder. This is
+        /// the expected result for a build run out of `.build` or a derived-data
+        /// directory — the system has nothing to register — and it is not a fault
+        /// in the app. Told apart from a genuine `notFound` so a developer is not
+        /// looking at the same sentence a broken install would show (TASK-64).
+        case unavailableFromThisLocation(directory: String)
         case unavailable(String)
     }
 
@@ -33,12 +39,43 @@ final class LoginItem {
         case .enabled: state = .enabled
         case .notRegistered: state = .disabled
         case .requiresApproval: state = .requiresApproval
-        case .notFound: state = .unavailable("The app could not be found by the system.")
+        case .notFound:
+            if let directory = Self.unregisterableLocation() {
+                state = .unavailableFromThisLocation(directory: directory)
+            } else {
+                state = .unavailable("The app could not be found by the system.")
+            }
         @unknown default: state = .unavailable("Unrecognised status.")
         }
     }
 
+    /// The folder this copy runs from, when that folder is one macOS will not
+    /// register a login item out of. Nil when the app *is* installed properly, in
+    /// which case a `notFound` is a real failure and must read like one.
+    static func unregisterableLocation(
+        bundleURL: URL = Bundle.main.bundleURL,
+        home: URL = URL(fileURLWithPath: NSHomeDirectory())
+    ) -> String? {
+        let directory = bundleURL.deletingLastPathComponent()
+        let installed = ["/Applications", home.appendingPathComponent("Applications").path]
+        if installed.contains(where: { directory.path == $0 || directory.path.hasPrefix($0 + "/") }) {
+            return nil
+        }
+        return directory.path
+    }
+
     var isEnabled: Bool { state == .enabled }
+
+    /// Whether the toggle can do anything at all. A control the system will refuse
+    /// should not look operable (FR-017's rule, applied to our own settings).
+    var isAdjustable: Bool { Self.isAdjustable(state) }
+
+    static func isAdjustable(_ state: State) -> Bool {
+        switch state {
+        case .enabled, .disabled: true
+        case .requiresApproval, .unavailableFromThisLocation, .unavailable: false
+        }
+    }
 
     func setEnabled(_ enabled: Bool) {
         do {
@@ -69,6 +106,11 @@ final class LoginItem {
         case .requiresApproval:
             "Login items for MacSlowdown are turned off in System Settings. "
                 + "Open System Settings › General › Login Items to allow it."
+        case .unavailableFromThisLocation(let directory):
+            "Start at login needs MacSlowdown to be in your Applications folder. "
+                + "This copy is running from \(directory), and macOS will not register "
+                + "a login item from there. Nothing is wrong with the app — move it to "
+                + "Applications and open it again."
         case .unavailable(let reason):
             "Start at login is unavailable: \(reason)"
         }
