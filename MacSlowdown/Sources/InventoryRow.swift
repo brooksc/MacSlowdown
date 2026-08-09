@@ -122,6 +122,15 @@ struct InventoryRow: Identifiable {
     var startedSortKey: Double { startedAt?.timeIntervalSince1970 ?? -1 }
 }
 
+/// The inventory's order is damped, children included: an expanded family's members
+/// jitter for the same reason its aggregate does (TASK-74).
+extension InventoryRow: StablyOrdered {
+    var stableChildren: [InventoryRow] {
+        get { children }
+        set { children = newValue }
+    }
+}
+
 extension Presentation {
     /// Builds the inventory tree.
     ///

@@ -1033,3 +1033,34 @@ TEST_RUNNER_TASK67_PROBE=1 xcodebuild test -workspace MacSlowdown.xcworkspace \
   -scheme AllTests -destination 'platform=macOS,arch=arm64' -derivedDataPath .build \
   -only-testing:MacSlowdownTests/InventoryTableBisectProbe
 ```
+
+### Damping the order cuts the warning ~85% (TASK-74)
+
+The product owner took the second option. The displayed order is now held
+between samples and re-ranked at most once every 10 s
+(`MacSlowdown/Sources/StableOrder.swift`); rows that appear or disappear are
+spliced in and out immediately, and a sort click or a search re-ranks at once.
+**Only positions are held — every refresh emits the newest sample's rows**, so a
+held order never puts a stale number on screen (FR-002, FR-032).
+
+Measured with TASK-67's own harness, 20 s windows, 1 s cadence, ~500 rows, on a
+machine also running other agents' builds:
+
+| | warnings per 20 s |
+|---|---|
+| Before — re-ranked every sample | 12, 14 |
+| After — order settled at 10 s | 2, 2, 1 |
+
+That is roughly the arithmetic you would predict: a 20 s window permits about two
+re-ranks instead of twenty, and each reorder costs one warning. **The reentrancy
+is not fixed** — SwiftUI still reenters whenever rows genuinely move — so the
+Feedback (drafted in `probe/feedback-swiftui-table-reentrancy.md`) still matters,
+and `NSViewRepresentable` is still the only complete escape.
+
+Re-run with:
+
+```
+TEST_RUNNER_TASK67_PROBE=1 xcodebuild test -workspace MacSlowdown.xcworkspace \
+  -scheme AllTests -destination 'platform=macOS,arch=arm64' -derivedDataPath .build \
+  -only-testing:MacSlowdownTests/InventoryTableReentrancyTests
+```

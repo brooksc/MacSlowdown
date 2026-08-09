@@ -19,13 +19,31 @@ struct AllProcessesView: View {
     let icon: (String?) -> NSImage?
 
     @State private var selection: AllProcessesRow.ID?
+    /// The two sections are damped separately, because they are two ordered lists
+    /// (TASK-74). Unmeasurable rows all share one sort key and are held by the name
+    /// tie-break, so damping costs them nothing and covers them if that ever changes.
+    @State private var measurableOrder = StableOrder<AllProcessesRow>()
+    @State private var unmeasurableOrder = StableOrder<AllProcessesRow>()
+    @State private var listing = AllProcessesListing(measurable: [], unmeasurable: [])
 
-    private var listing: AllProcessesListing {
+    /// The ranking, from the newest rows. `listing` is this, settled.
+    private var ranked: AllProcessesListing {
         AllProcesses.listing(rows, query: query, by: sortOrder)
     }
 
+    /// Fresh rows every time; only their sequence is held.
+    private func refreshListing(userAsked: Bool = false) {
+        if userAsked {
+            measurableOrder.reset()
+            unmeasurableOrder.reset()
+        }
+        let ranked = ranked
+        listing = AllProcessesListing(
+            measurable: measurableOrder.settle(ranked.measurable),
+            unmeasurable: unmeasurableOrder.settle(ranked.unmeasurable))
+    }
+
     var body: some View {
-        let listing = listing
         Table(of: AllProcessesRow.self, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Process", value: \.name) { row in
                 nameCell(row)
@@ -78,6 +96,13 @@ struct AllProcessesView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { footer }
+        .onAppear { refreshListing(userAsked: true) }
+        // `rows` is rebuilt from the newest sample by the parent, so a change in it
+        // is a new sample. Comparing it is how this view learns that without
+        // reaching into the store.
+        .onChange(of: rows) { _, _ in refreshListing() }
+        .onChange(of: sortOrder) { _, _ in refreshListing(userAsked: true) }
+        .onChange(of: query) { _, _ in refreshListing(userAsked: true) }
     }
 
     /// The rule stated on the screen, where the user meets it, rather than in a
@@ -157,6 +182,7 @@ struct AllProcessesView: View {
             .accessibilityElement(children: .combine)
             Text("Resident memory. Activity Monitor's Memory column shows a different "
                  + "measure (footprint), so the numbers will not match exactly.")
+            Text(OrderStability.explanation)
         }
         .font(.caption)
         .foregroundStyle(.secondary)

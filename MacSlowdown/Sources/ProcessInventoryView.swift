@@ -18,6 +18,10 @@ struct ProcessInventoryView: View {
     @State private var sortOrder = Presentation.defaultInventorySort
     @State private var scope: Scope = .apps
     @State private var history = FamilyHistory()
+    /// Keeps the displayed order steady between samples (TASK-74). Positions only —
+    /// the rows themselves are replaced every sample, so the numbers stay live.
+    @State private var order = StableOrder<InventoryRow>()
+    @State private var rows: [InventoryRow] = []
 
     /// Which list is on screen. `allProcesses` is the peer view (TASK-65.13); the
     /// control exists here so the count of what is *not* in the Apps list is
@@ -59,13 +63,26 @@ struct ProcessInventoryView: View {
             totalProcesses: processes.count)
     }
 
-    private var rows: [InventoryRow] {
+    /// The ranking, recomputed from the newest sample every time it is asked for.
+    /// Correct and twitchy; `rows` is this order damped (TASK-74).
+    private var rankedRows: [InventoryRow] {
         let all = store.inventory
         let matching = query.isEmpty ? all : all.filter {
             $0.name.localizedCaseInsensitiveContains(query)
                 || $0.children.contains { $0.name.localizedCaseInsensitiveContains(query) }
         }
         return Presentation.sortedInventory(matching, by: sortOrder)
+    }
+
+    /// What the table shows: the newest sample's rows, in a settled order.
+    ///
+    /// State rather than a computed property because settling is a decision about
+    /// what changed since last time, and a view's `body` may not remember anything.
+    /// Every refresh takes freshly ranked rows, so the numbers are never held back —
+    /// only the sequence is.
+    private func refreshRows(userAsked: Bool = false) {
+        if userAsked { order.reset() }
+        rows = order.settle(rankedRows)
     }
 
     /// The selected row, wherever it sits in the tree.
@@ -105,10 +122,18 @@ struct ProcessInventoryView: View {
         // scope to find what the other list is hiding is the whole of screen 1p.
         .searchable(text: $query, prompt: searchPrompt)
         .navigationTitle("Apps & Processes")
+        .onAppear { refreshRows(userAsked: true) }
         .onChange(of: store.lastUpdate) { _, _ in
+            // Every sample: new numbers, settled order.
+            refreshRows()
             history.record(rows: store.inventory, families: store.families,
                            selected: selection)
         }
+        // User intent re-ranks at once. A person who clicks "CPU" or types a search
+        // term is asking to see the list rearranged, and making them wait would be
+        // damping the wrong thing.
+        .onChange(of: sortOrder) { _, _ in refreshRows(userAsked: true) }
+        .onChange(of: query) { _, _ in refreshRows(userAsked: true) }
         .onChange(of: selection) { _, _ in
             history.record(rows: store.inventory, families: store.families,
                            selected: selection)
@@ -344,7 +369,10 @@ struct InventoryTable: View {
                  + "measure (footprint), so the numbers will not match exactly.")
             Text("Per-app disk activity is not available to App Store apps.")
             Text("Click a column heading to sort, a triangle to see the individual "
-                 + "processes an application is running, or a row to inspect it.")
+                 + "processes an application is running, or a row to inspect it. "
+                 // The order is deliberately not live. Said here rather than left
+                 // for a user to discover as an inconsistency (TASK-74).
+                 + OrderStability.explanation)
         }
         .font(.caption)
         .foregroundStyle(.secondary)

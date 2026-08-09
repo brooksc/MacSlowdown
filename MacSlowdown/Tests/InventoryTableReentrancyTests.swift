@@ -191,16 +191,30 @@ struct InventoryTableReentrancyTests {
         #expect(run.distinctRowCounts > 1, Comment(rawValue: run.description))
     }
 
-    /// The reproduction, recorded as what it currently is: a defect we did not fix.
+    /// The same reproduction, now measuring the thing TASK-74 changed.
     ///
-    /// This asserts that the warning **is** emitted, which is the state of the world
-    /// as measured. It is not an endorsement — it is so that whoever changes this
-    /// next gets told. The test fails the day the Apps table stops reentering,
-    /// whether that is because we replaced `Table` (option C in the task notes) or
-    /// because Apple fixed it, and either way that is news worth a failing test.
-    @Test("The inventory table still reenters, as TASK-67 recorded",
+    /// It used to assert the warning **was** present, because it was, and because
+    /// whoever fixed it should be told. TASK-74 did not fix the reentrancy — SwiftUI
+    /// still reenters whenever rows are reordered, and only Apple can change that —
+    /// it stopped the table reordering on every sample. So the measurement that
+    /// matters is no longer "does it warn" but "how often", and this asserts the
+    /// frequency.
+    ///
+    /// Measured on this machine, 20 s windows against a 1 s-cadence store, ~500 rows:
+    ///
+    /// | | warnings per 20 s |
+    /// |---|---|
+    /// | Before (re-ranked every sample) | 12, 14 |
+    /// | After (order settled, `OrderStability.settleInterval` = 10 s) | 2, 2, 1 |
+    ///
+    /// The bound is derived, not chosen: a 20 s window permits the first paint plus
+    /// `20 / settleInterval` re-ranks, so three reorders, and one warning apiece.
+    /// Doubling that leaves room for a spliced arrival or a slow machine while still
+    /// failing an order of magnitude below the old figure. If this fails, the table
+    /// has gone back to re-ranking on every sample.
+    @Test("The inventory table reorders rarely enough to warn rarely (TASK-74)",
           .enabled(if: task67ProbeEnabled), .timeLimit(.minutes(2)))
-    func inventoryScopeStillReenters() async {
+    func inventoryScopeReordersRarely() async {
         let store = MonitorStore(cadence: .seconds(1), history: MetricsHistory())
         store.start()
         defer { store.stop() }
@@ -216,8 +230,18 @@ struct InventoryTableReentrancyTests {
             }
         }
         let lines = reentrantLines(output)
-        #expect(!lines.isEmpty, Comment(rawValue:
-            "The Apps table no longer reenters — TASK-67's finding is out of date. "
+        print("TASK74-COUNT apps warnings=\(lines.count) seconds=20 \(run.description)")
+        let permitted = 2 * (1 + Int(20 / OrderStability.settleInterval))
+        #expect(lines.count <= permitted, Comment(rawValue:
+            "The Apps table warned \(lines.count) times in 20 s, over the \(permitted) "
+            + "a settled order permits. Before TASK-74 this measured 12–14, so the "
+            + "likely cause is that the table is re-ranking on every sample again. "
             + run.description))
+        // Zero would mean Apple has fixed the reentrancy, or that the harness saw
+        // nothing. `harnessDrivesARealTable` rules out the second, and the first is
+        // news rather than a failure — so it is reported, not asserted.
+        if lines.isEmpty {
+            print("TASK74-NOTE no reentrancy warning at all — worth re-reading TASK-67.")
+        }
     }
 }
