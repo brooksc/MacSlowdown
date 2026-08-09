@@ -24,7 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Absent preference means first launch, where the item is shown.
         let showMenuBarItem = defaults.object(forKey: "showMenuBarItem") as? Bool ?? true
         if !showMenuBarItem {
-            // No menu bar item means the Dock icon is the only way back to the app.
+            // No menu bar item means the Dock icon is the only way back to the app,
+            // and `applicationShouldHandleReopen` below is what makes it one.
+            //
+            // The window is deliberately not opened here: FR-001's objective is
+            // noticing degradation *without* opening a full window, so a launch —
+            // including a login-item launch — stays quiet.
             NSApp.setActivationPolicy(.regular)
         }
         // Presentation only — this asks for nothing and shows no prompt.
@@ -32,9 +37,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MonitorStore.shared.start()
     }
 
-    /// Clicking the Dock icon reopens the window rather than doing nothing.
+    /// Clicking the Dock icon opens the main window.
+    ///
+    /// Returning `true` alone is not enough. It only permits AppKit's default
+    /// reopen, which restores windows that already exist — and with the menu bar
+    /// item hidden the SwiftUI `Window` scene may never have been created in this
+    /// launch, leaving a running app with a Dock icon and nothing behind it. So the
+    /// window is opened explicitly when there is none visible.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        true
+        if !hasVisibleWindows {
+            MainWindowOpener.open()
+        }
+        return true
     }
 
     /// Monitoring is the product; closing the last window must not end it.

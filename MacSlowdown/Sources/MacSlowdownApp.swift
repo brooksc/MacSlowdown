@@ -8,11 +8,25 @@ struct MacSlowdownApp: App {
     private var store: MonitorStore { .shared }
 
     /// FR-001 requires the status surface be hideable. When it is hidden the app
-    /// switches to a regular activation policy so it keeps a Dock icon — otherwise
-    /// hiding the only visible surface would strand a running app with no way back.
+    /// switches to a regular activation policy so it keeps a Dock icon, and
+    /// `AppDelegate.applicationShouldHandleReopen` opens this window when that icon
+    /// is clicked. Both halves are needed: the Dock icon alone was not a way back,
+    /// because a `Window` scene that never opened has nothing for AppKit to restore.
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
 
+    /// Only a SwiftUI scope can hold this; the delegate reaches it via
+    /// `MainWindowOpener`.
+    @Environment(\.openWindow) private var openWindow
+
     var body: some Scene {
+        // Registered on scene evaluation, which happens whether or not the menu bar
+        // item is inserted and whether or not a window is ever opened.
+        let open = openWindow
+        MainWindowOpener.action = { open(id: MainWindow.id) }
+        return scenes
+    }
+
+    @SceneBuilder private var scenes: some Scene {
         MenuBarExtra(isInserted: .init(
             get: { showMenuBarItem && !AppDelegate.isHostingTests },
             set: { showMenuBarItem = $0 })) {
