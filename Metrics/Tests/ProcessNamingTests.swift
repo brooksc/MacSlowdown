@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 @testable import Metrics
 
@@ -45,6 +46,147 @@ struct TruncationTests {
         #expect(eightEmoji.count == 4)
         #expect(eightEmoji.utf8.count == 16)
         #expect(ProcessNaming.isTruncated(eightEmoji))
+    }
+}
+
+/// TASK-57.1. Four rows of the inventory were called `2.1.220`, and a fifth
+/// `com.apple.Safari…`. Both are strings the resolution order produced as a last
+/// resort, and both read as names when they are not.
+@Suite("Commands that are not names")
+struct NonNameTests {
+    /// Measured: `~/.local/bin/claude` links to
+    /// `~/.local/share/claude/versions/2.1.226`, so the executable file *is* the
+    /// version and the kernel's `p_comm` is `2.1.226`.
+    @Test("A bare version number is recognised, an ordinary name is not")
+    func versionNumbers() {
+        #expect(ProcessNaming.isVersionNumber("2.1.226"))
+        #expect(ProcessNaming.isVersionNumber("150.0.7871.186"))
+        #expect(ProcessNaming.isVersionNumber("26"))
+        #expect(!ProcessNaming.isVersionNumber("node"))
+        #expect(!ProcessNaming.isVersionNumber("python3.13"))
+        #expect(!ProcessNaming.isVersionNumber(""))
+        #expect(!ProcessNaming.isVersionNumber("..."))
+    }
+
+    @Test("A reverse-DNS identifier is recognised without sweeping up dotted names")
+    func bundleIdentifiers() {
+        #expect(ProcessNaming.isBundleIdentifier("com.apple.Safari.History"))
+        #expect(ProcessNaming.isBundleIdentifier("io.tailscale.ipn.macsys"))
+        #expect(ProcessNaming.isBundleIdentifier("com.apple.geod"))
+        // Two segments is a file name, not an identifier.
+        #expect(!ProcessNaming.isBundleIdentifier("python3.13"))
+        // A long first segment is a program name that happens to have dots.
+        #expect(!ProcessNaming.isBundleIdentifier("SimLaunchHost.arm64.xpc"))
+        #expect(!ProcessNaming.isBundleIdentifier("mdworker_shared"))
+        #expect(!ProcessNaming.isBundleIdentifier("com..apple"))
+    }
+
+    /// The rule that matters: neither shape may be shown as though it were a name.
+    @Test("A version number and an identifier are labelled unidentified")
+    func labelling() {
+        #expect(ProcessNaming.labelled(command: "2.1.220")
+                == "Unidentified process (2.1.220)")
+        #expect(ProcessNaming.labelled(command: "com.apple.Safari")
+                == "Unidentified process (com.apple.Safari…)")
+        // Everything else is untouched: an ordinary daemon still reads as itself.
+        #expect(ProcessNaming.labelled(command: "mdworker_shared") == "mdworker_shared")
+        #expect(ProcessNaming.labelled(command: "MTLCompilerServi") == "MTLCompilerServi…")
+    }
+
+    @Test("VoiceOver hears that the process is unidentified, not a version number")
+    func spokenForm() {
+        let spoken = ProcessNaming.accessibilityLabel(command: "2.1.220")
+        #expect(spoken.hasPrefix("Unidentified process"))
+        #expect(spoken.contains("2.1.220"))
+        #expect(!spoken.contains("…"))
+
+        let identifier = ProcessNaming.accessibilityLabel(command: "com.apple.Safari")
+        #expect(identifier.hasPrefix("Unidentified process"))
+        #expect(identifier.contains("shortened"))
+    }
+
+    /// The real path, from the machine that produced the defect.
+    @Test("A version-numbered install directory names the program it installed")
+    func installationName() {
+        #expect(ProcessNaming.installationName(
+            forExecutablePath: "/Users/someone/.local/share/claude/versions/2.1.226")
+            == "claude")
+        #expect(ProcessNaming.installationName(
+            forExecutablePath: "/opt/homebrew/Cellar/pmg/0.17.0") == "pmg")
+    }
+
+    /// The guard against inventing a name: structural directories say nothing about
+    /// the program, and the search stops before it reaches a user account name.
+    @Test("A layout directory is never used as a name")
+    func structuralDirectoriesRejected() {
+        #expect(ProcessNaming.installationName(forExecutablePath: "/usr/local/2.1.1") == nil)
+        #expect(ProcessNaming.installationName(
+            forExecutablePath: "/Users/someone/2.1.1") == nil)
+        // Not a version at all: this fallback must not fire.
+        #expect(ProcessNaming.installationName(
+            forExecutablePath: "/opt/homebrew/Cellar/node/26.0.0/bin/node") == nil)
+    }
+
+    /// End to end through the resolution order, for a path with no bundle anywhere in
+    /// it — the case that produced four identical `2.1.220` rows.
+    @Test("Resolution names a version-numbered executable after its install directory")
+    func resolvesThroughInstallPath() {
+        // pid 0 has no running application, so this exercises the path fallback.
+        let name = ProcessNaming.resolve(
+            pid: -1,
+            executablePath: "/Users/someone/.local/share/claude/versions/2.1.226")
+        #expect(name == "claude")
+    }
+
+    @Test("An unrecoverable version number resolves to unidentified, not to itself")
+    func resolvesToUnidentified() {
+        #expect(ProcessNaming.resolve(pid: -1, executablePath: "/usr/local/2.1.1")
+                == "Unidentified process (2.1.1)")
+    }
+
+    /// `p_comm` is cut at 16 bytes; the executable file name is not. Recovering it
+    /// turns `com.apple.Safari…` — which reads as Safari — into the whole identifier.
+    @Test("A bundle-identifier executable is shown whole, and as unidentified")
+    func resolvesIdentifierFromPath() {
+        let name = ProcessNaming.resolve(
+            pid: -1,
+            executablePath: "/System/Volumes/Preboot/Cryptexes/App/usr/libexec/"
+                + "com.apple.Safari.History")
+        #expect(name == "Unidentified process (com.apple.Safari.History)")
+    }
+
+    /// Having a source for a string does not make it a name. Measured on this
+    /// machine: `PressAndHold.app` declares `CFBundleName` = `com.apple.PressAndHold`,
+    /// and `CoreSimulatorService` registers with Launch Services under its own
+    /// identifier — so the check has to sit after the declared name, not only on the
+    /// path fallback.
+    @Test("A declared name that is itself an identifier is still not shown as a name")
+    func declaredIdentifierRejected() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("naming-\(UUID().uuidString)")
+        let bundle = root.appendingPathComponent("Thing.app")
+        let contents = bundle.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(
+            at: contents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let plist: [String: Any] = ["CFBundleName": "com.example.thing"]
+        try PropertyListSerialization
+            .data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: contents.appendingPathComponent("Info.plist"))
+
+        let executable = contents.path + "/MacOS/Thing"
+        #expect(ProcessNaming.bundleName(atPath: bundle.path) == "com.example.thing")
+        #expect(ProcessNaming.resolve(pid: -1, executablePath: executable)
+                == "Unidentified process (com.example.thing)")
+    }
+
+    /// Everything that is not one of the two shapes keeps falling through to the
+    /// command, exactly as before.
+    @Test("An ordinary daemon still resolves to no name at all")
+    func ordinaryDaemonUnchanged() {
+        #expect(ProcessNaming.resolve(pid: -1, executablePath: "/usr/sbin/notifyd") == nil)
+        #expect(ProcessNaming.resolve(pid: -1, executablePath: nil) == nil)
     }
 }
 
@@ -219,5 +361,41 @@ struct IconCacheTests {
         _ = cache.icon(forExecutablePath: "/no/such/App.app/Contents/MacOS/App")
         _ = cache.icon(forExecutablePath: "/no/such/App.app/Contents/MacOS/App")
         #expect(cache.cachedCount == 1)
+    }
+
+    /// The negative control for the 32 pt fingerprint that replaced comparing
+    /// `tiffRepresentation` (TASK-55.1).
+    ///
+    /// The failure mode being guarded is not "too expensive", it is a comparison
+    /// that answers *real* for everything — that would put a generic placeholder
+    /// beside three quarters of the process table and call it the application's
+    /// icon, which is worse than the 70 MB-per-call allocation it replaced.
+    /// Every bundle on the measured machine classified as real, so agreement with
+    /// the old method could not distinguish a working comparison from one that
+    /// never says "generic". These two do.
+    @Test("Plain executables still fingerprint as generic, so the comparison discriminates")
+    func fingerprintRejectsGenericIcons() throws {
+        for path in ["/bin/ls", "/usr/bin/true"] {
+            try #require(FileManager.default.fileExists(atPath: path))
+            let icon = NSWorkspace.shared.icon(forFile: path)
+            #expect(ProcessIconCache.fingerprint(icon)
+                == ProcessIconCache.fingerprint(
+                    NSWorkspace.shared.icon(for: .unixExecutable)),
+                "\(path) has no icon of its own and must compare equal to the generic one")
+        }
+    }
+
+    /// The other half of the control: a real application must *not* collide with
+    /// the generic icon at 32 pt. A fingerprint small enough to be free is only
+    /// useful if it is still large enough to tell two icons apart.
+    @Test("A real application's icon does not collide with the generic one")
+    func fingerprintSeparatesRealIcons() throws {
+        let finder = "/System/Library/CoreServices/Finder.app"
+        try #require(FileManager.default.fileExists(atPath: finder))
+        let generic = ProcessIconCache.fingerprint(
+            NSWorkspace.shared.icon(for: .unixExecutable))
+        let real = ProcessIconCache.fingerprint(NSWorkspace.shared.icon(forFile: finder))
+        #expect(real != nil)
+        #expect(real != generic)
     }
 }

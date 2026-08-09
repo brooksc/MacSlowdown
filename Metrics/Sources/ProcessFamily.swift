@@ -137,7 +137,16 @@ public enum FamilyGrouper {
                 id: path,
                 // Prefer the bundle's own declared name over its folder name:
                 // "Helium" rather than a path component that happens to match.
-                displayName: members.compactMap { $0.resolved.friendlyName }.first
+                //
+                // Only members that live inside the bundle may name it. A process
+                // grouped here because the application started it carries its own
+                // name — a shell under a terminal is `zsh` — and members arrive in
+                // whatever order the snapshot's dictionary yields, so taking the
+                // first name of any kind would let the family be called `zsh` on one
+                // sweep and by its real name on the next.
+                displayName: members.lazy
+                    .filter { if case .byParent = $0.membership { false } else { true } }
+                    .compactMap { $0.resolved.friendlyName }.first
                     ?? displayName(forBundle: path),
                 bundlePath: path,
                 members: classify(members, bundlePath: path, parents: parents)
