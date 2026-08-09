@@ -56,6 +56,13 @@ struct MacSlowdownApp: App {
                 // one that is always available while the app has a menu bar.
                 .muteAlertsSheet(store: store)
         }
+        // TASK-75: without this the window adopts whatever height its content says
+        // it would ideally like, which on the Apps & Processes screen was 3599 pt on
+        // a 1107 pt display — and a window dragged back to a sensible size sprang
+        // straight out again. `contentMinSize` keeps the content's *minimum*
+        // honoured, so nothing is ever squeezed to illegibility, while leaving the
+        // actual size to `defaultSize` and to the user.
+        .windowResizability(.contentMinSize)
         .defaultSize(width: 900, height: 600)
         .commands {
             CommandGroup(after: .appSettings) {
@@ -81,5 +88,16 @@ struct MacSlowdownApp: App {
 }
 
 enum MainWindow {
-    static let id = "main"
+    /// Changed from `"main"` for TASK-75, and the rename is the point.
+    ///
+    /// AppKit autosaves the window's frame and the split view's subview frames under
+    /// keys derived from this identifier, and every machine that ran the broken
+    /// build has `NSWindow Frame main = 120 -2526 1300 3599` and a
+    /// `NSSplitView Subview Frames main, SidebarNavigationSplitView` recording
+    /// 9932 pt saved in its container. Those would be restored on the next launch
+    /// and the window would reopen 3599 pt tall and mostly off the top of the
+    /// screen, with the fix in place and apparently not working. A new identifier
+    /// retires both entries at once. The cost is that a window position the user
+    /// chose is forgotten once; the alternative is a window they cannot see.
+    static let id = "main-v2"
 }
