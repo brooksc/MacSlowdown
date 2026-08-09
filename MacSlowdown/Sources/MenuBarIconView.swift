@@ -174,6 +174,40 @@ struct MenuBarSparkline: View {
     }
 }
 
+/// Turns the glyph into a bitmap, because a `MenuBarExtra` label will not draw it
+/// otherwise.
+///
+/// **Measured on screen 2026-08-09, not inferred.** With the glyph as live SwiftUI
+/// shapes, the status item existed at 1429,5 sized 18x24, its accessibility label
+/// read back correctly as "MacSlowdown, high, quits, 1 minute" — and a capture of
+/// exactly those 18x24 points was pure black at every pixel. The item occupied the
+/// strip and painted nothing. `MenuBarExtra` renders its label into an
+/// `NSStatusItem`'s button, which draws `Text` and `Image`; arbitrary shapes are
+/// silently dropped.
+///
+/// Nothing about the design changes here. This renders the same
+/// `MenuBarIconGlyph`, so the four states, the slash, the badge and the Increase
+/// Contrast treatment are still exactly what the tests assert on — they simply
+/// reach the screen now.
+@MainActor
+enum MenuBarGlyphRenderer {
+    static func image(state: MenuBarIconState, showsBadge: Bool,
+                      treatment: MenuBarIconTreatment) -> NSImage? {
+        let renderer = ImageRenderer(
+            content: MenuBarIconGlyph(
+                state: state, showsBadge: showsBadge, treatment: treatment))
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        guard let image = renderer.nsImage else { return nil }
+        // Template only when the treatment has already given up colour. Under
+        // Increase Contrast the design asks for a pure black/white outline, which
+        // is precisely what a template image is — macOS draws it in the strip's own
+        // foreground colour, so it cannot come out dark on dark. When colour is in
+        // use it must not be a template, or the tint would be thrown away.
+        image.isTemplate = !treatment.usesTint
+        return image
+    }
+}
+
 /// The whole menu bar label: glyph, optional readout, one accessibility label.
 ///
 /// Reads `MonitorStore` for its inputs and `MenuBarIconModel` for what is allowed
@@ -205,8 +239,7 @@ struct MenuBarIconLabel: View {
         let shown = model.displayed
 
         HStack(spacing: 3) {
-            MenuBarIconGlyph(
-                state: shown.state, showsBadge: shown.showsBadge, treatment: treatment)
+            glyph(shown)
             readoutView
         }
         .accessibilityElement(children: .combine)
@@ -217,6 +250,31 @@ struct MenuBarIconLabel: View {
         // earned.
         .task { model.update(to: desired) }
         .onChange(of: desired) { _, new in model.update(to: new) }
+    }
+
+    @ViewBuilder
+    private func glyph(_ shown: MenuBarIconPresentation) -> some View {
+        if let image = MenuBarGlyphRenderer.image(
+            state: shown.state, showsBadge: shown.showsBadge, treatment: treatment) {
+            Image(nsImage: image)
+        } else {
+            // An SF Symbol rather than nothing. An invisible status item is worse
+            // than a plain one, because the user cannot tell it apart from the app
+            // not running at all — which is the failure this whole type exists to
+            // stop.
+            Image(systemName: fallbackSymbolName(shown.state))
+        }
+    }
+
+    /// Shape still carries the state in the fallback: a different symbol per state,
+    /// never the same glyph in a different colour (FR-034).
+    private func fallbackSymbolName(_ state: MenuBarIconState) -> String {
+        switch state {
+        case .normal: "gauge.with.dots.needle.33percent"
+        case .elevated: "gauge.with.dots.needle.67percent"
+        case .incident: "gauge.with.dots.needle.100percent"
+        case .muted: "bell.slash"
+        }
     }
 
     @ViewBuilder
