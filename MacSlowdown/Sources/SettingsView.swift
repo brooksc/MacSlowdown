@@ -306,6 +306,7 @@ private struct AlertsSettingsTab: View {
 
 private struct AppRulesSettingsTab: View {
     @State private var rules: [ApplicationPolicy] = []
+    @State private var corrections: [GroupingCorrection] = []
     @State private var showsSuppressed = false
 
     var body: some View {
@@ -347,10 +348,64 @@ private struct AppRulesSettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Review what these rules hid…") { showsSuppressed = true }
             }
+
+            // FR-039: every correction the user has made, in one place, undoable.
+            // The inspector shows the ones about the application in front of you;
+            // this is where a correction whose application is no longer running —
+            // or which moved a process out of sight — remains findable.
+            Section("Grouping corrections") {
+                Text("Where you have told MacSlowdown that its own grouping was "
+                     + "wrong. These change how processes are added up on screen. "
+                     + "They never change a reading, and never change what an "
+                     + "incident already recorded.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if corrections.isEmpty {
+                    Text("None. MacSlowdown groups processes by the application "
+                         + "bundle their executable lives in; you can correct that "
+                         + "from an application's Grouping section in Apps & "
+                         + "processes.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ForEach(corrections) { correction in
+                    correctionRow(correction)
+                }
+            }
         }
         .formStyle(.grouped)
-        .onAppear { rules = MonitorStore.shared.policies.policies }
+        .onAppear {
+            rules = MonitorStore.shared.policies.policies
+            corrections = MonitorStore.shared.groupingCorrections
+        }
         .sheet(isPresented: $showsSuppressed) { SuppressedDetectionsSheet() }
+    }
+
+    @ViewBuilder private func correctionRow(_ correction: GroupingCorrection) -> some View {
+        LabeledContent {
+            Button {
+                MonitorStore.shared.removeGroupingCorrection(id: correction.id)
+                corrections = MonitorStore.shared.groupingCorrections
+            } label: {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Undo this correction")
+            .accessibilityLabel("Undo your correction: "
+                                + GroupingCorrectionCopy.describe(correction))
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(GroupingCorrectionCopy.describe(correction))
+                if let scope = GroupingCorrectionCopy.scope(correction) {
+                    Text(scope).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder private func ruleRow(_ rule: ApplicationPolicy) -> some View {

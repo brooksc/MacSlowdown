@@ -46,8 +46,8 @@ list nobody would read.
 | Type | Where | Consequence |
 |---|---|---|
 | ~~`RetentionPolicy`~~ | `Metrics/Sources/PrivacySettings.swift:78` | **Fixed (TASK-72).** `IncidentHistoryStore.bounded` applies it on every load, every write and every sample; re-verified for TASK-79. |
-| `GroupingCorrection` | `Metrics/Sources/ApplicationPolicy.swift:104` | No UI creates one. FR-039's correct/split/merge does not exist. |
-| `GroupingOverrides` | `Metrics/Sources/ProcessFamily.swift:71` | `FamilyGrouper.group` accepts `overrides:`; the one app call site (`MacSlowdown/Sources/MonitorStore.swift:488`) never passes it, so a correction could not take effect even if one could be made. |
+| ~~`GroupingCorrection`~~ | `Metrics/Sources/ApplicationPolicy.swift` | **Fixed (TASK-77).** `FamilyInspectorView`'s Grouping section creates one from "Split out…" / "Merge into…", as the design's 1d screen drew it. |
+| ~~`GroupingOverrides`~~ | `Metrics/Sources/ProcessFamily.swift:71` | **Fixed (TASK-77).** `MonitorStore.regroup(from:)` is now the single grouping step and passes `policies.overrides(for:resolver:)` on every sweep. |
 | `SwapUsage` | `Metrics/Sources/SwapSignals.swift:5` | Swap bytes-in-use and encrypted-swap are measured and never displayed. |
 | `MemoryPressureMonitor.Transition` | `Metrics/Sources/MemorySignals.swift:119` | The monitor is properly started and its `level` is read; the recorded transition log is not, so "pressure has been high for N minutes" has no source. |
 | `ActionVerifier` | `Metrics/Sources/ActionOutcome.swift:83` | Nothing ever produces an `ActionVerification`. FR-050 cannot occur. |
@@ -63,7 +63,7 @@ Ordered by consequence, not by file.
 | ~~`MonitorStore.record(suppression:)`~~ | `MacSlowdown/Sources/MonitorStore.swift:179` | **Fixed (TASK-76).** Called by `recordPolicySuppression`. |
 | `ActionVerifier.verify` | `ActionOutcome.swift:89` | 22 test references, zero callers. `ActionPerformer.perform` returns an `ActionResult` and stops there. |
 | `MonitorStore.record(action:)` | `MacSlowdown/Sources/MonitorStore.swift:165` | App-side half. `IncidentDetailView.verification` (`IncidentDetailView.swift:28`) defaults to `nil` and nothing supplies it. |
-| `PolicyStore.corrections` / `addCorrection` / `removeCorrection` / `overrides(for:)` | `ApplicationPolicy.swift:204, 206, 214, 223` | FR-039 grouping correction is complete, persisted and unreachable. |
+| ~~`PolicyStore.corrections` / `addCorrection` / `removeCorrection` / `overrides(for:)`~~ | `ApplicationPolicy.swift` | **Fixed (TASK-77).** All four are called from `MonitorStore`'s `groupingCorrections`, `correctGrouping`, `removeGroupingCorrection` and `regroup(from:)`. |
 | `SwapSignals.swapUsage()` | `SwapSignals.swift:53` | The app calls only `pagingCounters` and `rates`. FR-008's swap *usage* half is unread. `SwapUsage.isInUse` (`:14`) and `.encrypted` (`:9`) follow. |
 | ~~`RetentionPolicy.retained` / `.expired`~~ | `PrivacySettings.swift:80, 90` | **Fixed (TASK-72).** Both are called from `IncidentHistoryStore.bounded`. |
 | `MetricsHistory.restore()` | `MetricsHistory.swift:189` | Never called. `MonitorStore.swift:614` does call `flushIfNeeded()`, but on a `.memoryOnly` store where it is a no-op. |
@@ -130,7 +130,7 @@ For each: can the behaviour occur in the running app, and how that was determine
 |---|---|---|
 | **FR-016** — per-application allow / ignore / expected policies | **Yes, since TASK-76.** | Setting a policy works: `SettingsView` → `MonitorStore.policies.setPolicy`, and `AlertSettings.notificationSettings` feeds `expectedApplications` into `NotificationGate`. `MonitorStore.announce` now records the resulting suppression in `PolicyStore` and on the incident. Not verified on screen: nobody has opened the sheet and seen a row. |
 | **FR-029** — retention controls | **Yes, since TASK-72 / TASK-79.** | Retention is applied on load, on write and on every sample; the period comes from the picker. "Record file paths" now governs what an incident record keeps. Locality was always satisfied and honestly stated (`PrivacySettings.dataHandlingStatement`). |
-| **FR-039** — user correction of process-family attribution | **No.** | No view creates a `GroupingCorrection`; `PolicyStore.addCorrection` has zero callers; `MonitorStore.swift:488` calls `FamilyGrouper.group(snapshot:resolver:)` without `overrides:`. Every layer exists and none of them is joined. (The "mark expected" half of FR-039 does work, via `setPolicy`.) |
+| **FR-039** — user correction of process-family attribution | **Yes, since TASK-77.** | `FamilyInspectorView` → `MonitorStore.correctGrouping` → `PolicyStore.addCorrection` → `MonitorStore.regroup(from:)` → `policies.overrides(for:resolver:)` → `FamilyGrouper.group(overrides:)` → `families` → the inventory. Reversed by `removeGroupingCorrection`, from the inspector or from the full list in Settings › Apps. Not verified on screen: nobody has clicked "Split out…". |
 | **FR-050** — verify and report the outcome of remediation | **No.** | `ActionPerformer.perform` returns `ActionResult` and stops. `ActionVerifier.verify` has 22 test references and no caller; `MonitorStore.record(action:)` has none; `IncidentDetailView.verification` is always `nil`. Worth weighing before treating as a plain defect: with FR-020–024 deferred, every available action (activate, reveal, open Activity Monitor, copy diagnostics) is observational, so there is arguably nothing whose outcome could be measured. That is a defensible reason to stage it — but it was never written down anywhere, which is exactly the failure mode this audit is about. |
 | **FR-008** — swap, compression, paging | **Partly.** | Compression and paging rates are wired (`SwapSignals.pagingCounters`, `.rates`, `DiskRates` shown in 7 places). `SwapSignals.swapUsage()` — swap bytes in use, encrypted flag — has no caller, so the swap half of FR-008 is measured and never surfaced. |
 | **FR-009** — aggregate disk throughput | **Yes, with one omission.** | `DiskSignals.counters`/`.rates` are called. The `perApplicationUnavailable` disclosure, which is how the app is supposed to say per-app I/O is blocked sandboxed, is never displayed. |
@@ -212,6 +212,27 @@ of scope for the agent that did this work.
 After: **5 unexplained**, down from 16, and all five belong to TASK-76–79
 (`ActionVerifier`/`verify` for FR-050, `recordSuppression`/`addCorrection`/
 `removeCorrection` for FR-016 and FR-039).
+
+## Outcome — TASK-77 (2026-08-09)
+
+**FR-039's grouping half is joined.** `addCorrection` and `removeCorrection` are gone
+from the script's output; **1 unexplained** remains (`ActionVerifier.verify`, FR-050,
+TASK-78).
+
+Two things worth carrying forward from it:
+
+- The audit's own suggested check — "drive `MonitorStore` through a grouping
+  correction and assert `FamilyGrouper` output changes" — is now
+  `MacSlowdown/Tests/GroupingCorrectionWiringTests.swift`. It asserts reachability,
+  not correctness: every case starts at the call the interface makes and ends at
+  `store.families`. A `MetricsTests` case driving `FamilyGrouper.group(overrides:)`
+  directly would have passed throughout the whole period the defect existed, which
+  is why it did.
+- The defect's shape was **two paths to one behaviour, one of them never taken**.
+  The fix collapses them: `MonitorStore.regroup(from:)` is the only place the app
+  groups anything, so there is no longer a way to reach the interface without going
+  through the overrides. That is a cheaper guarantee than a test, and it is worth
+  preferring wherever the same pattern shows up.
 
 One thing this confirms about the method: the blind spot named above cost real
 work twice in one pass. `removeAll()` was reported as dead because it is shared by

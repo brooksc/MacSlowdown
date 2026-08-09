@@ -473,6 +473,77 @@ final class MonitorStore {
             .appendingPathComponent("policies.json"))
     }()
 
+    // MARK: - Grouping corrections (FR-039)
+
+    /// The last snapshot the sampling loop read, kept only so a correction can take
+    /// effect at once instead of at the next cadence tick.
+    ///
+    /// Nil before the first sample, in which case a correction is stored and applies
+    /// from the next sweep — never silently discarded.
+    private var latestSnapshot: ProcessSnapshot?
+
+    /// The grouping step of one sample.
+    ///
+    /// Exists as a named method with exactly one implementation because TASK-77's
+    /// defect was precisely that there were two paths to grouping in principle and
+    /// only one of them — the one without corrections — was ever taken. Both the
+    /// sampling loop and `correctGrouping` come through here, so a correction cannot
+    /// reach the interface without also reaching `FamilyGrouper`.
+    @discardableResult
+    func regroup(from snapshot: ProcessSnapshot) -> [ProcessFamily] {
+        latestSnapshot = snapshot
+        let grouped = FamilyGrouper.group(
+            snapshot: snapshot, resolver: resolver,
+            overrides: policies.overrides(for: snapshot, resolver: resolver))
+        families = grouped
+        return grouped
+    }
+
+    /// What the user has corrected, most recent first, for a screen that lists them.
+    var groupingCorrections: [GroupingCorrection] {
+        policies.corrections.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Records a correction and regroups from the reading already in hand (FR-039).
+    ///
+    /// Nothing recorded is touched: the correction changes where a process is
+    /// *shown*, and the per-PID samples, the attribution the current sweep measured,
+    /// and every incident already written keep saying what was true when they were
+    /// taken (TASK-68).
+    func correctGrouping(_ correction: GroupingCorrection) {
+        correctGrouping([correction])
+    }
+
+    /// Records several corrections and regroups once.
+    ///
+    /// Batched because moving a 23-process family is 23 corrections, and regrouping
+    /// after each one would do the same work 23 times on a single button press.
+    func correctGrouping(_ corrections: [GroupingCorrection]) {
+        for correction in corrections { policies.addCorrection(correction) }
+        if let latestSnapshot { regroup(from: latestSnapshot) }
+    }
+
+    /// Reverses a correction, restoring the heuristic grouping (FR-039).
+    func removeGroupingCorrection(id: String) {
+        removeGroupingCorrections(ids: [id])
+    }
+
+    func removeGroupingCorrections(ids: [String]) {
+        for id in ids { policies.removeCorrection(id: id) }
+        if let latestSnapshot { regroup(from: latestSnapshot) }
+    }
+
+    /// The corrections that apply to any of these processes, so an inspector can
+    /// show the user what they changed about the family in front of them.
+    func groupingCorrections(
+        affecting members: [(command: String, executablePath: String?)]
+    ) -> [GroupingCorrection] {
+        groupingCorrections.filter { correction in
+            members.contains { correction.matches(command: $0.command,
+                                                  executablePath: $0.executablePath) }
+        }
+    }
+
     /// The user's alert preferences, or nil for a store that is not meant to read
     /// them — which is every test that drives the detector directly, and is why
     /// this is injected rather than reached for through `AlertSettings.shared`.
@@ -690,10 +761,9 @@ final class MonitorStore {
                 // Served from the resolver's (pid, start time) cache, so this adds
                 // a dictionary lookup per contributor, not filesystem work.
                 naming: { [resolver] in resolver.identity(for: $0).friendlyName })
-            let grouped = FamilyGrouper.group(snapshot: snapshot, resolver: resolver)
+            let grouped = regroup(from: snapshot)
 
             attribution = result
-            families = grouped
             contributionIndex = Dictionary(
                 result.contributors.map { ($0.identity, $0.percentOfOneCore) },
                 uniquingKeysWith: { first, _ in first })

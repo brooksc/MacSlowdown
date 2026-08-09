@@ -135,6 +135,7 @@ struct FamilyInspectorView: View {
             subtitle = Self.bundleSubtitle(row.bundlePath)
             actionReport = nil
             isExpected = currentClassification() == .expected
+            refreshCorrections()
         }
     }
 
@@ -385,8 +386,51 @@ struct FamilyInspectorView: View {
 
     // MARK: - Grouping (FR-039)
 
+    /// Corrections the user has already made about the processes on screen.
+    ///
+    /// `@State` refreshed explicitly rather than computed, because `PolicyStore` is
+    /// not observable: it is a `Sendable` class the sampling loop reads, deliberately
+    /// not a SwiftUI model. Refreshed on selection and after every mutation, which
+    /// are the only two ways this list can change while the pane is open.
+    @State private var corrections: [GroupingCorrection] = []
+
+    private func refreshCorrections() {
+        guard let family else { corrections = []; return }
+        corrections = store.groupingCorrections(
+            affecting: family.members.map {
+                ($0.record.command, $0.resolved.executablePath)
+            })
+    }
+
+    /// Families this one could be merged into: other applications, not standalone
+    /// processes — a bundle path is what a merge target has to be.
+    private var mergeTargets: [ProcessFamily] {
+        store.families
+            .filter { $0.bundlePath != nil && $0.id != family?.id }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
+                == .orderedAscending }
+    }
+
+    /// Members that can be pulled out, guessed ones first: the "Grouped by guess"
+    /// chip is what prompts a correction, so the row it refers to is the row a user
+    /// arrives here looking for.
+    private var splittableMembers: [FamilyMember] {
+        guard let family, family.members.count > 1 else { return [] }
+        return family.members.sorted { first, second in
+            if first.membership.isUncertain != second.membership.isUncertain {
+                return first.membership.isUncertain
+            }
+            return memberName(first).localizedCaseInsensitiveCompare(memberName(second))
+                == .orderedAscending
+        }
+    }
+
+    private func memberName(_ member: FamilyMember) -> String {
+        member.resolved.displayName(command: member.record.command)
+    }
+
     private var grouping: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("GROUPING").font(.caption).bold().foregroundStyle(.secondary)
             if row.kind == .systemProcesses {
                 Text("These \(row.processCount) processes are owned by another user "
@@ -403,13 +447,110 @@ struct FamilyInspectorView: View {
                 }
             }
             if row.kind != .systemProcesses {
-                Text("Grouping keys on the outermost application bundle in each "
-                     + "executable's path. Correcting it by hand is not available yet.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(GroupingCorrectionCopy.heuristic)
+                    .font(.caption).foregroundStyle(.secondary)
+                yourCorrections
+                correctionControls
+                Text(GroupingCorrectionCopy.userProvided)
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// FR-039: corrections are inspectable and reversible from the interface.
+    @ViewBuilder private var yourCorrections: some View {
+        if !corrections.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Your corrections").font(.caption).bold()
+                ForEach(corrections) { correction in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(GroupingCorrectionCopy.describe(correction))
+                            if let scope = GroupingCorrectionCopy.scope(correction) {
+                                Text(scope).foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 4)
+                        Button("Undo") { undo(correction) }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(
+                                "Undo your correction: "
+                                + GroupingCorrectionCopy.describe(correction))
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var correctionControls: some View {
+        HStack(spacing: 8) {
+            Menu("Split out…") {
+                ForEach(splittableMembers, id: \.record.identity) { member in
+                    Button(splitLabel(member)) { splitOut(member) }
+                }
+            }
+            .disabled(splittableMembers.isEmpty)
+            .help(splittableMembers.isEmpty
+                  ? "There is only one process here, so there is nothing to separate."
+                  : "Separate one of these processes from this application.")
+
+            Menu("Merge into…") {
+                if mergeTargets.isEmpty {
+                    Text("No other application is running")
+                }
+                ForEach(mergeTargets) { target in
+                    Button(target.displayName) { merge(into: target) }
+                }
+            }
+            .disabled(mergeTargets.isEmpty || family == nil)
+            .help("Move these processes into another application's group.")
+        }
+        .fixedSize()
+    }
+
+    /// Names the member and, where there is one, the reason it is doubtful — so the
+    /// menu says which row the "Grouped by guess" chip was about.
+    private func splitLabel(_ member: FamilyMember) -> String {
+        member.membership.isUncertain
+            ? "\(memberName(member)) — grouped by guess"
+            : memberName(member)
+    }
+
+    private func splitOut(_ member: FamilyMember) {
+        store.correctGrouping(GroupingCorrection(
+            processCommand: member.record.command,
+            executablePath: member.resolved.executablePath,
+            kind: .split,
+            displayName: memberName(member)))
+        refreshCorrections()
+        actionReport = "\(memberName(member)) is now shown on its own. Its readings "
+            + "are unchanged — only where they are added up has moved."
+    }
+
+    private func merge(into target: ProcessFamily) {
+        guard let family, let bundlePath = target.bundlePath else { return }
+        store.correctGrouping(family.members.map { member in
+            GroupingCorrection(
+                processCommand: member.record.command,
+                executablePath: member.resolved.executablePath,
+                kind: .merge, intoBundlePath: bundlePath,
+                displayName: memberName(member))
+        })
+        refreshCorrections()
+        let count = family.members.count
+        actionReport = "\(count) \(count == 1 ? "process is" : "processes are") now "
+            + "counted under \(target.displayName). Nothing recorded has changed; "
+            + "you can undo this from that application, or in Settings › Apps."
+    }
+
+    private func undo(_ correction: GroupingCorrection) {
+        store.removeGroupingCorrection(id: correction.id)
+        refreshCorrections()
+        actionReport = "\(correction.subject) is grouped by MacSlowdown's own "
+            + "reckoning again."
     }
 
     // MARK: - Bundle metadata
