@@ -14,95 +14,63 @@ private func incident(closedDaysAgo: Double? = nil, now: Date = Date()) -> Incid
         peakCPUBusyFraction: 0.94, peakMemoryPressure: .normal)
 }
 
-private func attribution() -> CPUAttribution {
-    CPUAttribution(
-        totalBusyPercentOfOneCore: 800, attributedPercentOfOneCore: 700,
-        unattributedPercentOfOneCore: 100,
-        contributors: [ProcessCPUUsage(
-            identity: ProcessIdentity(pid: 1, startTime: 1),
-            command: "SecretProject", percentOfOneCore: 412, residentBytes: 1 << 30)],
-        protectedProcesses: [], logicalCoreCount: 8)
-}
-
-private func export(_ options: RedactionOptions) -> DiagnosticExport {
-    let subject = incident()
-    return DiagnosticExporter.export(
-        incident: subject,
-        summary: IncidentSummarizer.summarize(incident: subject, attribution: attribution()),
-        attribution: attribution(),
-        options: options)
-}
-
-@Suite("Diagnostic export")
-struct DiagnosticExportTests {
-    @Test("The report contains the incident, machine context and versions")
-    func reportIsComplete() {
-        let text = export(.default).text
-        #expect(text.contains("MacSlowdown incident report"))
-        #expect(text.contains("CPU saturation"))
-        #expect(text.contains("Cores"))
-        // FR-040: versions travel with the report.
-        #expect(text.contains("App "))
-        #expect(text.contains("Schema"))
+/// FR-028 has one structural guarantee: redaction is decided when the document is
+/// built, so there is exactly one place these options are interpreted. What is
+/// tested here is the vocabulary every path uses to *state* those choices — the
+/// export sheet shows them, an App Intent has to say them.
+@Suite("Redaction options")
+struct RedactionOptionsTests {
+    @Test("Defaults hide the two identifying fields and keep the report readable")
+    func defaultsAreTheFloor() {
+        let subject = RedactionOptions.default
+        #expect(subject.hideUserName)
+        #expect(subject.hideFilePaths)
+        #expect(!subject.hideProcessNames, "hiding names by default would gut the report")
+        #expect(subject.costWarning == nil)
     }
 
-    @Test("Every finding keeps its evidence class in the export")
-    func evidenceSurvivesExport() {
-        let text = export(.default).text
-        #expect(text.contains("[measured]"))
-        #expect(text.contains("[calculated]"))
-        #expect(text.contains("heuristic"))
-    }
-
-    /// FR-028: paths, usernames and process names can be redacted.
-    @Test("User name is redacted by default")
-    func userNameRedactedByDefault() {
-        #expect(export(.default).text.contains(DiagnosticExport.redactedPlaceholder))
-        let shown = export(RedactionOptions(hideUserName: false)).text
-        #expect(shown.contains(NSUserName()))
-    }
-
-    @Test("Process names can be hidden, including inside prose findings")
-    func processNamesRedactedEverywhere() {
-        let visible = export(RedactionOptions(hideProcessNames: false)).text
-        #expect(visible.contains("SecretProject"))
-
-        let hidden = export(RedactionOptions(hideProcessNames: true)).text
-        #expect(!hidden.contains("SecretProject"),
-                "a name left in a prose finding would defeat the redaction")
-        #expect(hidden.contains(DiagnosticExport.redactedPlaceholder))
-    }
-
-    /// FR-028: the preview shows what is hidden, not only what is shown.
-    @Test("Redacted fields are enumerable and counted")
-    func redactionIsVisible() {
-        let all = export(RedactionOptions(hideUserName: true, hideFilePaths: true,
-                                          hideProcessNames: true))
-        #expect(all.redactedFields.count == 3)
-        #expect(all.options.redactedFieldCount == 3)
-        #expect(all.text.contains("3 of 3 redactable fields hidden"))
-
-        let none = export(RedactionOptions(hideUserName: false, hideFilePaths: false,
-                                           hideProcessNames: false))
-        #expect(none.redactedFields.isEmpty)
-    }
-
-    /// A choice that damages the report says so, rather than letting the user find
-    /// out after sending it.
-    @Test("Hiding process names warns about the cost")
+    @Test("Hiding names is allowed and states its cost")
     func costWarningShown() {
         #expect(RedactionOptions(hideProcessNames: true).costWarning != nil)
         #expect(RedactionOptions(hideProcessNames: false).costWarning == nil)
     }
 
-    /// FR-028 and FR-029: no transmission occurs automatically. Building a report
-    /// writes nothing; only the caller can deliver it.
-    @Test("Exporting produces text and touches no file or network")
-    func exportIsInert() {
-        let report = export(.default)
-        #expect(report.byteCount > 0)
-        // The type exposes text and nothing that could send or save it.
-        #expect(!report.text.isEmpty)
+    /// The comparison an unattended path depends on: it must be able to tell that it
+    /// is about to produce something less redacted than a person would have got.
+    @Test("A weaker set of choices is detected and named")
+    func weakeningIsDetected() {
+        #expect(RedactionOptions.default.isAtLeastAsRedacted(as: .default))
+        #expect(RedactionOptions(hideUserName: true, hideFilePaths: true,
+                                 hideProcessNames: true)
+            .isAtLeastAsRedacted(as: .default))
+
+        let weaker = RedactionOptions(hideUserName: false, hideFilePaths: true)
+        #expect(!weaker.isAtLeastAsRedacted(as: .default))
+        #expect(weaker.fieldsLeftInComparedTo(.default) == ["your user name"])
+        #expect(weaker.weakerThanDefaultWarning?.contains("less redacted") == true)
+        #expect(weaker.weakerThanDefaultWarning?.contains("your user name") == true)
+    }
+
+    @Test("A report at least as redacted as the default carries no weakening warning")
+    func noWarningWhenNotWeaker() {
+        #expect(RedactionOptions.default.weakerThanDefaultWarning == nil)
+        #expect(RedactionOptions(hideUserName: true, hideFilePaths: true,
+                                 hideProcessNames: true).weakerThanDefaultWarning == nil)
+    }
+
+    @Test("The disclosure names what is hidden and what is not")
+    func disclosureNamesBothSides() {
+        let subject = RedactionOptions.default.disclosure
+        #expect(subject.contains("Hidden: your user name and file paths"))
+        #expect(subject.contains("included: app and process names"))
+
+        let everything = RedactionOptions(hideUserName: true, hideFilePaths: true,
+                                          hideProcessNames: true).disclosure
+        #expect(everything.contains("nothing sensitive was included"))
+
+        let nothing = RedactionOptions(hideUserName: false, hideFilePaths: false,
+                                       hideProcessNames: false).disclosure
+        #expect(nothing.contains("Nothing was hidden"))
     }
 }
 

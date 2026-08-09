@@ -163,7 +163,11 @@ public struct ExportDocument: Sendable, Equatable {
 
     public var json: String {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        // `.withoutEscapingSlashes` matters for more than legibility: without it a
+        // path is written as `\/Users\/…`, so a check that the raw path is absent
+        // would pass while the path was in fact present. Redaction has to be
+        // verifiable by reading the file.
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(JSONDocument(self)) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
@@ -244,6 +248,27 @@ private struct JSONDocument: Encodable {
 
 public enum IncidentReport {
     public static let title = "MacSlowdown incident report"
+
+    /// Executable paths for the processes a report can name, taken from the same
+    /// grouping the app shows.
+    ///
+    /// Lives here rather than in a view so that every path producing a report feeds
+    /// the redactor the same map. If one caller supplied paths and another did not,
+    /// the "File paths" choice would mean different things in two reports of the
+    /// same incident — a quieter version of the divergence FR-028 forbids.
+    public static func contributorPaths(
+        in families: [ProcessFamily]
+    ) -> [ProcessIdentity: String] {
+        var paths: [ProcessIdentity: String] = [:]
+        for family in families {
+            for member in family.members {
+                if let path = member.resolved.executablePath {
+                    paths[member.record.identity] = path
+                }
+            }
+        }
+        return paths
+    }
 
     /// Builds the document that both the preview and the saved file are rendered
     /// from (FR-028). Writes nothing and sends nothing — only the caller can

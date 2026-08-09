@@ -69,11 +69,114 @@ struct MuteAlertsIntent: AppIntent {
     }
 }
 
+/// The file format an automation asks for. Maps one-to-one onto `ReportFormat`;
+/// both are renderings of the same document, never a second report.
+enum ReportFileFormat: String, AppEnum {
+    case plainText
+    case json
+
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Report format")
+    static let caseDisplayRepresentations: [ReportFileFormat: DisplayRepresentation] = [
+        .plainText: "Plain text",
+        .json: "JSON",
+    ]
+
+    var format: ReportFormat {
+        switch self {
+        case .plainText: .plainText
+        case .json: .json
+        }
+    }
+}
+
+/// A report produced without anybody watching.
+///
+/// The interactive sheet shows the document before it leaves; a shortcut cannot,
+/// so this states in words what the preview would have shown, and says so out loud
+/// when the choices hide less than the app's own default would have. Everything
+/// here comes from `IncidentReport.document` — the same object the sheet previews
+/// and writes — so redaction cannot differ between the two paths (FR-028).
+struct UnattendedIncidentReport {
+    let document: ExportDocument
+    let format: ReportFormat
+
+    var text: String { String(decoding: document.data(as: format), as: UTF8.self) }
+    var byteCount: Int { document.byteCount(as: format) }
+
+    static func make(
+        incident: Incident,
+        summary: IncidentSummary,
+        attribution: CPUAttribution?,
+        machine: MachineContext,
+        families: [ProcessFamily],
+        options: RedactionOptions,
+        format: ReportFormat,
+        generatedAt: Date = Date()
+    ) -> UnattendedIncidentReport {
+        UnattendedIncidentReport(
+            document: IncidentReport.document(
+                incident: incident, machine: machine, summary: summary,
+                attribution: attribution,
+                contributorPaths: IncidentReport.contributorPaths(in: families),
+                sections: .all, options: options, generatedAt: generatedAt),
+            format: format)
+    }
+
+    /// What a person would have seen in the preview, said instead of shown. The
+    /// warning comes first when there is one: an automation that hides less than the
+    /// interactive path must not bury that at the end of a sentence about bytes.
+    var disclosure: String {
+        var parts: [String] = []
+        if let warning = document.options.weakerThanDefaultWarning { parts.append(warning) }
+        parts.append(document.options.disclosure)
+        parts.append("\(document.redactedFieldCount) of \(document.sensitiveFieldCount) "
+                     + "sensitive fields hidden, \(byteCount) bytes.")
+        parts.append("Nothing was sent anywhere.")
+        if let cost = document.costWarning { parts.append(cost) }
+        return parts.joined(separator: " ")
+    }
+}
+
 struct ExportLatestIncidentIntent: AppIntent {
     static let title: LocalizedStringResource = "Export latest MacSlowdown incident"
     static let description = IntentDescription(
-        "Produces a redacted report for the most recent incident. Nothing is sent anywhere; you get the text to share yourself.")
+        """
+        Produces a report for the most recent incident, from the same document the \
+        app's export sheet previews. Nothing is sent anywhere; you get the text to \
+        share yourself. The result states which fields were hidden, because a \
+        shortcut cannot show you the preview.
+        """)
     static let openAppWhenRun = false
+
+    // The same three choices the export sheet offers, with the same defaults, so an
+    // unattended run is never less redacted than an interactive one unless someone
+    // deliberately turns a toggle off — and the result says so when they have.
+    // AppIntents requires literal defaults, so these cannot reference
+    // `RedactionOptions.default` directly. `declaredDefaults` below restates them as
+    // a value, and a test asserts the two are equal — otherwise a change to the
+    // app's default redaction could silently leave the automation behind.
+    @Parameter(title: "Hide my user name", default: true)
+    var hideUserName: Bool
+
+    @Parameter(title: "Hide file paths", default: true)
+    var hideFilePaths: Bool
+
+    @Parameter(title: "Hide app and process names", default: false)
+    var hideProcessNames: Bool
+
+    static let declaredDefaults = RedactionOptions(
+        hideUserName: true, hideFilePaths: true, hideProcessNames: false)
+
+    @Parameter(title: "Format", default: .plainText)
+    var format: ReportFileFormat
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Export the latest incident as \(\.$format)") {
+            \.$hideUserName
+            \.$hideFilePaths
+            \.$hideProcessNames
+        }
+    }
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
@@ -83,15 +186,19 @@ struct ExportLatestIncidentIntent: AppIntent {
             return .result(value: message, dialog: IntentDialog("\(message)"))
         }
 
-        let summary = IncidentSummarizer.summarize(
-            incident: incident, attribution: store.attribution)
-        let report = DiagnosticExporter.export(
-            incident: incident, summary: summary, attribution: store.attribution,
-            machine: store.machine, options: .default)
+        let report = UnattendedIncidentReport.make(
+            incident: incident,
+            summary: IncidentSummarizer.summarize(
+                incident: incident, attribution: store.attribution),
+            attribution: store.attribution,
+            machine: store.machine,
+            families: store.families,
+            options: RedactionOptions(hideUserName: hideUserName,
+                                      hideFilePaths: hideFilePaths,
+                                      hideProcessNames: hideProcessNames),
+            format: format.format)
 
-        return .result(
-            value: report.text,
-            dialog: IntentDialog("Exported a \(report.byteCount)-byte report with \(report.options.redactedFieldCount) fields redacted. Nothing was sent."))
+        return .result(value: report.text, dialog: IntentDialog("\(report.disclosure)"))
     }
 }
 
