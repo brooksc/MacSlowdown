@@ -36,6 +36,30 @@ enum Presentation {
             : "No swapping"
     }
 
+    /// Swap bytes currently on disk, and whether swap is encrypted (FR-008).
+    ///
+    /// The other half of FR-008: `swapActivity` says whether pages are *moving*,
+    /// this says how much is *there*. Both are needed — a machine can sit on a
+    /// large swap file having stopped paging hours ago, and a machine can be
+    /// paging hard with barely any swap written yet.
+    ///
+    /// Deliberately says nothing about this being reclaimable. macOS swaps
+    /// opportunistically and a non-zero figure on a healthy Mac is normal, so
+    /// there is no "freed" or "wasted" here: it is a reading, not a fault
+    /// (FR-036, DR-08).
+    ///
+    /// Nil is "unavailable", never zero. `sysctl vm.swapusage` either answered or
+    /// it did not, and a swap file we could not read is not an empty one
+    /// (FR-002, FR-010).
+    static func swapInUse(_ usage: SwapUsage?) -> String {
+        guard let usage else { return "Swap usage unavailable" }
+        let encryption = usage.encrypted ? "swap is encrypted" : "swap is not encrypted"
+        let format = ByteCountFormatStyle(style: .memory)
+        guard usage.isInUse else { return "No swap in use · \(encryption)" }
+        return "\(format.format(Int64(usage.used))) of "
+            + "\(format.format(Int64(usage.total))) swap in use · \(encryption)"
+    }
+
     /// Families with measurable usage, largest first.
     ///
     /// A family with neither CPU nor memory is dropped rather than shown as a row

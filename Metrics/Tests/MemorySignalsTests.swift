@@ -16,8 +16,10 @@ struct MemoryStatisticsTests {
         // Should account for a sane fraction of physical memory. Not exact:
         // the kernel's categories do not partition RAM perfectly.
         let physical = ProcessInfo.processInfo.physicalMemory
-        #expect(stats.accountedFor > physical / 4, "accounted \(stats.accountedFor) of \(physical)")
-        #expect(stats.accountedFor <= physical * 2)
+        let accounted = stats.free + stats.active + stats.inactive
+            + stats.wired + stats.compressed
+        #expect(accounted > physical / 4, "accounted \(accounted) of \(physical)")
+        #expect(accounted <= physical * 2)
     }
 
     @Test("Statistics are reported in bytes, not pages")

@@ -47,7 +47,7 @@ struct PowerContextTests {
     func noBatteryOmitsRatherThanZeroes() {
         let desktop = PowerContext(source: .externalPower, batteryPercentage: nil,
                                    isCharging: nil, lowPowerModeEnabled: false)
-        #expect(!desktop.hasBattery)
+        #expect(desktop.batteryPercentage == nil)
         #expect(desktop.summary == "On external power")
         #expect(!desktop.summary.contains("0"))
         #expect(!desktop.summary.lowercased().contains("battery"))
@@ -57,7 +57,7 @@ struct PowerContextTests {
     func portableIncludesBattery() {
         let laptop = PowerContext(source: .battery, batteryPercentage: 46,
                                   isCharging: false, lowPowerModeEnabled: true)
-        #expect(laptop.hasBattery)
+        #expect(laptop.batteryPercentage != nil)
         #expect(laptop.summary.contains("46%"))
         #expect(laptop.summary.contains("Low Power Mode"))
     }

@@ -239,6 +239,14 @@ struct IncidentTimeline {
     /// Retained samples covering the window. Empty is a normal case, not an error.
     let samples: [HistorySample]
     let missingSeries: [MissingSeries]
+    /// Why this incident is dated before the moment it was noticed, when it is
+    /// (FR-038). Nil in the ordinary case, where the start was observed live.
+    ///
+    /// Carried on the timeline rather than read from the incident in the view so
+    /// the decision — does this window's left edge need explaining — is a value a
+    /// test can assert. The `Conclusion` itself, with its `.measured` evidence
+    /// class, is the framework's; nothing here rewrites it.
+    let startProvenance: Conclusion?
 
     /// Padding either side of the incident, so the run-up and the recovery are
     /// visible rather than the window filling the whole axis.
@@ -277,7 +285,8 @@ struct IncidentTimeline {
             windowStart: windowStart, windowEnd: windowEnd,
             markers: markers.sorted { $0.at < $1.at },
             samples: covering,
-            missingSeries: Self.missingSeries)
+            missingSeries: Self.missingSeries,
+            startProvenance: incident.startProvenance)
     }
 
     /// Named gaps rather than silent omissions (FR-002).

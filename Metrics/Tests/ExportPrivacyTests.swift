@@ -39,13 +39,13 @@ struct RedactionOptionsTests {
     /// is about to produce something less redacted than a person would have got.
     @Test("A weaker set of choices is detected and named")
     func weakeningIsDetected() {
-        #expect(RedactionOptions.default.isAtLeastAsRedacted(as: .default))
+        #expect(RedactionOptions.default.fieldsLeftInComparedTo(.default).isEmpty)
         #expect(RedactionOptions(hideUserName: true, hideFilePaths: true,
                                  hideProcessNames: true)
-            .isAtLeastAsRedacted(as: .default))
+            .fieldsLeftInComparedTo(.default).isEmpty)
 
         let weaker = RedactionOptions(hideUserName: false, hideFilePaths: true)
-        #expect(!weaker.isAtLeastAsRedacted(as: .default))
+        #expect(!weaker.fieldsLeftInComparedTo(.default).isEmpty)
         #expect(weaker.fieldsLeftInComparedTo(.default) == ["your user name"])
         #expect(weaker.weakerThanDefaultWarning?.contains("less redacted") == true)
         #expect(weaker.weakerThanDefaultWarning?.contains("your user name") == true)

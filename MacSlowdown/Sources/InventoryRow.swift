@@ -102,6 +102,18 @@ struct InventoryRow: Identifiable {
     /// True when this member is inside a bundle whose signature contradicts it —
     /// the case the design marks "Grouped by guess".
     var isGroupedByGuess = false
+    /// True when `name` is the kernel's truncated 16-byte command and nothing
+    /// better was available (FR-002).
+    ///
+    /// `displayName(command:)` already marks the cut with an ellipsis, but an
+    /// ellipsis conveys nothing to VoiceOver — which is why `ProcessNaming` has a
+    /// separate spoken form saying "name shortened by the system". Neither
+    /// inventory table used it, so the whole truncation disclosure was visual
+    /// only. This flag is what carries it into the spoken label (FR-034).
+    ///
+    /// False on aggregate rows: a family's display name comes from its bundle,
+    /// not from `p_comm`.
+    var nameIsShortened = false
     /// How this family's members were matched. Empty for member rows.
     var provenance = GroupingProvenance()
     var children: [InventoryRow]
@@ -163,6 +175,8 @@ extension Presentation {
                     startedAt: startDate(member.record.identity.startTime),
                     qualification: qualification(for: member.membership),
                     isGroupedByGuess: member.membership.isUncertain,
+                    nameIsShortened: member.resolved.nameIsTruncatedCommand(
+                        command: member.record.command),
                     children: [])
             }
 
@@ -198,6 +212,9 @@ extension Presentation {
                 // itself: there is no expansion to put it in.
                 qualification: members.count == 1 ? members[0].qualification : nil,
                 isGroupedByGuess: members.count == 1 && members[0].isGroupedByGuess,
+                // Only a single-process family shows its member's name, so only
+                // that case can be showing a truncated command.
+                nameIsShortened: members.count == 1 && members[0].nameIsShortened,
                 provenance: .of(family.members),
                 // No children when the family IS the process. A disclosure
                 // triangle that opens to one row identical to the one above it is

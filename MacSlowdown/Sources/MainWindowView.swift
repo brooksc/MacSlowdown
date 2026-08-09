@@ -231,8 +231,11 @@ struct NowView: View {
                 value: NowPresentation.diskWrite(store.diskRates),
                 unit: "write",
                 details: [NowPresentation.diskRead(store.diskRates)],
-                help: "Machine-wide. Per-process disk activity is not reported to App "
-                    + "Store apps, so this cannot be broken down by application.",
+                // The framework's own sentence, not a second one written here. Two
+                // hand-written paraphrases of the same limitation used to sit on
+                // this screen — this card's help and a footnote — and either could
+                // have drifted from what the app actually does (FR-009).
+                help: DiskSignals.perApplicationUnavailable,
                 // Design 1c shows a sparkline here. `MetricsHistory` retains CPU and
                 // nothing else, so there is no series to draw — stated rather than
                 // filled in from readings taken while this screen happened to be open.
@@ -252,17 +255,15 @@ struct NowView: View {
     /// The memory figure is *calculated* from the kernel's page counters, and is
     /// labelled as such: it is not the pressure signal, and it must never be read
     /// as one (FR-007).
+    /// Swap comes from the store, not from a `SwapSignals.swapUsage()` call made
+    /// here: the loop reads it once so every surface quotes the same figure
+    /// (FR-008).
     private var memoryDetails: [String] {
-        var details: [String] = []
-        if let inUse = NowPresentation.memoryInUse(
-            MemorySignals.statistics(),
-            physicalMemoryBytes: store.machine.physicalMemoryBytes) {
-            details.append("\(inUse) · calculated")
-        } else {
-            details.append("Memory counters unavailable")
-        }
-        details.append(store.swapActivity)
-        return details
+        NowPresentation.memoryCardDetails(
+            statistics: MemorySignals.statistics(),
+            physicalMemoryBytes: store.machine.physicalMemoryBytes,
+            swapActivity: store.swapActivity,
+            swapUsage: store.swapUsage)
     }
 
     private func symbol(for level: MemoryPressureLevel) -> String {

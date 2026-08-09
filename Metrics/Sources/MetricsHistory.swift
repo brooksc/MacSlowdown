@@ -152,6 +152,12 @@ public final class MetricsHistory: Sendable {
         ))
     }
 
+    /// Drops every retained sample.
+    ///
+    /// TASK-81 listed this as a second, dead erase path. It is not one any more:
+    /// `MonitorStore.deleteRecordedHistory()` calls it so that "delete everything"
+    /// is also true of the sparklines still on screen. The audit that flagged it
+    /// was written before TASK-72 landed that caller.
     public func removeAll() {
         state.withLock { $0.samples.removeAll() }
     }

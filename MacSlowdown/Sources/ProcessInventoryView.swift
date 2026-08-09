@@ -322,6 +322,9 @@ struct InventoryTable: View {
 
     private func accessibilityLabel(_ row: InventoryRow) -> String {
         var parts = [row.name]
+        // The ellipsis in `row.name` is silent to VoiceOver, so the cut is said in
+        // words instead (FR-002, FR-034).
+        if row.nameIsShortened { parts.append(ProcessNaming.truncationNote) }
         if row.isGroupedByGuess { parts.append("grouped by guess") }
         if let qualification = row.qualification { parts.append(qualification) }
         if row.kind != .member { parts.append("\(row.processCount) processes") }

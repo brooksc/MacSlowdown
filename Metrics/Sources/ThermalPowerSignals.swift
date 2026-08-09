@@ -64,8 +64,6 @@ public struct PowerContext: Sendable, Equatable {
     public let isCharging: Bool?
     public let lowPowerModeEnabled: Bool
 
-    public var hasBattery: Bool { batteryPercentage != nil }
-
     /// Description that omits battery entirely when there is none, rather than
     /// saying "0%" or "unknown".
     public var summary: String {

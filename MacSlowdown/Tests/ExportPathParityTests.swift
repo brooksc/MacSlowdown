@@ -169,7 +169,7 @@ struct ExportPathParityTests {
     func automationDefaultsMatchTheApp() {
         #expect(ExportLatestIncidentIntent.declaredDefaults == RedactionOptions.default)
         #expect(ExportLatestIncidentIntent.declaredDefaults
-            .isAtLeastAsRedacted(as: .default))
+            .fieldsLeftInComparedTo(.default).isEmpty)
     }
 
     /// The failure this task exists to prevent. Turning a toggle off in a shortcut is

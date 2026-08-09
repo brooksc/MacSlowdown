@@ -20,7 +20,7 @@ struct ProtectionTests {
     func criticalServicesProtected() {
         let policy = SafetyPolicy()
         for name in ["WindowServer", "launchd", "coreaudiod", "loginwindow", "Dock"] {
-            #expect(policy.isProtected(record(name)), "\(name) should be protected")
+            #expect(policy.protection(for: record(name)) != nil, "\(name) should be protected")
         }
     }
 
@@ -41,7 +41,7 @@ struct ProtectionTests {
     @Test("An ordinary user application is not protected")
     func userApplicationNotProtected() {
         let policy = SafetyPolicy()
-        #expect(!policy.isProtected(record("Xcode")))
+        #expect(policy.protection(for: record("Xcode")) == nil)
         #expect(policy.protection(for: record("Safari")) == nil)
     }
 
@@ -123,7 +123,7 @@ struct ActionSafetyTests {
         // SafetyPolicy's only initialiser takes no arguments. If a settings
         // parameter is ever added, this test stops compiling, which is the point.
         let policy = SafetyPolicy()
-        #expect(policy.isProtected(record("WindowServer")))
+        #expect(policy.protection(for: record("WindowServer")) != nil)
     }
 
     @Test("Classification holds against the live process table")
@@ -131,8 +131,8 @@ struct ActionSafetyTests {
         let policy = SafetyPolicy()
         let snapshot = ProcessSampler().snapshot()
 
-        let protected = snapshot.records.values.filter { policy.isProtected($0) }
-        let ordinary = snapshot.records.values.filter { !policy.isProtected($0) }
+        let protected = snapshot.records.values.filter { policy.protection(for: $0) != nil }
+        let ordinary = snapshot.records.values.filter { policy.protection(for: $0) == nil }
 
         #expect(!protected.isEmpty, "no protected processes found on a live Mac")
         #expect(!ordinary.isEmpty, "everything was classified protected")
@@ -141,7 +141,7 @@ struct ActionSafetyTests {
         // the protection and the part that must not regress.
         let otherUid = snapshot.records.values.filter { $0.uid != getuid() }
         for process in otherUid {
-            #expect(policy.isProtected(process),
+            #expect(policy.protection(for: process) != nil,
                     "\(process.command) (uid \(process.uid)) was not protected")
         }
     }

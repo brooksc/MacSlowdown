@@ -18,6 +18,10 @@ struct AllProcessesRow: Identifiable, Equatable {
     /// The best name we have. Never the bare 16-byte `p_comm` fragment presented
     /// as though it were the process's real name (FR-002).
     let name: String
+    /// True when `name` is the kernel's truncated 16-byte command and nothing
+    /// better was available. The ellipsis in `name` marks the cut visually;
+    /// this is what lets the spoken label say so too (FR-002, FR-034).
+    var nameIsShortened = false
     /// The application this process belongs to, where it belongs to one. Nil for
     /// the great majority of the table — daemons and command-line tools are
     /// first-class, not families of one.
@@ -147,6 +151,8 @@ enum AllProcesses {
                     pid: record.identity.pid,
                     parentPID: record.ppid,
                     name: member.resolved.displayName(command: record.command),
+                    nameIsShortened: member.resolved.nameIsTruncatedCommand(
+                        command: record.command),
                     owningApplication: family.bundlePath == nil ? nil : family.displayName,
                     descriptor: SystemProcessDescriptors.meaning(forCommand: record.command),
                     parentCommand: parentCommand(

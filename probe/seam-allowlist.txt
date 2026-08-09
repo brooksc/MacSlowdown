@@ -11,3 +11,16 @@
 
 isSustained     LowStorageDetector's own duration check duplicates IncidentPolicy.requiredDuration(.lowStorage) = 60 s, which the running detector already applies (Metrics/Sources/Incident.swift:77). Redundant, not missing. Delete when someone is in the file.
 isDestructive     Returns a literal false. It is the FR-037 statement that no action in the set changes how a process runs, kept so the claim is checkable rather than a comment. Nothing calls it because nothing may.
+
+# TASK-81 judgements. Everything else on that task's list was deleted; these
+# names were kept, each for a reason that is not "we might want it later".
+#
+# Only `resolutionCount` is flagged by the script today. `transitions` and
+# `cachedCount` are masked by its stated method limit — matching is by name, so a
+# same-named private field or a second declaration elsewhere reads as a caller.
+# They are recorded anyway: the audit named them, a decision was taken, and the
+# next reader should find the decision rather than take the silence for one.
+
+transitions       MemoryPressureMonitor's timestamped transition log. Not a convenience: it is the only source for what design 1e actually shows — "pressure reached critical at 3:16 PM and stayed there for 5 min 40 s", and the timeline markers "crossed warning for 90 s", "normal for 60 s". The incident timeline draws CPU samples today and none of those markers, so this is staged against TASK-65.5 (screen 1e), not forgotten. The suite that covers it is testing FR-007's "transitions captured within 2 seconds", which would go with it.
+resolutionCount   ProcessIdentityResolver cache-hit counter. Deliberately a test seam and nothing else. CLAUDE.md makes "resolve once per process lifetime, cached by (pid, start time), never per-sweep" a hard rule — identity resolution costs ~760 ms per full sweep against ~1.8 ms for the metrics sweep — and this counter is the only way to observe from outside whether the cache is being used. Deleting it would delete the test for a documented invariant and leave nothing in its place. No user-facing surface is intended or missing.
+cachedCount       Two declarations share this name. ProcessIdentityResolver.cachedCount is the resolutionCount case above. ProcessIconCache.cachedCount already has a real caller the script cannot see — probe/Sources/icon-cost-probe.swift:97 — because the script only searches Metrics/Sources, MacSlowdown/Sources and the two test trees. Neither is forgotten.

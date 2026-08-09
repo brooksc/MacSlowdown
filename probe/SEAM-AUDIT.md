@@ -167,3 +167,54 @@ assert `policies.suppressedDetections` is non-empty; through a completed action
 and assert the incident carries an `ActionVerification`; through a grouping
 correction and assert `FamilyGrouper` output changes. Those three assertions
 would have failed on the day each gap was introduced.
+
+## Outcome — TASK-80 and TASK-81 (2026-08-09)
+
+Both worked from the tables above. Recorded here so the audit is not read later as
+still-open.
+
+**TASK-80, the four measured-but-unshown disclosures — all wired.** Swap usage now
+reaches the Now screen's memory card via a new `MonitorStore.swapUsage`, read on the
+sampling loop rather than by the view, so every surface quotes one reading.
+`DiskSignals.perApplicationUnavailable` replaced *two* separately worded
+hand-written paraphrases of the same limitation that were both sitting on the Now
+screen. `Incident.startProvenance` is carried on `IncidentTimeline` and rendered by
+the existing `ConclusionRow`. `StorageTrend.isCalculated` drives a provenance label
+in the same "Measured / Calculated / Estimate" vocabulary the capacity legend
+already used.
+
+**TASK-81 — six deleted, one wired, three kept with reasons, one wrong.**
+
+- Deleted, with their assertions rewritten against the seam that remains rather
+  than removed: `MemoryStatistics.accountedFor`, `PowerContext.hasBattery`,
+  `FamilyMembership.isCertain`, `ProcessFamily.spawnedMemberCount`,
+  `SafetyPolicy.isProtected`, `RedactionOptions.isAtLeastAsRedacted`. No test was
+  deleted; every one of them was a one-line wrapper over an expression the tests
+  can state directly.
+- **`ProcessNaming.nameIsTruncatedCommand` was a real gap, not a convenience.**
+  `displayName(command:)` marks a cut 16-byte `p_comm` with an ellipsis, and
+  `ProcessNaming.accessibilityLabel(command:)` exists precisely because an ellipsis
+  is silent to VoiceOver — but neither inventory table used the spoken form. Both
+  built their own label from the row. So the FR-002 truncation disclosure was
+  visual-only, and FR-034 was unmet for every truncated row in two tables. Both
+  row types now carry `nameIsShortened` and both spoken labels say so.
+- Kept, in `probe/seam-allowlist.txt` with reasons: `transitions`,
+  `resolutionCount`, `cachedCount`.
+- **`MetricsHistory.removeAll()` was listed in error.** It has had a caller since
+  TASK-72 landed — `MonitorStore.deleteRecordedHistory()` calls it so that "delete
+  everything" is true of the retained series and not only of the files. Deleting it
+  broke the build immediately. The audit predates that commit; the entry is wrong,
+  not stale.
+
+`LowStorageDetector.isSustained` stays allowlisted: `StorageSignals.swift` was out
+of scope for the agent that did this work.
+
+After: **5 unexplained**, down from 16, and all five belong to TASK-76–79
+(`ActionVerifier`/`verify` for FR-050, `recordSuppression`/`addCorrection`/
+`removeCorrection` for FR-016 and FR-039).
+
+One thing this confirms about the method: the blind spot named above cost real
+work twice in one pass. `removeAll()` was reported as dead because it is shared by
+two types, and `cachedCount` is *still* invisible for the same reason — one of its
+two declarations has a genuine caller in `probe/`, which the script does not search
+at all. Reading call sites is not optional after running it.
