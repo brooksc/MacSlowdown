@@ -83,6 +83,18 @@ final class MonitorStore {
     private(set) var thermalState: ThermalState = .nominal
     private(set) var power: PowerContext = PowerSignals.current()
     private(set) var pagingRates: PagingRates = .zero
+    /// Swap bytes in use, as the sampling loop last read them (FR-008).
+    ///
+    /// Read here rather than by a view for the same reason `startupVolume` is:
+    /// every surface has to quote the same figure. Two views calling
+    /// `SwapSignals.swapUsage()` independently would read at different moments and
+    /// could disagree about how much swap exists, which a user would reasonably
+    /// read as one of them being wrong.
+    ///
+    /// Nil until the first sample, and nil again if `sysctl vm.swapusage` stops
+    /// answering. Never defaulted to a zeroed `SwapUsage`: a swap file we could not
+    /// read is not an empty one (FR-002).
+    private(set) var swapUsage: SwapUsage?
     /// Aggregate disk throughput, or nil when there is no rate to report (FR-009).
     ///
     /// Optional rather than `.zero` deliberately. A driver that will not report its
@@ -708,6 +720,12 @@ final class MonitorStore {
 
             // Rates only ever from deltas over the measured interval.
             let seconds = elapsed.totalSeconds
+            // Swap usage is a level, not a rate: it is whatever the current reading
+            // says, and it does not need two samples the way paging does. Assigned
+            // unconditionally so a reading that stops being available reverts to
+            // nil rather than leaving the last good figure on screen as if it were
+            // current (FR-002, FR-008).
+            swapUsage = SwapSignals.swapUsage()
             if let counters = SwapSignals.pagingCounters() {
                 if let previous = previousPaging,
                    let rates = SwapSignals.rates(from: previous, to: counters, seconds: seconds) {
