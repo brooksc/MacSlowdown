@@ -1,0 +1,12 @@
+<!--
+  Icon Composer layer 2 (top): the trace.
+  Full 1024 canvas, no mask, stroke already outlined as a filled path is not
+  required — Icon Composer accepts the stroke. Layer opacity 100%.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <path d="M 120 722 L 190 704 L 268 726 L 336 710
+           L 336 338 L 446 308 L 541 346 L 688 324
+           L 688 700 L 808 718 L 904 702"
+        fill="none" stroke="#FFA524" stroke-width="80"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

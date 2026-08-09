@@ -13,6 +13,14 @@ let teamID = "SU999VT2G2"
 /// Manual signing with the Apple Development identity, matching what
 /// probe/build-sandboxed.sh proved works for a sandboxed local build. Avoids
 /// needing provisioning updates during CLI builds.
+/// App icon (TASK-65.18). The artwork is authored as SVG in `design/icons/` and
+/// rasterised by `design/icons/build.sh` into
+/// `MacSlowdown/Resources/Assets.xcassets/AppIcon.appiconset`. Regenerate with
+/// that script rather than editing the PNGs.
+let appIcon: SettingsDictionary = [
+    "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+]
+
 let signing: SettingsDictionary = [
     "CODE_SIGN_STYLE": "Manual",
     "CODE_SIGN_IDENTITY": "Apple Development",
@@ -53,10 +61,11 @@ let project = Project(
                 "LSApplicationCategoryType": "public.app-category.utilities",
             ]),
             sources: ["MacSlowdown/Sources/**"],
+            resources: ["MacSlowdown/Resources/**"],
             entitlements: "MacSlowdown/Support/MacSlowdown.entitlements",
             dependencies: [.target(name: "Metrics")],
             settings: .settings(
-                base: signing,
+                base: signing.merging(appIcon) { _, new in new },
                 configurations: [
                     // Debug keeps Xcode's injected get-task-allow so the debugger
                     // can attach.

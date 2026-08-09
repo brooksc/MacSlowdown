@@ -1,0 +1,43 @@
+<!--
+  MacSlowdown app icon — direction 3b, "trace with an incident band".
+  Full-detail artwork, used for 128 px and above (128, 256, 512, 1024).
+
+  Full-bleed and fully opaque on purpose: macOS 26+ applies its own rounded-rect
+  mask and material, so the squircle is NOT baked in. An edge pixel with alpha
+  <= 252 makes macOS treat the icon as legacy and drop it inside a grey squircle
+  instead of clipping it, so nothing here may be transparent or antialiased at
+  the tile edge.
+
+  The band runs the full height of the tile and the trace's two risers sit on its
+  edges: that is the fix for the designer's risk note (the band vanishing below
+  32 pt). An edge-to-edge column is a silhouette, not a detail, so it survives
+  reduction, and the trace rises and falls with it so the interval is stated
+  twice. The trace returns to its earlier level, so the icon depicts a slowdown
+  that ended, not a permanent alarm state (FR-013).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="slate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5E6D90"/>
+      <stop offset="1" stop-color="#242C3C"/>
+    </linearGradient>
+    <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC257" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#FF9A2E" stop-opacity="0.38"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Slate tile, full bleed. -->
+  <rect width="1024" height="1024" fill="url(#slate)"/>
+
+  <!-- The incident band: the interval, edge to edge. -->
+  <rect x="336" y="0" width="352" height="1024" fill="url(#band)"/>
+
+  <!-- The trace: settled, rises at the band's leading edge, elevated across the
+       interval, falls at its trailing edge, settled again. -->
+  <path d="M 120 722 L 190 704 L 268 726 L 336 710
+           L 336 338 L 446 308 L 541 346 L 688 324
+           L 688 700 L 808 718 L 904 702"
+        fill="none" stroke="#FFA524" stroke-width="80"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
