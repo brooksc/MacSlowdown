@@ -208,8 +208,14 @@ Resolved by the Tier 0 probe: per-process I/O (FR-009) and wakeups (FR-048) are
 **blocked** sandboxed — scope FR-009 to aggregate-only and drop FR-048 from the
 MAS release. FR-043 must use resident size.
 
-Still unproven: audio activity (FR-019), unresponsiveness (FR-046), per-app
-network (FR-051), GPU (FR-052). Validate with a spike before designing features
+**GPU utilisation (FR-052) is available** — `IOAccelerator`'s
+`Device Utilization %`, verified sandboxed against a real Metal load. Machine-wide
+only: there is no per-process key, and no temperature or frequency key. Report it
+as a sustained condition, never from one sample — an idle desktop reads up to 68%
+from ordinary compositing. Hold the service handle; re-matching costs 2.5 ms, more
+than the whole metrics sweep.
+
+Still unproven: unresponsiveness (FR-046), per-app network (FR-051). Validate with a spike before designing features
 that depend on them; if a signal isn't reliably available, the spec's answer is
 to omit the feature, not approximate it.
 

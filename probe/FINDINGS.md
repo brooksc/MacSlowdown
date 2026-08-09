@@ -518,3 +518,65 @@ So the honest claim is "this much activity was not attributable, and these 229
 processes were running during the interval" — which is what the interface says
 today. What must never happen is assigning a share of it to any individual
 process. The 229 can be **named and counted**, never **measured**.
+
+# GPU utilisation IS available sandboxed (`gpu-probe.swift`) — FR-052
+
+Measured on macOS 27.0, Apple M2, signed and sandboxed with only
+`com.apple.security.app-sandbox`. FR-052 had been heading toward being dropped
+alongside the sensor-class signals. That would have been wrong.
+
+**One `IOAccelerator` service is readable: `AGXAcceleratorG14G`.** Its
+`PerformanceStatistics` dictionary exposes:
+
+```
+Alloc system memory, Allocated PB Size, Device Utilization %,
+In use system memory, In use system memory (driver), Renderer Utilization %,
+SplitSceneCount, TiledSceneBytes, Tiler Utilization %,
+lastRecoveryTime, recoveryCount
+```
+
+**The figure responds to real work.** Verified against a Metal compute load, not
+a zero reading — a number that never moves proves nothing:
+
+| | Readings |
+|---|---|
+| Before load | 0, 9, 31, 68, 16, 36, 39, 41 |
+| Under load | 97, 98, 98, 98, 98, 95, 98, 98, 98, 97, 98, 98, 98, 98, 98, 98 |
+
+**Read the baseline honestly: the machine was not idle.** Ordinary window
+compositing produced readings up to 68%, so a *single* sample cannot distinguish
+real GPU work from a busy desktop. What distinguishes them is persistence — the
+load pinned the figure at 97–98% for four seconds, which incidental compositing
+never did. That is the same sustained-not-transient rule the incident detector
+already applies (FR-006), and FR-052 must be built on it rather than on
+instantaneous values.
+
+**What is not there, confirmed by enumerating every key:**
+
+- **No temperature.** No key in any service contains "temp".
+- **No frequency or clock.** No key contains "freq" or "clock".
+- **Nothing per-process.** No pid, process or client key exists. This is
+  **machine-wide only**, and claiming per-application GPU attribution from it
+  would be a fabrication.
+
+This is exactly the boundary seen everywhere else: utilisation is public
+registry data; temperature and frequency are SMC-class and need the external
+helper the Mac App Store edition of iStat Menus asks users to install.
+
+**Cost: 2.54 ms per read**, mean of 20. That is *more than the entire per-process
+metrics sweep* (1.8 ms), because each read matches services afresh and builds a
+full property dictionary. At a 2 s cadence it is ~0.13% of one core, which fits
+FR-030 — but the service handle must be looked up once and retained, not
+re-matched every sample.
+
+## Rules
+
+- FR-052 is deliverable in the MAS build, scoped to **machine-wide utilisation
+  only**. Never per-application.
+- Report it only as a sustained condition, never from a single sample. Idle
+  desktops read as high as 68%.
+- Match the `IOAccelerator` service once and hold the handle. Re-matching per
+  sample costs more than everything else we measure combined.
+- `Device Utilization %` is the headline; `Renderer Utilization %` and
+  `Tiler Utilization %` are available if a breakdown is ever wanted.
+- GPU temperature and frequency remain unavailable and must not be implied.
