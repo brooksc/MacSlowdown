@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-09 02:25'
-updated_date: '2026-08-09 04:44'
+updated_date: '2026-08-09 05:06'
 labels:
   - ui
   - core
@@ -40,11 +40,33 @@ The descriptors ("Time Machine", "Spotlight system indexer", "Core Audio") are a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A flat all-processes view exists alongside the application-grouped view, with each process showing its owning application where it has one
-- [ ] #2 Unmeasurable processes are shown with name, PID, parent and start time, and their CPU and memory read 'not measurable' rather than a number
-- [ ] #3 Unmeasurable processes sort to the end under every sort order and are never treated as zero
-- [ ] #4 Unmeasurable processes can be hidden and shown, and the count is stated either way
-- [ ] #5 A census footer states total, measurable, unmeasurable, and how many belong to an application
-- [ ] #6 Well-known system daemons carry a human-meaningful descriptor, and the proportion of the unmeasurable set that can be described this way is recorded
+- [x] #1 A flat all-processes view exists alongside the application-grouped view, with each process showing its owning application where it has one
+- [x] #2 Unmeasurable processes are shown with name, PID, parent and start time, and their CPU and memory read 'not measurable' rather than a number
+- [x] #3 Unmeasurable processes sort to the end under every sort order and are never treated as zero
+- [x] #4 Unmeasurable processes can be hidden and shown, and the count is stated either way
+- [x] #5 A census footer states total, measurable, unmeasurable, and how many belong to an application
+- [x] #6 Well-known system daemons carry a human-meaningful descriptor, and the proportion of the unmeasurable set that can be described this way is recorded
 - [ ] #7 Verified on screen against design/screens/1m.png, including sorting by CPU with unmeasurable rows shown
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Built as `AllProcessesView` plus `AllProcessesRow`/`AllProcesses` (model, filtering, ordering, census) and `SystemProcessDescriptors` (the daemon table). Slots into TASK-65.4's segmented control, which had left the All processes side as a stated placeholder.
+
+**The sort rule.** `AllProcesses.listing` partitions into measurable and unmeasurable, sorts each independently, and always returns measurable first. That is what makes "they sort to the end" true under *every* order rather than only descending CPU. The negative sort keys (-1) are kept as a second line of defence and are tested separately: a measured zero is 0, a refusal is -1. A key alone is not enough — sorting CPU ascending would float every refusal to the top, directly above the genuinely idle processes. Ten orderings are asserted (CPU, memory, name, PID, started, each direction).
+
+Unmeasurable rows read a literal "Not measurable" in both metric columns, keep name/PID/parent/start time, and carry a subtitle of the form "Time Machine · parent launchd · protected". Lineage rejects a parent whose start time is later than its child's, since PIDs are reused.
+
+**Descriptor coverage — measured.** The table is data (`byCommand` dictionary + `byPrefix` rules), not a switch, so coverage is countable via `SystemProcessDescriptors.coverage(of:)`. Against the real other-uid set on this machine (226 processes, 189 distinct names after 16-byte truncation): **223 described, 98.7%** (186/189 distinct, 98.4%). The three misses were `io.tailscale.ipn…` (third-party), `tracd`, and the probe's own `ps`. 182 exact entries, 12 prefix rules.
+
+Two gotchas worth keeping: `p_comm` is 16 bytes, so table keys longer than that are also indexed by their 15- and 16-byte truncations, and a truncation shared by two entries with different meanings is dropped rather than resolved arbitrarily. Prefix rules match bidirectionally for the same reason — `com.apple.DriverKit…` arrives as `com.apple.Driver`.
+
+Census footer states total · measurable · not measurable · how many belong to an app, and reuses `InventoryCensus.freshness` so it cannot disagree with the Apps footer. The "Show unmeasurable · N" toggle states the count either way and defaults to on.
+
+Tests: 29 new in `MacSlowdown/Tests/AllProcessesTests.swift`. Full suite 567 passing; the only failure was the known load-synthesising `EndToEndIncidentTests.realSlowdownProducesOneIncident`, which passes in isolation.
+
+**AC #7 not verified** — no screen use was permitted in this session. Sorting by CPU with unmeasurable rows shown, the section header, and the two-line name cell all need a look before this is closed.
+
+Also noted: `main` at 1a3966b does not compile its app-hosted test bundle — `IncidentsViewRenderTests` calls `IncidentRow(incident:)` while the merged `IncidentsView` takes `entry:`. Pre-existing, not from this work, and left untouched.
+<!-- SECTION:NOTES:END -->

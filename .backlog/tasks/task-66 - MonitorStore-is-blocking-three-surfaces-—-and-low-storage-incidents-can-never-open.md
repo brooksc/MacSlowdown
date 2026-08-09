@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-09 03:31'
-updated_date: '2026-08-09 04:56'
+updated_date: '2026-08-09 05:08'
 labels:
   - core
 milestone: m-3
@@ -49,11 +49,11 @@ Note `MonitorStore.swift:86-101` carries reasoning about self-cost measurement t
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 A low-storage condition observed by the storage signals reaches the incident detector, and an incident opens and closes for it -- verified against a real or induced low-storage state, not only a unit test with a synthetic observation (FR-041, FR-042)
-- [ ] #2 The retained metrics history is readable by the UI, so a view can draw the same series the framework retains rather than accumulating its own
-- [ ] #3 The app owns a PolicyStore instance, so per-application policies can be read and written by the running app (FR-016)
-- [ ] #4 Storage capacity is recorded on the sampling loop rather than by a view, so history accumulates whether or not the Storage screen is open
-- [ ] #5 No existing behaviour regresses: the full suite passes, and the self-cost measurement reasoning in MonitorStore is preserved
-- [ ] #6 Each of the three blocked tasks (TASK-65.3 criterion #3, TASK-65.12's incident marker, and the expected-workload chip) is confirmed unblocked or the remaining obstacle is recorded
+- [x] #2 The retained metrics history is readable by the UI, so a view can draw the same series the framework retains rather than accumulating its own
+- [x] #3 The app owns a PolicyStore instance, so per-application policies can be read and written by the running app (FR-016)
+- [x] #4 Storage capacity is recorded on the sampling loop rather than by a view, so history accumulates whether or not the Storage screen is open
+- [x] #5 No existing behaviour regresses: the full suite passes, and the self-cost measurement reasoning in MonitorStore is preserved
+- [x] #6 Each of the three blocked tasks (TASK-65.3 criterion #3, TASK-65.12's incident marker, and the expected-workload chip) is confirmed unblocked or the remaining obstacle is recorded
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -74,4 +74,38 @@ Related: `ActionPerformer` deliberately refuses `markExpected`, so that action i
 **9. Startup-volume capacity is read independently by two surfaces.** The popover and `StorageView` both call `StorageSignals.snapshot()` on their own, so they can disagree about free space at the same moment. Exposing it once on the store removes the possibility.
 
 Sent to the running TASK-66 session; recorded here in case it had already finished.
+
+Done on worktree branch `worktree-agent-a0832a67c5735f763`, commit `90f1b5e`. Branched stale (pre-merge); merged `main` first, so the baseline was the eight merged branches.
+
+**1. Low storage (defect).** `MonitorStore` now reads volume capacity on the sampling loop and passes `lowStorage:` into `SystemObservation`. Read every 30 s (`MonitorStore.storageCheckInterval`), not every sample — capacity reads touch the filesystem, and 30 s is well inside the 60 s the condition must be sustained for. Scoped to the **startup volume**: it is the one whose exhaustion degrades the machine, and raising an incident for a full external disk is a claim we cannot support. `MonitorStore.isLowStorage(startupVolume:detector:)` is pure and tested; an unreadable volume returns false, which is 'no measurement', not 'plenty of room'. There was **no test anywhere** driving `lowStorage` through `IncidentDetector` — there is one now (opens after 60 s, closes after hysteresis).
+
+**2. Retained history.** Added `retainedSamples`, `retainedHistorySpan`, `retainedSamples(around:margin:)`. Read access only — `MetricsHistory` is a reference type with `record`/`removeAll`, so handing the object to a view would let the UI write to the evidence. `IncidentsView` now passes `retainedSamples(around:)` into `IncidentDetailView`, which had been carrying a `samples` parameter no caller could fill (one line each; both stale comments corrected).
+
+**3. PolicyStore — ADOPTED, not replaced.** `InspectorPolicies` (TASK-65.4) moved onto the store as `MonitorStore.policies`, backed by `MonitorStore.defaultPolicies` at the same `policies.json` path, so existing user policies carry over. The enum is gone; `FamilyInspectorView` reads `store.policies`. Injectable for tests. One store, tested.
+
+**4. Storage on the loop.** `storage.refresh()` from the sampling loop, which reads the volumes and appends to `StorageHistory`. The screen shares the same `StorageScreenModel`, so opening it shows history already gathered rather than starting a series.
+
+**5. LifecycleTracker.** Wired in; `lifecycleEvents` bounded to the tracker's 900 s window. The inspector's stand-in is replaced by `store.relaunchCount(forCommands:)`. **Semantics corrected on the way**: a relaunch is `min(exits, launches)` per command, not an exit count — an app the user quit and did not reopen exited once and relaunched never. `monitoringStartedAt` / `hasObservedLongEnough()` replace the per-family 'not watched long enough' gate, and the tracker sees the whole process table rather than only the top-40 families.
+
+**6.** `MonitorStore`'s self-cost reasoning is untouched.
+
+**Items 7-9 (added after I started) are all done.** 7: `diskRates` is `DiskRates?` now; `Presentation.diskThroughput` and `NowPresentation.diskWrite/diskRead` say 'Not available' for nil. The 65.1 popover's `DiskSignals.counters() != nil` workaround can go. 8: `monitoringStartedAt` is set in `start()`, with `observedDuration` and `hasObservedLongEnough(minimum:)` alongside it. 9: `MonitorStore.startupVolume` exposes the capacity the loop last read, so no surface needs its own `StorageSignals.snapshot()`.
+
+Not done from that list: the 24-hour incident count that survives restart. It depends on the persistence/retention decision that is still with the user, and an agent must not decide it. The store's shape would accommodate it — `recentIncidents` is already a bounded array fed by one `case .closed` site, so restoring into it at init and appending to a file there is the whole change once the retention policy is chosen.
+
+**Tests:** 17 new in `MacSlowdown/Tests/MonitorStoreWiringTests.swift`. Full suite is **537 tests**. One run: 536 passing, the only failure a since-fixed test of my own. Final run: 535 passing, with `realSlowdownProducesOneIncident` and `cadenceAdaptsToRealLoad` failing — the two documented CPU-load flakes, which passed on the earlier run, live in `MetricsTests`, and cannot be implicated by this change because it edits no file under `Metrics/Sources`.
+
+**Criterion #1 left UNCHECKED, deliberately.** Verified only with synthetic observations and a pure decision function. Confirming it against a real or induced low-storage state means taking the startup volume under 5 GB free and watching an incident open and close — that needs a person at the machine, and this session was instructed not to use the screen.
+
+**Blocked work:** TASK-65.3 criterion #3 (sparklines), TASK-65.2 and TASK-58 are unblocked by `retainedSamples`. TASK-65.12's incident marker is unblocked — `StorageView` already filters `store.recentIncidents` for `.lowStorage`, and those incidents can now actually exist. The **expected-workload chip is only half unblocked**: the store exists, but `InventoryRow` carries a bundle path and a name while `PolicyStore.policy(for:displayName:)` matches on a `ResolvedIdentity`, so the chip needs its classification passed in. Recorded in the comment on `NowPresentation.chips`; deliberately not invented here.
+
+**Left behind, deliberately:** `FamilyHistory` keeps its own replacement bookkeeping (`relaunches`, `replacements`, `hasWatchedLongEnough`) and its tests. Nothing user-facing reads it now and a comment on the property says so, but removing it changes `FamilyHistory.record`'s signature and means editing `ProcessInventoryView`, which another session owns. Small follow-up.
+
+Also not done: the TASK-65.9/65.10 session asked for `detector` and `notificationGate` to become settable so `AlertSettings` could drive them. `AlertSettings.swift` is on an unmerged branch and does not exist in this worktree, so referencing it would not compile. It has to happen after that branch merges.
+
+**Merge note from the TASK-65.9/65.10 session.** Their branch is rebased onto main at `f1d4ff8`, where `InspectorPolicies.store` still exists, and their Apps tab plus `AlertSettings.notificationSettings` read it. When this branch lands the reconciliation is a rename at nine call sites, no behaviour change: four in `SettingsView.swift`, one in `AlertSettings.swift`, four in `SettingsSurfaceTests.swift`, all `InspectorPolicies.store` -> `MonitorStore.shared.policies`. Same file on disk (`policies.json`), so no migration and no user data at risk — but the rename must happen in the same commit as the merge, or the build breaks on a symbol this branch deleted.
+
+**Open question this raised, for whoever makes the alert thresholds settable.** Assigning a new `IncidentPolicy` mid-flight reinterprets any in-progress breach against the new threshold. That is the right behaviour — the alternative is a user tightening sensitivity and then waiting out a window they can no longer see — and the accumulated `breachStart` should be kept rather than reset, since resetting would silently postpone an incident that had already been building.
+
+There is a gap underneath that, though, which TASK-66 has incidentally made fixable. `breachStart` is only ever set while `breaches()` is true, so **tightening** a threshold (lowering it, so more conditions breach) finds `breachStart` nil for a condition that was below the old line, and the clock starts from the next observation — delaying the incident by the whole sustained duration for a condition that may have been present the entire time. The retained series (`MonitorStore.retainedSamples`) now makes it possible to evaluate the sustained duration backwards over what was actually measured rather than only forwards from the moment the setting changed. Not in scope here; recorded so it is a decision rather than an accident.
 <!-- SECTION:NOTES:END -->

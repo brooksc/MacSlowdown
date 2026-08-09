@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-09 03:35'
+updated_date: '2026-08-09 05:17'
 labels:
   - ui
   - core
@@ -38,3 +39,9 @@ Do not silence the warning. Find what reenters.
 - [ ] #4 Table behaviour is unaffected: sorting, expansion, selection and continuous updates all still work, verified on screen
 - [ ] #5 If the cause turns out to be a SwiftUI Table limitation rather than our own code, that is recorded with evidence and the options are stated rather than worked around silently
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Note from TASK-65.13, which added the All processes view: it did not change the Apps table's structure, but **the All processes list is a second `Table` of the same shape**, so it may exhibit the same reentrancy warning when that scope is on screen. Check both scopes when reproducing, and confirm the fix covers both.
+<!-- SECTION:NOTES:END -->

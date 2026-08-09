@@ -4,7 +4,7 @@ title: 'Screen 1k — Export a report, with a redaction preview before anything 
 status: In Progress
 assignee: []
 created_date: '2026-08-09 02:24'
-updated_date: '2026-08-09 04:47'
+updated_date: '2026-08-09 05:12'
 labels:
   - ui
 milestone: m-3
@@ -36,10 +36,39 @@ FR-028's whole point is that the user can see what leaves. A checkbox list descr
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Export presents a preview of the actual redacted report content, not a description of what redaction will do (FR-028)
-- [ ] #2 Each redactable field can be toggled independently, and the count of redacted fields and the resulting file size are shown
-- [ ] #3 Over-redaction is permitted but its cost to interpretability is stated
-- [ ] #4 Confidence labelling survives into the exported artefact, so a moderate-confidence judgement is not read as fact by a recipient (FR-038)
-- [ ] #5 The flow states that nothing is uploaded and produces a file the user sends themselves (FR-029)
+- [x] #1 Export presents a preview of the actual redacted report content, not a description of what redaction will do (FR-028)
+- [x] #2 Each redactable field can be toggled independently, and the count of redacted fields and the resulting file size are shown
+- [x] #3 Over-redaction is permitted but its cost to interpretability is stated
+- [x] #4 Confidence labelling survives into the exported artefact, so a moderate-confidence judgement is not read as fact by a recipient (FR-038)
+- [x] #5 The flow states that nothing is uploaded and produces a file the user sends themselves (FR-029)
 - [ ] #6 Verified on screen against design/screens/1k.png, including inspecting a real exported file against its preview
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Built the export sheet (design 1k) plus a single-source report document in the framework.
+
+**One source, structurally.** `Metrics/Sources/ExportDocument.swift` builds an `ExportDocument` (sections of `ReportField`/prose). The preview renders that object; the saved file is `document.data(as:)` of the same object. Redaction is applied **when the document is built**, not when it is rendered: a hidden field holds `.redacted` and does not carry its value at all, so no renderer can emit what the preview hides. Preview and file cannot diverge because there is only one artefact.
+
+**Terminal verification (criterion #6's file half).** A standalone binary linked against the built `Metrics.framework` sampled real processes, built a real incident through `IncidentDetector`, resolved real executable paths, printed the exact preview model and wrote report.txt and report.json. With all three toggles hidden: 11 of 11 sensitive fields hidden, and 0 of 11 hidden values found in either file. Control run with nothing hidden: 11 of 11 values present, so the check is meaningful rather than passing on an empty report. One subtlety found: a running process was literally named "MacSlowdown", which collides with the report title, so the check compares occurrence counts against a contributor-free scaffolding document rather than doing a naive substring search.
+
+**Formats: plain text and JSON. PDF is deliberately not offered.** The framework renders text; a PDF would be a second rendering path that could disagree with the preview, which is the one failure FR-028 exists to prevent. The design shows "PDF and JSON"; this is a knowing departure, not an oversight.
+
+**Gaps in the framework's existing export, and what was done about them.**
+- `RedactionOptions.hideFilePaths` was **inert** in `DiagnosticExport`: nothing in that report contained a file path, so the control did nothing. The new document carries the top contributors' executable paths (supplied by `IncidentDetailView` from `store.families`), so the toggle now acts on something real. Where no path was recorded the field reads `not available - path not recorded` and is *not* counted as successfully hidden - claiming a path was redacted when none existed would be a false assurance.
+- The status-line denominator is derived from the fields actually present, not a fixed number.
+- The toggle is labelled "App and process names" so it matches the framework's existing cost warning wording ("Hiding process names makes the report much harder for anyone to interpret"), which is reused rather than duplicated. The design's copy says "app names".
+- The "Include" choices (measurements / machine details / timeline) add and remove whole sections; app version, build and schema always travel (FR-040).
+- Timeline is the incident's own recorded lifecycle timestamps. Nothing is inferred.
+
+**Entitlement added.** `com.apple.security.files.user-selected.read-write`. Without it a sandboxed Save panel returns a URL we cannot write, so FR-028 could not produce a file. It grants no ambient file access.
+
+**Known divergence to watch.** `Shortcuts.swift`'s `ExportLatestIncidentIntent` still uses the older `DiagnosticExporter`, so two report renderings now exist. They are not in conflict today (the intent returns text, the sheet writes a file), but a future change to one will not reach the other. Worth a follow-up to point the intent at `IncidentReport.document`.
+
+**Rebase.** This worktree branched before the eight-branch merge. Rebased onto main; the only conflict was `IncidentDetailView.swift`, resolved in favour of TASK-65.5's rewritten `verdict` section, with the Export button placed in its header row. `IncidentEvidence.swift` untouched, and the model now takes `store.machine` rather than re-reading `MachineContext.current()`.
+
+**Tests.** `Metrics/Tests/ExportDocumentTests.swift` (14 tests) and `MacSlowdown/Tests/ExportReportTests.swift` (5 tests). Full suite: 536 passing, 1 failure - "A real workload raises the attributed share", one of the load-synthesising MetricsTests that flake under concurrent builds (load average 13-15 from other agents); a different one of that set failed on each run and all of them passed on some run. None touch code this task changed.
+
+**Criterion #6 is only half met.** The file-versus-preview inspection was done from the terminal and is recorded above. The on-screen check against design/screens/1k.png was **not** performed - this agent was instructed not to use the screen. What needs eyes: the two-column layout, the redacted block rendering, the cost warning appearing under the names toggle, and that the Save panel writes where the user chose.
+<!-- SECTION:NOTES:END -->
