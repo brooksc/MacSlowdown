@@ -17,7 +17,7 @@ safe actions, export and privacy controls, and the FR-030 overhead harness.
 - Run: `./run-menubar.sh`
 - Test: `nice env TUIST_SKIP_UPDATE_CHECK=1 tuist xcodebuild test -scheme AllTests \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath .build`
-  — currently **824 passing**. Two bundles: `MetricsTests` (plain) and
+  — currently **845 passing**. Two bundles: `MetricsTests` (plain) and
   `MacSlowdownTests` (app-hosted; `AppDelegate` skips launch work under XCTest so
   a test run does not start monitoring or put a status item in your menu bar).
 - FR-030 measurement: `probe/overhead/run.sh 300` — standalone but **no longer a
