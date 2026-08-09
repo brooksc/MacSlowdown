@@ -45,7 +45,7 @@ list nobody would read.
 
 | Type | Where | Consequence |
 |---|---|---|
-| `RetentionPolicy` | `Metrics/Sources/PrivacySettings.swift:78` | Retention is defined and never enforced. |
+| ~~`RetentionPolicy`~~ | `Metrics/Sources/PrivacySettings.swift:78` | **Fixed (TASK-72).** `IncidentHistoryStore.bounded` applies it on every load, every write and every sample; re-verified for TASK-79. |
 | `GroupingCorrection` | `Metrics/Sources/ApplicationPolicy.swift:104` | No UI creates one. FR-039's correct/split/merge does not exist. |
 | `GroupingOverrides` | `Metrics/Sources/ProcessFamily.swift:71` | `FamilyGrouper.group` accepts `overrides:`; the one app call site (`MacSlowdown/Sources/MonitorStore.swift:488`) never passes it, so a correction could not take effect even if one could be made. |
 | `SwapUsage` | `Metrics/Sources/SwapSignals.swift:5` | Swap bytes-in-use and encrypted-swap are measured and never displayed. |
@@ -59,13 +59,13 @@ Ordered by consequence, not by file.
 
 | Member | Where | Consequence |
 |---|---|---|
-| `PolicyStore.recordSuppression` | `ApplicationPolicy.swift:192` | **`NotificationGate.decide` returns `.suppress(reason:)` at `MonitorStore.swift:575` and the result is dropped.** No `SuppressedDetection` is ever written, so `SuppressedDetectionsSheet` (`SettingsView.swift:429`) can only ever render its empty state. FR-016's "why was I not told" trail is permanently blank, and the empty state's copy ("Nothing has been suppressed by a rule") is therefore a false statement whenever a rule did suppress something. |
-| `MonitorStore.record(suppression:)` | `MacSlowdown/Sources/MonitorStore.swift:179` | App-side half of the same gap. Declared, documented, never called. |
+| ~~`PolicyStore.recordSuppression`~~ | `ApplicationPolicy.swift:192` | **Fixed (TASK-76).** The decision was computed in the sampling loop and dropped. `MonitorStore.announce` now records a `SuppressedDetection` whenever the gate's cause is `.applicationPolicy`, into the policy store *and* onto the incident. A new `SuppressionCause` on `NotificationDecision` is what keeps a mute or an audio deferral out of the rules trail — the reason string was never safe to parse for that. |
+| ~~`MonitorStore.record(suppression:)`~~ | `MacSlowdown/Sources/MonitorStore.swift:179` | **Fixed (TASK-76).** Called by `recordPolicySuppression`. |
 | `ActionVerifier.verify` | `ActionOutcome.swift:89` | 22 test references, zero callers. `ActionPerformer.perform` returns an `ActionResult` and stops there. |
 | `MonitorStore.record(action:)` | `MacSlowdown/Sources/MonitorStore.swift:165` | App-side half. `IncidentDetailView.verification` (`IncidentDetailView.swift:28`) defaults to `nil` and nothing supplies it. |
 | `PolicyStore.corrections` / `addCorrection` / `removeCorrection` / `overrides(for:)` | `ApplicationPolicy.swift:204, 206, 214, 223` | FR-039 grouping correction is complete, persisted and unreachable. |
 | `SwapSignals.swapUsage()` | `SwapSignals.swift:53` | The app calls only `pagingCounters` and `rates`. FR-008's swap *usage* half is unread. `SwapUsage.isInUse` (`:14`) and `.encrypted` (`:9`) follow. |
-| `RetentionPolicy.retained` / `.expired` | `PrivacySettings.swift:80, 90` | Neither is called. The retention picker (`SettingsView.swift:494`) writes to `UserDefaults` and no code reads it back — see the inert-control table below. |
+| ~~`RetentionPolicy.retained` / `.expired`~~ | `PrivacySettings.swift:80, 90` | **Fixed (TASK-72).** Both are called from `IncidentHistoryStore.bounded`. |
 | `MetricsHistory.restore()` | `MetricsHistory.swift:189` | Never called. `MonitorStore.swift:614` does call `flushIfNeeded()`, but on a `.memoryOnly` store where it is a no-op. |
 | `HistoryPersistence.acrossRestarts(url:)` | `MetricsHistory.swift:67` | `MonitorStore.swift:363` constructs `MetricsHistory()`, taking the `.memoryOnly` default. The persistence path exists, is called, and is inert by construction. |
 | `MetricsHistory.removeAll()` / `PolicyStore.removeAll()` | `MetricsHistory.swift:155`, `ApplicationPolicy.swift:245` | "Delete all history" (`SettingsView.swift:526`) calls `StoredData.deleteRecordedEvidence()` instead. Its copy states truthfully that rules are kept and session incidents are in memory, so this is honest — but two erase paths exist and one is dead. |
@@ -80,7 +80,7 @@ Ordered by consequence, not by file.
 | `SafetyPolicy.isProtected` | `SafetyPolicy.swift:93` | Convenience; the app goes through `availability(of:for:)`, which is the right seam. |
 | `RedactionOptions.isAtLeastAsRedacted` | `RedactionOptions.swift:72` | Redundant sibling of `weakerThanDefaultWarning`, which *is* wired (`Shortcuts.swift:130`). |
 | `ProcessIdentityResolver.resolutionCount` / `.cachedCount`; `ProcessIconCache.cachedCount` | `ProcessIdentityResolver.swift:66, 70`; `ProcessNaming.swift:238` | Cache diagnostics with no surface. |
-| `AlertSettings.privacySettings` | `MacSlowdown/Sources/AlertSettings.swift:219` | App-side. Referenced by exactly one test (`MacSlowdown/Tests/SettingsSurfaceTests.swift:142`) and no app code. This single property is why both privacy controls below are inert. |
+| ~~`AlertSettings.privacySettings`~~ | `MacSlowdown/Sources/AlertSettings.swift:219` | **Fixed (TASK-72, TASK-79).** Read by `MonitorStore.privacySettings`, which supplies retention to every incident-history read, write and sweep, and the path choice to `MonitorStore.recordable(_:)`. |
 
 ## Deliberately staged — with the evidence
 
@@ -90,7 +90,7 @@ Recorded so nobody re-files these as defects.
 |---|---|
 | `OverheadMeasurement`, `OverheadHarness`, `FR030Budget.withinAllBudgets` and siblings | `CLAUDE.md` §"Performance budget — deferred, still measured": the numeric budget "no longer gates work" and the harness runs standalone via `probe/overhead/run.sh`. Not app-facing by design. |
 | `HistoryPersistence` / `PrivacySettings.persistAcrossRestarts` | `MacSlowdown/Sources/AlertSettings.swift:215-218` states it is left at the type default and **not** surfaced because "whether incident history survives a restart is an open product decision, and building the switch would settle it by accident." `SettingsView.swift:512-514` repeats it and the UI says "This session only". `CLAUDE.md` §Undecided lists the same question. This is the model case of staging done properly: the decision, the reason and the user-visible truth are all written down. TASK-72 is now open to settle it. |
-| `RetentionPolicy` | Staged only by adjacency to the above; nothing said so at the time. TASK-72 covers it. Allowlisted with that reason. |
+| ~~`RetentionPolicy`~~ | Was staged only by adjacency; TASK-72 connected it and the allowlist entry is gone. |
 | `LowStorageDetector.isSustained` | Duplicates `IncidentPolicy.requiredDuration(.lowStorage) = 60 s` (`Incident.swift:77`), which the running detector does apply. Redundant, not a hole — FR-042's "a transient anomaly does not create an incident" is satisfied by the detector. |
 | `ProcessAction.isDestructive` | Returns a literal `false`. It is the FR-037 claim that no action changes how a process runs, kept checkable. Nothing calls it because nothing may. |
 | `GuidedInvestigation.isWellFormed` / `canContinue` / `hasRawEvidence`; `IncidentSummary.isWellFormed` | Design-by-contract invariants asserted by tests over FR-013/FR-054 output. Not intended as call sites. |
@@ -104,18 +104,23 @@ is now fixed — all three redaction fields are read at
 sheet (`ExportReportView.swift:114-116`) and from the App Intent
 (`Shortcuts.swift:196-198`).
 
-Two remain, both in the Privacy tab, and both for the same reason: they are
-persisted into `AlertSettings`, gathered into `AlertSettings.privacySettings`
-(`AlertSettings.swift:219`), and that property has no reader outside a test.
+Two more were in the Privacy tab, both for the same reason: they were persisted
+into `AlertSettings`, gathered into `AlertSettings.privacySettings`
+(`AlertSettings.swift:219`), and that property had no reader outside a test. Both
+are now wired — retention by TASK-72, file paths by TASK-79 — and
+`privacySettings` is read by `MonitorStore.privacySettings`. **No inert control is
+known to remain.**
 
 | Control | Written at | Read by |
 |---|---|---|
-| "Keep incident history for" (7 / 30 / 90 days) | `SettingsView.swift:494`, persisted `AlertSettings.swift:179` | Nothing. `IncidentsView.swift:201` shows a footer derived from `MonitorStore.retainedIncidents`, a **count** cap, so the visible explanation does not even describe the same mechanism as the control. |
-| "Record file paths" | `SettingsView.swift:506`, persisted `AlertSettings.swift:175` | Nothing. Paths are resolved and retained regardless. |
+| ~~"Keep incident history for" (7 / 30 / 90 days)~~ | `SettingsView.swift:494`, persisted `AlertSettings.swift:179` | **Fixed (TASK-72).** Read through `AlertSettings.privacySettings` by `MonitorStore.privacySettings` and applied by `IncidentHistoryStore`. The footer now names *both* bounds — `IncidentHistory.retentionFooter` takes the period from the setting and the count from `MonitorStore.retainedIncidents` — so the explanation and the control describe the same mechanism. |
+| ~~"Record file paths"~~ | `SettingsView.swift:506`, persisted `AlertSettings.swift:175` | **Fixed (TASK-79).** Read by `MonitorStore.recordable(_:)`, which strips `bundlePath` *and* the path-valued `applicationID` from the attribution an incident records. Scoped deliberately to what is **kept**: path resolution is how families are grouped and icons found, so a control over resolution would have broken the product, and the row's copy now says which of the two it is. |
 
 By contrast "Keep history across restarts" is deliberately *not* a control
-(`SettingsView.swift:512`), and says what the app actually does. That is the
-pattern the two above should be brought to, or wired.
+(`SettingsView.swift:512`), and says what the app actually does. That remains the
+pattern for anything that cannot honestly be switched: TASK-79 used it for the half
+of "Record file paths" that is not a choice — locations are always *read*, because
+grouping and icons depend on them — and made a control only of what is *kept*.
 
 ## FRs met only by framework tests
 
@@ -123,8 +128,8 @@ For each: can the behaviour occur in the running app, and how that was determine
 
 | FR | Can it occur? | Chain |
 |---|---|---|
-| **FR-016** — per-application allow / ignore / expected policies | **Partly. The audit trail cannot.** | Setting a policy works: `SettingsView` → `MonitorStore.policies.setPolicy`, and `AlertSettings.notificationSettings` (`:210`) feeds `expectedApplications` into `NotificationGate`. Suppression therefore happens. But `MonitorStore.swift:575` discards the `.suppress` decision, so no `SuppressedDetection` is ever recorded and the sheet that exists to show them is permanently empty. |
-| **FR-029** — retention controls | **No.** | `RetentionPolicy.retained`/`.expired` have no caller anywhere. The picker writes `UserDefaults`; nothing reads it. Locality *is* satisfied and honestly stated (`PrivacySettings.dataHandlingStatement` at `SettingsView.swift:482`). |
+| **FR-016** — per-application allow / ignore / expected policies | **Yes, since TASK-76.** | Setting a policy works: `SettingsView` → `MonitorStore.policies.setPolicy`, and `AlertSettings.notificationSettings` feeds `expectedApplications` into `NotificationGate`. `MonitorStore.announce` now records the resulting suppression in `PolicyStore` and on the incident. Not verified on screen: nobody has opened the sheet and seen a row. |
+| **FR-029** — retention controls | **Yes, since TASK-72 / TASK-79.** | Retention is applied on load, on write and on every sample; the period comes from the picker. "Record file paths" now governs what an incident record keeps. Locality was always satisfied and honestly stated (`PrivacySettings.dataHandlingStatement`). |
 | **FR-039** — user correction of process-family attribution | **No.** | No view creates a `GroupingCorrection`; `PolicyStore.addCorrection` has zero callers; `MonitorStore.swift:488` calls `FamilyGrouper.group(snapshot:resolver:)` without `overrides:`. Every layer exists and none of them is joined. (The "mark expected" half of FR-039 does work, via `setPolicy`.) |
 | **FR-050** — verify and report the outcome of remediation | **No.** | `ActionPerformer.perform` returns `ActionResult` and stops. `ActionVerifier.verify` has 22 test references and no caller; `MonitorStore.record(action:)` has none; `IncidentDetailView.verification` is always `nil`. Worth weighing before treating as a plain defect: with FR-020–024 deferred, every available action (activate, reveal, open Activity Monitor, copy diagnostics) is observational, so there is arguably nothing whose outcome could be measured. That is a defensible reason to stage it — but it was never written down anywhere, which is exactly the failure mode this audit is about. |
 | **FR-008** — swap, compression, paging | **Partly.** | Compression and paging rates are wired (`SwapSignals.pagingCounters`, `.rates`, `DiskRates` shown in 7 places). `SwapSignals.swapUsage()` — swap bytes in use, encrypted flag — has no caller, so the swap half of FR-008 is measured and never surfaced. |

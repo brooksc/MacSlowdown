@@ -9,7 +9,5 @@
 # through a whole milestone, that is evidence the capability should be deleted
 # rather than staged again.
 
-RetentionPolicy   TASK-72 will enforce retention when incident history is persisted. Until history is memory-only and discarded at quit, there is nothing to age out.
-expired           TASK-72, as RetentionPolicy above.
-isSustained       LowStorageDetector's own duration check duplicates IncidentPolicy.requiredDuration(.lowStorage) = 60 s, which the running detector already applies (Metrics/Sources/Incident.swift:77). Redundant, not missing. Delete when someone is in the file.
+isSustained     LowStorageDetector's own duration check duplicates IncidentPolicy.requiredDuration(.lowStorage) = 60 s, which the running detector already applies (Metrics/Sources/Incident.swift:77). Redundant, not missing. Delete when someone is in the file.
 isDestructive     Returns a literal false. It is the FR-037 statement that no action in the set changes how a process runs, kept so the claim is checkable rather than a comment. Nothing calls it because nothing may.
