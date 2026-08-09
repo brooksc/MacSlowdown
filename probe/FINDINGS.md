@@ -849,8 +849,40 @@ non-existent path both answer *real* (IconServices returns the generic **documen
 icon there, which is not the unix-executable icon either method compares against).
 The cheap method discriminates; it is not just agreeing by accident.
 
-This is a **proposed** replacement measured in a probe, not a change made to
-`ProcessNaming.swift` — that file was owned by another session at the time.
+## Landed, and re-measured against the shipping code
+
+`ProcessIconCache` now compares 32 pt fingerprints. `icon-cost-probe.swift` is
+compiled together with `Metrics/Sources` (see `build-with-metrics.sh`) so it runs
+the shipping class rather than a copy that could drift; its `before` arm
+reproduces the old comparison over the same bundles.
+
+Each arm runs in its own process — malloc does not return large blocks promptly,
+so measuring both in one process charges the second for the first's high-water
+mark. Three consecutive pairs, 105 bundles classified in every run:
+
+| Pair | Before, footprint growth | After, footprint growth | Before, peak | After, peak |
+|---|---|---|---|---|
+| 1 | +5659.1 MB | **+8.6 MB** | 7779.4 MB | **11.3 MB** |
+| 2 | +8555.4 MB | **+7.7 MB** | 8593.3 MB | **10.4 MB** |
+| 3 | +8552.4 MB | **+8.2 MB** | 8590.3 MB | **10.8 MB** |
+
+Roughly **700× less**, and the peak now sits inside FR-030's 100 MB budget where
+it previously exceeded it by 85×.
+
+Correctness held: an `agree` arm running both classifications over the same 105
+bundles in one process reports **0 disagreements**, and the negative control
+(`/bin/ls`, `/usr/bin/true`, `/usr/sbin/notifyd`) comes back *generic* under both.
+That control is the one that matters — every bundle on this machine classifies as
+real, so zero disagreements alone would also be scored by a comparison that never
+says "generic". It is kept in `Metrics/Tests/ProcessNamingTests.swift` rather than
+only in the probe, because a comparison that drifts into always answering "real"
+would put a placeholder beside three quarters of the table and call it the
+application's icon — worse than the allocation it replaced (FR-002).
+
+**Not yet measured: the running app.** The probe shows the icon path's cost fell
+from ~8.5 GB to ~8 MB, but whether the app's 292 MB median footprint drops below
+100 MB can only be confirmed by watching the running app, which needs the screen.
+Treat the app-level figure as unverified until someone looks.
 
 ## The headless harness was never wrong, it was answering a different question
 

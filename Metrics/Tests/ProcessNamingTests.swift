@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 @testable import Metrics
 
@@ -360,5 +361,41 @@ struct IconCacheTests {
         _ = cache.icon(forExecutablePath: "/no/such/App.app/Contents/MacOS/App")
         _ = cache.icon(forExecutablePath: "/no/such/App.app/Contents/MacOS/App")
         #expect(cache.cachedCount == 1)
+    }
+
+    /// The negative control for the 32 pt fingerprint that replaced comparing
+    /// `tiffRepresentation` (TASK-55.1).
+    ///
+    /// The failure mode being guarded is not "too expensive", it is a comparison
+    /// that answers *real* for everything — that would put a generic placeholder
+    /// beside three quarters of the process table and call it the application's
+    /// icon, which is worse than the 70 MB-per-call allocation it replaced.
+    /// Every bundle on the measured machine classified as real, so agreement with
+    /// the old method could not distinguish a working comparison from one that
+    /// never says "generic". These two do.
+    @Test("Plain executables still fingerprint as generic, so the comparison discriminates")
+    func fingerprintRejectsGenericIcons() throws {
+        for path in ["/bin/ls", "/usr/bin/true"] {
+            try #require(FileManager.default.fileExists(atPath: path))
+            let icon = NSWorkspace.shared.icon(forFile: path)
+            #expect(ProcessIconCache.fingerprint(icon)
+                == ProcessIconCache.fingerprint(
+                    NSWorkspace.shared.icon(for: .unixExecutable)),
+                "\(path) has no icon of its own and must compare equal to the generic one")
+        }
+    }
+
+    /// The other half of the control: a real application must *not* collide with
+    /// the generic icon at 32 pt. A fingerprint small enough to be free is only
+    /// useful if it is still large enough to tell two icons apart.
+    @Test("A real application's icon does not collide with the generic one")
+    func fingerprintSeparatesRealIcons() throws {
+        let finder = "/System/Library/CoreServices/Finder.app"
+        try #require(FileManager.default.fileExists(atPath: finder))
+        let generic = ProcessIconCache.fingerprint(
+            NSWorkspace.shared.icon(for: .unixExecutable))
+        let real = ProcessIconCache.fingerprint(NSWorkspace.shared.icon(forFile: finder))
+        #expect(real != nil)
+        #expect(real != generic)
     }
 }

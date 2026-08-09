@@ -230,8 +230,8 @@ public final class ProcessIconCache {
     /// Cached by bundle path rather than by process: every Helium helper shares
     /// one icon, and the table redraws on every sample.
     private var cache: [String: NSImage?] = [:]
-    private lazy var generic = NSWorkspace.shared.icon(for: .unixExecutable)
-        .tiffRepresentation
+    private lazy var generic = ProcessIconCache.fingerprint(
+        NSWorkspace.shared.icon(for: .unixExecutable))
 
     public init() {}
 
@@ -243,10 +243,49 @@ public final class ProcessIconCache {
         if let cached = cache[bundle] { return cached }
 
         let candidate = NSWorkspace.shared.icon(forFile: bundle)
-        let resolved: NSImage? =
-            candidate.tiffRepresentation == generic ? nil : candidate
+        // Fails closed: an icon we cannot fingerprint is treated as generic, so
+        // the interface omits an icon rather than claiming a placeholder is the
+        // application's own (FR-002).
+        let resolved: NSImage? = {
+            guard let generic,
+                  let mark = ProcessIconCache.fingerprint(candidate),
+                  mark != generic
+            else { return nil }
+            return candidate
+        }()
         cache[bundle] = resolved
         return resolved
+    }
+
+    /// A small raster of an icon, for equality only — never shown to anyone.
+    ///
+    /// This used to compare `tiffRepresentation` directly, which was correct and
+    /// cost **70 MB per call**: an icon from IconServices carries representations
+    /// up to 1024×1024 at every scale, and asking for TIFF flattens all of them
+    /// into one contiguous `Data`. Once per cache miss across a full process table
+    /// that moved ~8 GB through malloc, and draining the autorelease pool did not
+    /// give it back — it left the app at a 292 MB footprint against FR-030's
+    /// 100 MB budget (TASK-55.1; measurements in `probe/FINDINGS.md`).
+    ///
+    /// 32 pt is large enough that two different icons do not collide and small
+    /// enough to be free: 4 KB per raster, and 0.17 MB to classify every bundle on
+    /// the measured machine against 1693 MB for the TIFF comparison. It agreed
+    /// with that comparison on all 117 bundles, and on the negative control —
+    /// `/bin/ls` and `/usr/bin/true` still classify as generic, which is what
+    /// proves it discriminates rather than answering "real" for everything.
+    static func fingerprint(_ image: NSImage) -> Data? {
+        let side = 32
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: side * 4, bitsPerPixel: 32)
+        else { return nil }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        return rep.representation(using: .png, properties: [:])
     }
 }
 
