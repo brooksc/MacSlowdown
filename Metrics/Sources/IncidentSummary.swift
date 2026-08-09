@@ -56,6 +56,12 @@ public enum IncidentSummarizer {
     /// confidence, and confidence is *lowered* when a large share of the machine's
     /// activity is unattributable — because a contributor we can see may simply be
     /// the largest thing we are permitted to see, not the largest thing running.
+    ///
+    /// The `attribution` argument is a **live** reading. Where the incident carries
+    /// its own recorded attribution that one wins, and the live one is not
+    /// consulted for anything causal: for a closed incident the live reading
+    /// describes a machine that has since recovered, and using it would put a
+    /// currently-busy application's name on a slowdown it had nothing to do with.
     public static func summarize(
         incident: Incident,
         attribution: CPUAttribution?,
@@ -90,7 +96,24 @@ public enum IncidentSummarizer {
 
         // MARK: Calculated
 
-        if let attribution {
+        if let recorded = incident.attribution {
+            let share = Int((recorded.unattributedShare * 100).rounded())
+            if recorded.unattributedPercentOfOneCoreAtPeak > 0 {
+                conclusions.append(Conclusion(
+                    "\(share)% of busy CPU could not be attributed to any process we are "
+                        + "permitted to measure. That is the difference between total CPU "
+                        + "and everything we can read, not an estimate.",
+                    evidence: .calculated))
+            }
+
+            // MARK: Heuristic — the only place causation is suggested at all.
+            //
+            // Carries the confidence recorded at the time, not one recomputed from
+            // the machine's current state (FR-013, FR-038).
+            if let conclusion = recorded.conclusion {
+                conclusions.append(conclusion)
+            }
+        } else if let attribution {
             let share = Int((attribution.unattributedShare * 100).rounded())
             if attribution.unattributedPercentOfOneCore > 0 {
                 conclusions.append(Conclusion(

@@ -15,9 +15,19 @@ struct IncidentsView: View {
             if all.isEmpty {
                 empty
             } else {
-                List(all, selection: $selection) { incident in
-                    IncidentRow(incident: incident)
-                        .tag(incident.id)
+                List(selection: $selection) {
+                    ForEach(all) { incident in
+                        IncidentRow(incident: incident)
+                            .tag(incident.id)
+                    }
+                    if !store.recurringApplications.isEmpty {
+                        Section("What keeps coming up") {
+                            ForEach(store.recurringApplications) { recurrence in
+                                ConclusionRow(conclusion: recurrence.conclusion)
+                            }
+                        }
+                    }
+                    Section { retentionFooter }
                 }
                 .navigationDestination(for: Incident.ID.self) { _ in EmptyView() }
             }
@@ -29,6 +39,20 @@ struct IncidentsView: View {
                     .inspectorColumnWidth(min: 380, ideal: 460)
             }
         }
+    }
+
+    /// The real retention behaviour, stated rather than implied (FR-005).
+    ///
+    /// History is 20 incidents held in memory. Whether incidents should persist
+    /// across restarts, and for how long, is an open product decision — so this
+    /// describes what the app does today and claims no retention period it does
+    /// not keep.
+    private var retentionFooter: some View {
+        Text("The last \(MonitorStore.retainedIncidents) slowdowns are kept, in memory only. "
+             + "They are not saved to disk, so quitting MacSlowdown clears them.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// An empty list must say monitoring is running. "No incidents" alone could
@@ -56,11 +80,23 @@ struct IncidentRow: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(incident.conditions.map(\.label).sorted().joined(separator: " and "))
+                Text(title)
                     .font(.headline)
                 Text(subtitle)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                // The name above is a heuristic, and the label saying so travels
+                // with it rather than living in a footnote (FR-013, FR-038).
+                if let attributed {
+                    Text("\(Evidence.heuristic.label) · \(attributed.confidence.label) — "
+                         + "largest measurable contributor, not a proven cause")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(incident.outcome.statement.text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             Text(incident.severity.label)
@@ -71,9 +107,33 @@ struct IncidentRow: View {
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(incident.severity.label) incident: "
-                            + "\(incident.conditions.map(\.label).sorted().joined(separator: " and ")). "
-                            + subtitle)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// The recorded attribution, which exists for closed incidents as much as open
+    /// ones because it was captured while the incident was happening. Nothing here
+    /// reads live state.
+    private var attributed: IncidentAttribution? { incident.attribution }
+
+    private var conditions: String {
+        incident.conditions.map(\.label).sorted().joined(separator: " and ")
+    }
+
+    /// The design's "CPU maxed out — Xcode", now derivable after the fact. The name
+    /// is omitted rather than guessed when nothing measurable was attributed.
+    private var title: String {
+        guard let application = attributed?.leadingApplication else { return conditions }
+        return "\(conditions) — \(application.displayName)"
+    }
+
+    private var accessibilityLabel: String {
+        var label = "\(incident.severity.label) incident: \(conditions). \(subtitle)."
+        if let attributed, let application = attributed.leadingApplication {
+            label += " \(application.displayName) was the largest measurable contributor, "
+            label += "\(attributed.confidence.label), not a proven cause."
+        }
+        label += " \(incident.outcome.statement.text)"
+        return label
     }
 
     private var symbol: String {
@@ -88,8 +148,9 @@ struct IncidentRow: View {
         let started = incident.beganAt.formatted(date: .abbreviated, time: .shortened)
         let length = DateComponentsFormatter.incidentDuration
             .string(from: incident.duration.totalSeconds) ?? ""
-        return incident.isOpen
-            ? "\(started) · still going · \(length) so far"
-            : "\(started) · \(length) · recovered"
+        // How it ended is stated once, by `outcome`, rather than here as well —
+        // the two disagreed as soon as an action could be recorded against an
+        // incident.
+        return incident.isOpen ? "\(started) · \(length) so far" : "\(started) · \(length)"
     }
 }

@@ -38,7 +38,9 @@ public enum VerificationOutcome: String, Sendable, CaseIterable {
 }
 
 /// A before/after comparison around a user-directed action (FR-050).
-public struct ActionVerification: Sendable {
+/// `Equatable` because an incident carries the verifications recorded during it,
+/// and an incident has to stay comparable for the detector's event equality.
+public struct ActionVerification: Sendable, Equatable {
     public let action: ProcessAction
     public let target: String
     public let requestedAt: Date
