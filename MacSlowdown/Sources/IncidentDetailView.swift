@@ -102,6 +102,16 @@ struct IncidentDetailView: View {
                 incident: incident, attribution: store.attribution, duration: duration))
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
+            // How it ended, from what was recorded — never inferred from the fact
+            // that the machine got better (FR-050). The vocabulary distinguishes
+            // "recovered, no action was recorded" from "recovered after a recorded
+            // action", and there is deliberately no case meaning "recovered
+            // *because* you acted": we can show the two lined up, never that one
+            // caused the other.
+            Text(incident.outcome.statement.text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .sheet(isPresented: $isExporting) {
             ExportReportView(
@@ -315,12 +325,30 @@ struct IncidentDetailView: View {
 
     /// FR-054: raw measurements stay reachable, so a user can check the working.
     /// FR-055: the figures visibly sum.
+    /// The figures to show, and where they came from.
+    ///
+    /// An incident's own recording wins over live state. Showing the live reading
+    /// against a closed incident put whatever is busy *now* under the heading "the
+    /// measurements" for a slowdown that ended an hour ago — the live reading is
+    /// used only while an incident has recorded nothing of its own.
+    private var evidenceFigures: (figures: [AttributedFigure], caption: String)? {
+        if let recorded = incident.attribution {
+            return (recorded.figures,
+                    "Recorded while this was happening, at its busiest moment, on "
+                    + "\(recorded.logicalCoreCount) logical cores.")
+        }
+        if let live = store.attribution, incident.isOpen {
+            return (live.figures, live.explanation)
+        }
+        return nil
+    }
+
     private var rawEvidence: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("The measurements").font(.headline)
-            if let attribution = store.attribution {
+            if let evidence = evidenceFigures {
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
-                    ForEach(Array(attribution.figures.enumerated()), id: \.offset) { _, figure in
+                    ForEach(Array(evidence.figures.enumerated()), id: \.offset) { _, figure in
                         GridRow {
                             Text(figure.label)
                             Text(CPUPresentation.percentOfOneCore(figure.percentOfOneCore))
@@ -336,7 +364,7 @@ struct IncidentDetailView: View {
                             + "of one core, \(figure.evidence.rawValue)")
                     }
                 }
-                Text(attribution.explanation)
+                Text(evidence.caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

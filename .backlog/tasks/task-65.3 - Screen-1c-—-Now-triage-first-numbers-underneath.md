@@ -4,7 +4,7 @@ title: 'Screen 1c — Now: triage first, numbers underneath'
 status: Done
 assignee: []
 created_date: '2026-08-09 02:22'
-updated_date: '2026-08-09 03:30'
+updated_date: '2026-08-09 06:33'
 labels:
   - ui
 milestone: m-1
@@ -12,7 +12,10 @@ dependencies: []
 modified_files:
   - MacSlowdown/Sources/MainWindowView.swift
   - MacSlowdown/Sources/NowPresentation.swift
+  - MacSlowdown/Sources/HistorySparkline.swift
+  - MacSlowdown/Sources/SparklinePresentation.swift
   - MacSlowdown/Tests/NowPresentationTests.swift
+  - MacSlowdown/Tests/SparklineTests.swift
 parent_task_id: TASK-65
 priority: high
 ---
@@ -160,4 +163,52 @@ limitation.
 9. VoiceOver over the cards, the banner and the contributor rows. Every element
    is `.accessibilityElement(children: .combine)` with a composed label, but
    none of it has been heard -- blocked on TASK-15.
+
+## History added, and the part that cannot honestly be added (commit 6adc296, worktree agent-a775f508b2ba47358)
+
+The sparkline omission recorded above is now partly closed and partly settled as *not possible from what we retain*. TASK-66 landed `MonitorStore.retainedSamples`, so the FR-005 series is reachable; nothing was accumulated in the view.
+
+**New files.** `MacSlowdown/Sources/SparklinePresentation.swift` (rules, pure) and `MacSlowdown/Sources/HistorySparkline.swift` (the `Canvas` view and `HistorySparklineBlock`). `MacSlowdown/Tests/SparklineTests.swift` — 26 tests. `MainWindowView.swift` and `NowPresentation.swift` modified.
+
+**Drawn.**
+
+- *CPU card* — total CPU over the retained window, from `SparklinePresentation.totalBusySeries(store.retainedSamples)`, captioned with the span actually retained ("Last 3 min — all we have retained, of a 15 min window") rather than the window the design names.
+- *Contributor table, new "Retained history" column* — a curve on the **System processes** row only. That row's figure *is* `unattributedPercentOfOneCore` (`InventoryRow` builds it from exactly that), and every retained sample records it, so its coverage equals the machine total's. This is the row the criterion calls "unattributed system activity", and it is the one contributor row with an honest series.
+
+**Rules the chart obeys, each tested.** Only measured samples; the caption states the retained span, never the nominal window; `runs(_:gapThreshold:)` breaks the stroke where consecutive samples are more than 4× cadence apart (floor 8 s) rather than interpolating across minutes nobody observed; and below five readings the cell says "Too few readings" (full sentence in help and VoiceOver) rather than drawing a flat line, which would read as "nothing happened" when the truth is "we have not watched long enough".
+
+**Accessibility (FR-034).** `SparklinePresentation.accessibilitySummary` states span, reading count, lowest, highest and most recent — every figure one that was plotted — plus "with a break where no readings were taken" when the series is split. It is folded explicitly into `MetricCard`'s and `ContributorRow`'s own `accessibilityLabel`, because an explicit label overrides `children: .combine` and would otherwise have silently dropped the chart.
+
+### Not drawn, and why — this is the finding
+
+*Per-application history is not retained, so no application row gets a curve.* `HistorySample.topContributors` holds at most five entries, keyed by `(pid, start time)` and recorded per **process**, not per family. Three separate holes follow, any one of which would be fatal:
+
+1. A family outside the leading few is simply absent from most samples.
+2. A family made of many small processes can rank high as a family while no single member ever enters the top five — so it would have a family-level figure now and no history at all.
+3. A member that has since exited cannot be matched back to the family it belonged to, so its past samples would vanish from the sum and the curve would dip for a reason that never happened.
+
+Drawing that with the gaps stroked out would still imply we watched the app throughout and it did nothing in between. So those cells read **"not retained"**, with the reason in the tooltip and in the VoiceOver label, and `NowPresentation.historyColumnNote` is a footnote saying it in the open. The wording is about our records, never about the application — a test asserts it.
+
+*`FamilyHistory` was considered and rejected as the source.* It exists and does keep per-family series, but it is `@State` on `ProcessInventoryView`: it accumulates only while Apps & Processes is open. Reading it from Now would mean a second instance accumulating only while Now is open — the exact "different curve from the one we retain" this task refused the first time round.
+
+*Disk card.* Design 1c charts disk throughput. `MetricsHistory` retains CPU and nothing else, so the card carries `NowPresentation.diskHistoryNote` — "No history is retained for disk throughput, so there is no trend here — only the rate over the last interval" — instead of a curve assembled while the screen happened to be open.
+
+### Criteria after this pass
+
+- **#3 still unchecked.** The table now has per-family CPU, resident memory, the unattributed system row **and** a history column — but the criterion's "short history" *per family* is not deliverable from what FR-005 retains, for the three reasons above. What ships is history where it is honest and a stated absence where it is not. Closing this criterion properly needs a decision about whether `MetricsHistory` should retain a bounded per-family series (~40 families × ~450 samples), which is a spec-level question, not a view change.
+- **#4** unchanged, still unchecked.
+- **#6 not verified** — this session was also barred from the screen.
+
+### Tests
+
+Full suite **696 passing, 0 failing** (`nice env TUIST_SKIP_UPDATE_CHECK=1 tuist xcodebuild test -scheme AllTests -configuration Debug -destination 'platform=macOS' -derivedDataPath .build`), against a 670 baseline — all 26 additions accounted for. One earlier run of the pair failed `EndToEndIncidentTests.realSlowdownProducesOneIncident`, the documented load-synthesising flake with several agents building concurrently, and passed on re-run.
+
+### What a person must check on screen (added to the list above)
+
+1. The CPU card with a chart inside it does not break the four-across `LazyVGrid` at the default width; the other three cards are shorter and the row may now look ragged.
+2. The new 110 pt "Retained history" column does not push the name column into truncation at the default window width, and the header still aligns with the rows.
+3. A 20 pt sparkline inside a 6 pt-padded table row is legible at all, and in dark mode.
+4. "Not retained" reads as a statement about our records and not as "this app did nothing" — the wording most likely to be misread, and the one thing a test cannot settle.
+5. The first minute after launch: the CPU card should show the too-few-readings sentence, and the card should not jump in height when the curve replaces it.
+6. VoiceOver over the CPU card and the System processes row — the chart summary should be spoken as part of each.
 <!-- SECTION:NOTES:END -->

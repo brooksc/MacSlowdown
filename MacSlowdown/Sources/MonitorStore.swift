@@ -142,6 +142,55 @@ final class MonitorStore {
         guard let incident = openIncident ?? recentIncidents.first else { return nil }
         return IncidentSummarizer.summarize(incident: incident, attribution: attribution)
     }
+
+    /// Applications that led the attribution in several recent slowdowns (FR-013).
+    ///
+    /// Empty until there is enough recorded to claim a pattern — three attributable
+    /// incidents with one application leading three of them. Nothing here is
+    /// reconstructed from live state; it reads only what each incident recorded
+    /// while it was happening.
+    var recurringApplications: [ApplicationRecurrence] {
+        IncidentRecurrence.leadingApplications(
+            in: (openIncident.map { [$0] } ?? []) + recentIncidents)
+    }
+
+    /// Links a completed user action to the incident it happened during (FR-050).
+    ///
+    /// Returns whether a link was made. It is `false` whenever the action did not
+    /// run or fell outside every incident's window — and a caller must not read a
+    /// `false` as "it worked anyway", because the whole point of the link is that
+    /// "recovered after you acted" may only be said when an action was genuinely
+    /// recorded. Nothing here infers that a user acted from the machine improving.
+    @discardableResult
+    func record(action verification: ActionVerification) -> Bool {
+        if detectorState.record(verification) {
+            openIncident = detectorState.current
+            return true
+        }
+        if let index = recentIncidents.firstIndex(
+            where: { $0.covers(verification.requestedAt) }) {
+            return recentIncidents[index].record(verification)
+        }
+        return false
+    }
+
+    /// Links a policy-suppressed detection to the incident it suppressed (FR-016).
+    @discardableResult
+    func record(suppression: SuppressedDetection) -> Bool {
+        if let current = detectorState.current, current.covers(suppression.at) {
+            // Keyed both ways: the incident carries the suppression for its own
+            // account of itself, and the suppression carries the incident id so
+            // the policy store's audit trail can be joined back to it.
+            _ = detectorState.record(suppression.linked(to: current.id))
+            openIncident = detectorState.current
+            return true
+        }
+        if let index = recentIncidents.firstIndex(where: { $0.covers(suppression.at) }) {
+            let linked = suppression.linked(to: recentIncidents[index].id)
+            return recentIncidents[index].record(linked)
+        }
+        return false
+    }
     private(set) var lastUpdate: Date?
     private(set) var isRunning = false
     let machine = MachineContext.current()
@@ -417,7 +466,10 @@ final class MonitorStore {
                 previousDisk = counters
             }
             refreshStorageIfDue(now: now)
-            let observation = SystemObservation(
+            // `var` because the attribution is folded in below: an incident records
+            // what it was judged on (TASK-68), and that has to travel with the
+            // observation the detector sees.
+            var observation = SystemObservation(
                 at: Date(),
                 cpuBusyFraction: result.totalBusyPercentOfOneCore
                     / (Double(machine.logicalCores) * 100),
@@ -425,10 +477,29 @@ final class MonitorStore {
                 thermalState: thermalState,
                 lowStorage: isLowStorage)
 
+            let breaching = IncidentCondition.allCases.contains {
+                observation.breaches($0, policy: detector.policy)
+            }
+            // Rolling attribution up to applications costs more than the rest of
+            // the observation and there is nothing to record it on unless something
+            // is wrong, so it is built only when a condition is breaching or an
+            // incident is already open. A breach always precedes an incident by the
+            // sustained duration, so the snapshot is always there before the
+            // detector needs it.
+            if breaching || detectorState.current != nil {
+                observation.attribution = AttributionSample.from(
+                    attribution: result, families: grouped)
+            }
+
             let event = detector.observe(observation, state: &detectorState)
+            // Attribution is refreshed on every sample while an incident is open,
+            // and refreshing it deliberately emits no event — so the open incident
+            // is read back from the detector rather than only from events, or the
+            // screen would show the attribution as it stood when the incident last
+            // changed severity.
+            openIncident = detectorState.current
             switch event {
             case .opened(let incident), .updated(let incident):
-                openIncident = incident
                 // The gate decides; delivery only carries out an approved decision.
                 let leadingContributor = result.contributors.first?.label
                 let decision = notificationGate.decide(
@@ -460,9 +531,6 @@ final class MonitorStore {
 
             // MARK: Adaptive cadence (FR-031)
 
-            let breaching = IncidentCondition.allCases.contains {
-                observation.breaches($0, policy: detector.policy)
-            }
             self.cadence = cadenceController.cadence(
                 at: Date(), incidentOpen: openIncident != nil,
                 conditionBreaching: breaching, state: &cadenceState)

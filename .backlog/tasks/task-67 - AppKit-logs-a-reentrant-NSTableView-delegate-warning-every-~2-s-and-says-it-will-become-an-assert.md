@@ -3,10 +3,10 @@ id: TASK-67
 title: >-
   AppKit logs a reentrant NSTableView delegate warning every ~2 s, and says it
   will become an assert
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 03:35'
-updated_date: '2026-08-09 05:17'
+updated_date: '2026-08-09 06:10'
 labels:
   - ui
   - core

@@ -110,6 +110,20 @@ struct IncidentsView: View {
             }
             .accessibilityElement(children: .combine)
 
+            // Application recurrence, now that incidents record their own
+            // attribution (TASK-68). This is the finding design 1f is built around
+            // — "Chrome appears in 5 of them" — and until incidents kept an
+            // attribution it could not be computed at all, so the line above falls
+            // back to recurrence of the *condition*.
+            //
+            // Shown as a `Conclusion` rather than a sentence so it carries the
+            // confidence it was built from. That confidence is the weakest of the
+            // records it came from, never an average: two low-confidence
+            // attributions must not combine into a confident-looking pattern.
+            ForEach(store.recurringApplications) { recurrence in
+                ConclusionRow(conclusion: recurrence.conclusion)
+            }
+
             DayStrip(days: IncidentHistory.days(for: entries, range: range))
         }
         .padding(.horizontal, 20)
@@ -150,12 +164,20 @@ struct IncidentsView: View {
         }
     }
 
-    /// Only an open incident can name an application, and only as the largest
-    /// contributor we can measure *right now* — the incident record itself stores
-    /// no attribution. Labelled as a heuristic in the row (FR-013, FR-038).
+    /// The application the incident was attributed to *while it was happening*.
+    ///
+    /// This used to read live state and could therefore only speak for an open
+    /// incident — naming whatever happens to be busy now beside a slowdown that
+    /// ended an hour ago. TASK-68 made incidents record their own attribution, so
+    /// a closed incident now answers from what it measured at the time.
+    ///
+    /// Still a heuristic, and labelled as one in the row: the leading contributor
+    /// is the largest share we were permitted to measure, not a proven cause
+    /// (FR-013, FR-038). No fallback to live state — an incident that recorded
+    /// nothing says nothing, rather than borrowing the present to describe the past.
     private func leadingContributor(for entry: IncidentHistory.Entry) -> String? {
-        guard entry.isOpen else { return nil }
-        return store.attribution?.contributors.first?.label
+        guard case .resource(let incident) = entry.kind else { return nil }
+        return incident.attribution?.leadingApplication?.displayName
     }
 
     // MARK: - Empty state and footer

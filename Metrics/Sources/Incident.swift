@@ -87,19 +87,28 @@ public struct SystemObservation: Sendable {
     public let memoryPressure: MemoryPressureLevel
     public let thermalState: ThermalState
     public let lowStorage: Bool
+    /// What was busy at this instant, for the detector to record on the incident.
+    ///
+    /// Optional because rolling attribution up to applications costs more than the
+    /// rest of the observation, and there is nothing to record it on unless a
+    /// condition is breaching or an incident is already open. `nil` means "not
+    /// offered", never "nothing was running".
+    public var attribution: AttributionSample?
 
     public init(
         at: Date,
         cpuBusyFraction: Double,
         memoryPressure: MemoryPressureLevel = .normal,
         thermalState: ThermalState = .nominal,
-        lowStorage: Bool = false
+        lowStorage: Bool = false,
+        attribution: AttributionSample? = nil
     ) {
         self.at = at
         self.cpuBusyFraction = cpuBusyFraction
         self.memoryPressure = memoryPressure
         self.thermalState = thermalState
         self.lowStorage = lowStorage
+        self.attribution = attribution
     }
 
     public func breaches(_ condition: IncidentCondition, policy: IncidentPolicy) -> Bool {
@@ -131,9 +140,102 @@ public struct Incident: Sendable, Identifiable, Equatable {
     public var peakCPUBusyFraction: Double
     public var peakMemoryPressure: MemoryPressureLevel
 
+    /// What the incident was attributed to, recorded while it was open and frozen
+    /// when it closed (FR-011's "leading contributors", FR-013's evidence).
+    ///
+    /// `nil` means no attribution was recorded — either nothing measurable was
+    /// running or none was offered. It never means "we could not decide", and a
+    /// screen must not fall back to live state to fill the gap: live state
+    /// describes the machine now, not the machine that was in trouble.
+    public var attribution: IncidentAttribution?
+
+    /// User actions recorded during this incident (FR-050). Only ever appended by
+    /// `record(_:)`, which requires an action to have actually run.
+    public var actions: [ActionVerification] = []
+
+    /// Detections a user policy suppressed during this incident (FR-016). A
+    /// suppressed alert is still a recorded incident; this is the audit trail that
+    /// says why the user never saw it.
+    public var suppressions: [SuppressedDetection] = []
+
     public var isOpen: Bool { closedAt == nil }
     public var duration: Duration {
         .seconds((closedAt ?? Date()).timeIntervalSince(beganAt))
+    }
+
+    /// Whether a moment falls inside the incident. An open incident is unbounded
+    /// at its end, which is the honest answer while it is still running.
+    public func covers(_ date: Date) -> Bool {
+        date >= beganAt && date <= (closedAt ?? .distantFuture)
+    }
+
+    /// Links a user action to this incident (FR-050).
+    ///
+    /// Two conditions, both required, and neither is "the machine got better
+    /// afterwards": the action must have **actually run**, and it must have been
+    /// requested inside the incident's window. Recovery that merely coincides with
+    /// something the user did is not evidence that they did anything — FR-050
+    /// forbids reading an outcome out of correlation, and this is where that rule
+    /// is enforced rather than in the wording of a label.
+    ///
+    /// Returns whether the link was made, so a caller cannot quietly assume it was.
+    @discardableResult
+    public mutating func record(_ verification: ActionVerification) -> Bool {
+        guard verification.result.didRun, covers(verification.requestedAt) else { return false }
+        actions.append(verification)
+        return true
+    }
+
+    /// Links a policy-suppressed detection to the incident it suppressed (FR-016).
+    @discardableResult
+    public mutating func record(_ suppression: SuppressedDetection) -> Bool {
+        guard covers(suppression.at) else { return false }
+        suppressions.append(suppression)
+        return true
+    }
+
+    /// How this incident ended, derived only from what was recorded.
+    public var outcome: IncidentOutcome {
+        if isOpen { return .open }
+        if let action = actions.last { return .recoveredAfterRecordedAction(action) }
+        if let suppression = suppressions.last { return .notAlerted(suppression) }
+        return .recovered
+    }
+}
+
+/// The end state of an incident, in the four forms the evidence can support.
+///
+/// There is deliberately no case for "recovered because you acted". The strongest
+/// thing the measurements license is that the two happened in that order, which is
+/// what `recoveredAfterRecordedAction` says and what its statement is careful to
+/// keep saying.
+public enum IncidentOutcome: Sendable, Equatable {
+    case open
+    /// Recovered, with no user action recorded during the incident.
+    case recovered
+    /// Recovered, and a user action was recorded inside the incident's window.
+    case recoveredAfterRecordedAction(ActionVerification)
+    /// A user policy suppressed the alert. The incident was still recorded.
+    case notAlerted(SuppressedDetection)
+
+    /// The statement to show, carrying its evidence class (FR-038).
+    public var statement: Conclusion {
+        switch self {
+        case .open:
+            Conclusion("Still going.", evidence: .measured)
+        case .recovered:
+            Conclusion("Recovered — no action was recorded.", evidence: .measured)
+        case .recoveredAfterRecordedAction(let verification):
+            Conclusion(
+                "Recovered after you used \"\(verification.action.title)\" on "
+                    + "\(verification.target). \(verification.summary)",
+                evidence: .measured)
+        case .notAlerted(let suppression):
+            Conclusion(
+                "Not alerted — you marked \(suppression.application) as "
+                    + "\"\(suppression.classification.label)\". It was still recorded.",
+                evidence: .userProvided)
+        }
     }
 }
 
@@ -165,6 +267,22 @@ public struct IncidentDetector: Sendable {
         /// Kept after closing so a new breach inside the merge window can rejoin
         /// the previous episode rather than starting a second one.
         var lastClosed: Incident?
+
+        /// Links a user action to the open incident, if one covers it (FR-050).
+        ///
+        /// Only the open incident: a closed one has already been handed to whoever
+        /// keeps the history, and mutating the detector's private copy of it would
+        /// leave two versions of the same incident disagreeing about what the user
+        /// did. The caller links closed incidents in the collection it owns.
+        @discardableResult
+        public mutating func record(_ verification: ActionVerification) -> Bool {
+            current?.record(verification) == true
+        }
+
+        @discardableResult
+        public mutating func record(_ suppression: SuppressedDetection) -> Bool {
+            current?.record(suppression) == true
+        }
     }
 
     public init(policy: IncidentPolicy = .default) {
@@ -217,12 +335,13 @@ public struct IncidentDetector: Sendable {
             previous.closedAt = nil
             previous.recoveryStartedAt = nil
             previous.conditions.formUnion(sustained)
+            Self.recordAttribution(from: observation, into: &previous)
             state.current = previous
             state.lastClosed = nil
             return .updated(previous)
         }
 
-        let incident = Incident(
+        var incident = Incident(
             id: UUID(),
             beganAt: began,
             triggeredAt: observation.at,
@@ -233,8 +352,25 @@ public struct IncidentDetector: Sendable {
             peakCPUBusyFraction: observation.cpuBusyFraction,
             peakMemoryPressure: observation.memoryPressure
         )
+        // FR-011: an incident is created with its leading contributors, not merely
+        // with its times and severity.
+        Self.recordAttribution(from: observation, into: &incident)
         state.current = incident
         return .opened(incident)
+    }
+
+    /// Folds the observation's attribution into the incident, if one was offered.
+    ///
+    /// Deliberately never reports a change: refreshing the recorded attribution is
+    /// not a reason to emit `.updated`, or every sample would re-notify the user
+    /// about an incident they have already been told about (FR-014).
+    static func recordAttribution(from observation: SystemObservation, into incident: inout Incident) {
+        guard let sample = observation.attribution else { return }
+        if incident.attribution == nil {
+            incident.attribution = IncidentAttribution(sample: sample, at: observation.at)
+        } else {
+            incident.attribution?.merge(sample, at: observation.at)
+        }
     }
 
     private func update(
@@ -249,6 +385,11 @@ public struct IncidentDetector: Sendable {
         let stillBreaching = IncidentCondition.allCases.contains {
             observation.breaches($0, policy: policy)
         }
+
+        // Kept current for as long as the incident is open, on every path below —
+        // including the recovery clock, so the last thing recorded is what the
+        // machine looked like as it came back.
+        Self.recordAttribution(from: observation, into: &incident)
 
         var changed = false
         if stillBreaching {

@@ -61,25 +61,41 @@ public struct ApplicationPolicy: Sendable, Codable, Equatable, Identifiable {
 ///
 /// The audit trail is the point: an alert the user never saw must still be
 /// findable, or a policy becomes a way to hide evidence from yourself.
-public struct SuppressedDetection: Sendable, Codable, Identifiable {
+public struct SuppressedDetection: Sendable, Codable, Equatable, Identifiable {
     public let id: UUID
     public let application: String
     public let classification: PolicyClassification
     public let at: Date
     public let severity: IncidentSeverity
+    /// The incident this suppression belongs to (FR-016).
+    ///
+    /// Optional because a suppression can be recorded before an incident opens —
+    /// the policy is consulted at detection, and detection precedes the episode.
+    /// Where it is set, the audit trail in `PolicyStore` and the incident in the
+    /// history are the same event seen from two directions, and a screen can say
+    /// *why* a particular slowdown never interrupted the user.
+    public let incidentID: UUID?
 
     public init(id: UUID = UUID(), application: String,
                 classification: PolicyClassification, at: Date = Date(),
-                severity: IncidentSeverity) {
+                severity: IncidentSeverity, incidentID: UUID? = nil) {
         self.id = id
         self.application = application
         self.classification = classification
         self.at = at
         self.severity = severity
+        self.incidentID = incidentID
     }
 
     public var summary: String {
         "\(application) — \(classification.label), not alerted"
+    }
+
+    /// A copy keyed to the incident it suppressed.
+    public func linked(to incidentID: UUID) -> SuppressedDetection {
+        SuppressedDetection(
+            id: id, application: application, classification: classification,
+            at: at, severity: severity, incidentID: incidentID)
     }
 }
 
@@ -164,6 +180,13 @@ public final class PolicyStore: Sendable {
 
     public var suppressedDetections: [SuppressedDetection] {
         state.withLock { $0.suppressed }
+    }
+
+    /// The suppressions belonging to one incident (FR-016), so "why was I not told
+    /// about this?" is answerable from the incident rather than only from a
+    /// separate list the user has to correlate by hand.
+    public func suppressedDetections(forIncident id: UUID) -> [SuppressedDetection] {
+        state.withLock { $0.suppressed.filter { $0.incidentID == id } }
     }
 
     public func recordSuppression(_ detection: SuppressedDetection) {

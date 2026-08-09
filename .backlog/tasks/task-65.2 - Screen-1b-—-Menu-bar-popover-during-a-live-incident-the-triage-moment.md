@@ -4,7 +4,7 @@ title: Screen 1b — Menu bar popover during a live incident (the triage moment)
 status: In Progress
 assignee: []
 created_date: '2026-08-09 02:21'
-updated_date: '2026-08-09 05:10'
+updated_date: '2026-08-09 06:32'
 labels:
   - ui
 milestone: m-2
@@ -12,7 +12,10 @@ dependencies: []
 modified_files:
   - MacSlowdown/Sources/MenuBarContentView.swift
   - MacSlowdown/Sources/PopoverPresentation.swift
+  - MacSlowdown/Sources/HistorySparkline.swift
+  - MacSlowdown/Sources/SparklinePresentation.swift
   - MacSlowdown/Tests/IncidentPopoverTests.swift
+  - MacSlowdown/Tests/SparklineTests.swift
 parent_task_id: TASK-65
 priority: high
 ---
@@ -45,7 +48,7 @@ Depends on incident state already exposed by MonitorStore (`openIncident`), so t
 <!-- AC:BEGIN -->
 - [x] #1 While an incident is open the popover leads with the condition and its duration, not the normal-state layout
 - [x] #2 The cause sentence names the contributor, its magnitude, and the expected consequence, and carries a confidence label per FR-013
-- [ ] #3 A short history sparkline shows the incident start relative to now
+- [x] #3 A short history sparkline shows the incident start relative to now
 - [x] #4 The contributor list is labelled as a share of busy time that sums to 100%, and reconciles that with the per-core percentages shown elsewhere (FR-004)
 - [x] #5 The three actions are present and none of them quits, pauses or otherwise controls another process (FR-037)
 - [ ] #6 Verified on screen against design/screens/1b.png with a real incident, not a fixture
@@ -204,4 +207,42 @@ headline, cause paragraph, five share rows with bars, the reconciliation note an
 the action row; whether three buttons plus the Mute menu fit on one line; whether
 the evidence/confidence caption reads as a label or as clutter; and fidelity
 against `design/screens/1b.png` generally.
+
+## Sparkline built (commit 6adc296, worktree agent-a775f508b2ba47358)
+
+The omission recorded above is closed. TASK-66 landed `MonitorStore.retainedSamples`, `retainedHistorySpan` and `retainedSamples(around:margin:)`, so the series FR-005 retains is now reachable from a view and nothing had to be accumulated in the popover.
+
+**New files.** `MacSlowdown/Sources/SparklinePresentation.swift` (the rules, pure) and `MacSlowdown/Sources/HistorySparkline.swift` (the `Canvas` view plus `HistorySparklineBlock`, which pairs a curve with its span caption so no caller can show one without the other). `MacSlowdown/Tests/SparklineTests.swift` — 26 tests.
+
+**What the popover draws.** `incidentSparkline(_:)` in `MenuBarContentView`: total CPU over the retained window from `SparklinePresentation.totalBusySeries(store.retainedSamples)`, with `incident.beganAt` as the only marker. Under it, two caption lines — the span actually retained, then `markerCaption`, which is design 1b's "12:26 · started 12:35 · now" axis.
+
+**Four honesty rules, each with a test.**
+
+- *Only measured samples.* The points are the store's retained series, so this popover and the incident report cannot show two different histories of the same minutes.
+- *Never pad the window.* `spanCaption` reads "Last 3 min — all we have retained, of a 15 min window" when the span is short. Labelling three minutes of samples "last 15 min" would make the empty three-quarters read as measured calm.
+- *Never bridge a gap.* `runs(_:gapThreshold:)` splits the series where consecutive samples are further apart than 4× cadence (floor 8 s), and the view strokes each run as its own subpath. The threshold is 4× rather than 1× because a sampling loop on a busy machine runs late, and breaking for ordinary jitter invents gaps as readily as bridging invents readings.
+- *Too few points is a sentence.* Below five retained readings the block renders "2 readings retained so far. A trend needs at least 5, so there is nothing to draw yet — this is how long we have been watching, not how quiet the machine has been." A test asserts the wording carries "how long we have been watching".
+
+**The mark comes from the incident, not the curve.** `markerFraction` returns nil when `beganAt` falls outside the retained span, and the view then draws no rule at all; `markerCaption` says "… now — it started at 12:35, before the history we still hold". Clamping the mark to the left edge would claim the incident began exactly when our history happens to start, which is a coincidence presented as a measurement.
+
+**Accessibility (FR-034).** `accessibilitySummary` states the title, the span, the reading count, lowest, highest and most recent — every figure one that was plotted — and appends "with a break where no readings were taken" when the series is split, so the gap is not carried by the picture alone. The `Canvas` is one accessibility element carrying that label.
+
+## Criterion
+
+- **#3 now met.** Covered by `SparklineTests`: marker fraction inside the span, no clamping outside it, both caption forms, and the empty-series case.
+- **#6 still NOT verified.** This session was again barred from the screen.
+
+## What a person must check on screen (added to the list above)
+
+1. Whether the popover is now too tall at 340 pt: the headline, cause paragraph, a 34 pt chart with two caption lines, five share rows with bars, the reconciliation note and the action row.
+2. Whether the dashed incident rule is visible against the accent-coloured curve at that size, in light and dark, and with Increase Contrast and Reduce Transparency on.
+3. Whether the two caption lines read as one axis or as clutter — the span line and the marker line say related things and may want merging.
+4. The short-history case, which is what a user sees in the first minute after launch: it needs an incident within ~10 s of starting the app, so lower `IncidentPolicy` in a debug build to see it.
+5. VoiceOver over the chart: it should speak one summary sentence, not attempt the curve.
+
+### Tests after the sparkline pass
+
+`MacSlowdown/Tests/SparklineTests.swift` — 26 tests in seven suites, shared with TASK-65.3: the series mirrors the retained samples in order; per-family history is asserted *not* retained; too few points returns wording that says how long we have been watching, in singular and plural; a short span names the window it falls short of and a full one is stated plainly; a hole in the record splits the runs while ordinary lateness does not; the gap threshold has a floor; the marker lands where the incident began, is not clamped when it falls outside, and is explained in words in both cases; and the accessible summary carries span, count, lowest, highest, most recent and the presence of a break.
+
+Full suite **696 passing, 0 failing**, against a 670 baseline — all 26 additions accounted for. One earlier run of the pair failed `EndToEndIncidentTests.realSlowdownProducesOneIncident`, the documented load-synthesising flake with several agents building concurrently, and passed on re-run.
 <!-- SECTION:NOTES:END -->
