@@ -3,9 +3,10 @@ id: TASK-79
 title: >-
   Two privacy controls change a stored value and no behaviour: retention and
   'Record file paths'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 18:52'
+updated_date: '2026-08-09 19:57'
 labels:
   - core
   - ui

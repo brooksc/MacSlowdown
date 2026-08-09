@@ -3,9 +3,10 @@ id: TASK-76
 title: >-
   Suppressed detections are never recorded, so the FR-016 audit trail is
   permanently empty
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 18:51'
+updated_date: '2026-08-09 19:57'
 labels:
   - core
 milestone: m-3

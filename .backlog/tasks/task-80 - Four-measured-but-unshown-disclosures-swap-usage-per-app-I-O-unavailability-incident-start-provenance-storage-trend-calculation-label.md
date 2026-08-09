@@ -3,9 +3,10 @@ id: TASK-80
 title: >-
   Four measured-but-unshown disclosures: swap usage, per-app I/O unavailability,
   incident start provenance, storage-trend calculation label
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 18:52'
+updated_date: '2026-08-09 19:59'
 labels:
   - core
   - ui

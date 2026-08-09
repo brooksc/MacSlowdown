@@ -1,9 +1,10 @@
 ---
 id: TASK-81
 title: Delete or wire nine public conveniences that no caller uses
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 18:52'
+updated_date: '2026-08-09 19:59'
 labels:
   - core
 milestone: m-3
