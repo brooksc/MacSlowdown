@@ -39,7 +39,13 @@ public enum LifecycleEvent: Sendable, Equatable {
 }
 
 /// A process that exited and came back repeatedly (FR-046, as narrowed in v1.2).
-public struct RelaunchPattern: Sendable, Equatable, Identifiable {
+///
+/// `Codable` because an incident opened for this records the pattern it was opened
+/// on and that record is written to disk (TASK-71, TASK-72). Lifecycle events
+/// themselves are bounded by the tracker's window and are not persisted, so without
+/// this the evidence behind a stored repeated-quit incident would be gone by the
+/// time anyone opened it.
+public struct RelaunchPattern: Sendable, Equatable, Identifiable, Codable {
     /// Grouping key: the command name, since a relaunched process has a new PID
     /// and therefore a new identity by construction.
     public let command: String
@@ -49,6 +55,30 @@ public struct RelaunchPattern: Sendable, Equatable, Identifiable {
     /// How confident we are that these are the same application relaunching
     /// rather than unrelated processes sharing a truncated name.
     public let confidence: Confidence
+
+    public init(
+        command: String, exits: Int, firstAt: Date, lastAt: Date, confidence: Confidence
+    ) {
+        self.command = command
+        self.exits = exits
+        self.firstAt = firstAt
+        self.lastAt = lastAt
+        self.confidence = confidence
+    }
+
+    /// How confident we are about **why** the application exited: low, always, and
+    /// it cannot rise (FR-013, FR-046).
+    ///
+    /// `confidence` above is about the *association* — whether these exits are the
+    /// same application, which stronger evidence genuinely can improve. This is a
+    /// different question with a permanent answer. The thing that would raise it is
+    /// the reason a process ended, and no public API reports one to a sandboxed
+    /// build, so no accumulation of exits makes the cause better known. Ten exits
+    /// are more certainly a pattern and no more certainly explained than three.
+    ///
+    /// Capped rather than fixed, so a low-confidence association cannot come out
+    /// looking better than the pattern it rests on.
+    public var causeConfidence: Confidence { min(.low, confidence) }
 
     public var id: String { command }
     public var window: Duration { .seconds(lastAt.timeIntervalSince(firstAt)) }

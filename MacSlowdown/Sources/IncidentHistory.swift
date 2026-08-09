@@ -152,7 +152,10 @@ enum IncidentHistory {
 
         let outcome: Outcome
 
-        static let repeatedQuitsLabel = "Repeated unexpected quits"
+        /// Taken from the condition rather than written out, so a lifecycle row and
+        /// a lifecycle incident count as the same thing in the recurrence summary
+        /// instead of as two differently-spelled findings.
+        static let repeatedQuitsLabel = IncidentCondition.repeatedApplicationQuits.label
 
         var isOpen: Bool {
             if case .resource(let incident) = kind { return incident.isOpen }
@@ -161,6 +164,9 @@ enum IncidentHistory {
     }
 
     /// Everything in range, open incidents first, then most recent first.
+    ///
+    /// A relaunch pattern already carried by an incident is dropped from
+    /// `relaunches` rather than listed twice. See `isAlreadyAnIncident`.
     static func entries(
         open: Incident?,
         recent: [Incident],
@@ -170,15 +176,39 @@ enum IncidentHistory {
         calendar: Calendar = .current
     ) -> [Entry] {
         let start = range.start(from: now, calendar: calendar)
-        let all = (open.map { [Entry($0)] } ?? [])
-            + recent.map { Entry($0) }
-            + relaunches.map { Entry($0) }
+        let incidents = (open.map { [$0] } ?? []) + recent
+        let standalone = relaunches.filter { !isAlreadyAnIncident($0, in: incidents) }
+        let all = incidents.map { Entry($0) } + standalone.map { Entry($0) }
         return all
             .filter { $0.at >= start }
             .sorted { first, second in
                 if first.isOpen != second.isOpen { return first.isOpen }
                 return first.at > second.at
             }
+    }
+
+    /// Whether an incident already represents this repeated-quit pattern (TASK-71).
+    ///
+    /// Until TASK-71 a relaunch pattern could only ever be a standalone row, because
+    /// nothing opened an incident for one. Now that `repeatedApplicationQuits` is a
+    /// condition, the same episode arrives from two directions — as the live pattern
+    /// the tracker still holds, and as the incident that pattern opened — and
+    /// listing both would show a user two findings where there was one event, and
+    /// would count it twice in "3 incidents in the last 7 days".
+    ///
+    /// The **incident** wins, deliberately. It is selectable, it opens the detail
+    /// with the evidence attached, and it survives a restart; the live pattern is
+    /// none of those things. A pattern the tracker holds that no incident covers —
+    /// one below the quiet period, or seen before this build started recording them
+    /// — still gets its own row, so nothing observed disappears.
+    ///
+    /// Matched on the command, not on times: an episode's window grows as it goes,
+    /// so a time-equality test would stop matching the moment another exit landed
+    /// and the row would reappear beside its own incident.
+    static func isAlreadyAnIncident(_ pattern: RelaunchPattern, in incidents: [Incident]) -> Bool {
+        incidents.contains { incident in
+            incident.lifecycleFindings.contains { $0.command == pattern.command }
+        }
     }
 
     // MARK: - Pattern summary

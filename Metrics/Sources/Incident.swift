@@ -6,6 +6,19 @@ public enum IncidentCondition: String, Sendable, CaseIterable, Codable {
     case memoryPressure
     case lowStorage
     case thermalPressure
+    /// An application that exited and came back, repeatedly (FR-045, FR-046 as
+    /// narrowed in v1.2; TASK-71).
+    ///
+    /// **Not a resource condition, and that is the whole point.** Every other case
+    /// here says the machine ran short of something. This one says an application
+    /// failed while the machine was, as far as we measured, fine — the episode
+    /// FR-046 exists for, which no resource threshold can ever open.
+    ///
+    /// It is decided by `RelaunchPattern`, never by a reading. Nothing about this
+    /// case may ever be presented as a hang: macOS reports a stalled application
+    /// exactly as it reports a healthy one (TASK-27), so the only observable fact
+    /// is that a PID went and a different one took its place.
+    case repeatedApplicationQuits
 
     public var label: String {
         switch self {
@@ -13,6 +26,21 @@ public enum IncidentCondition: String, Sendable, CaseIterable, Codable {
         case .memoryPressure: "Memory pressure"
         case .lowStorage: "Low storage"
         case .thermalPressure: "Thermal pressure"
+        case .repeatedApplicationQuits: "Repeated unexpected quits"
+        }
+    }
+
+    /// Whether the condition says the machine ran short of something.
+    ///
+    /// Exists so a screen can tell a resource episode from a lifecycle one without
+    /// enumerating cases at each call site. A lifecycle-only incident must not be
+    /// narrated with resource copy — "your Mac's processors were close to fully
+    /// busy" is the wrong answer to "why did this app keep quitting", and it is
+    /// wrong in a way that points the reader at evidence that does not exist.
+    public var isResourceCondition: Bool {
+        switch self {
+        case .cpuSaturation, .memoryPressure, .lowStorage, .thermalPressure: true
+        case .repeatedApplicationQuits: false
         }
     }
 }
@@ -50,6 +78,25 @@ public struct IncidentPolicy: Sendable, Equatable {
     public var thermalSustainedDuration: Duration
     public var recoveryDuration: Duration
     public var mergeWindow: Duration
+    /// How long after the last exit we noticed a repeated-quit episode is treated
+    /// as still going (TASK-71).
+    ///
+    /// This is a *quiet period*, not a sustained duration, and the difference is
+    /// the FR-006 argument for the whole condition. FR-006 forbids opening an
+    /// incident on a transient; `RelaunchPattern` already enforces that — it takes
+    /// `LifecycleTracker.minimumExits` (3 by default) exits of the same command
+    /// inside a 15-minute window before a pattern exists at all. A single
+    /// unexpected quit produces no pattern and therefore no condition. Requiring a
+    /// *further* sustained duration on top would be counting the same evidence
+    /// twice and would delay a finding whose evidence already spans minutes, so the
+    /// sustained duration for this condition is deliberately zero.
+    ///
+    /// What the quiet period does instead is decide when the episode is **over**.
+    /// Without it the condition would keep breaching until the pattern aged out of
+    /// the tracker's own 15-minute window, and every episode would be recorded as
+    /// a quarter of an hour long regardless of how long the quitting actually went
+    /// on. Five minutes without another exit is the line.
+    public var repeatedQuitQuietPeriod: Duration
 
     public init(
         cpuBusyFractionThreshold: Double = 0.85,
@@ -57,7 +104,8 @@ public struct IncidentPolicy: Sendable, Equatable {
         memoryPressureSustainedDuration: Duration = .seconds(90),
         thermalSustainedDuration: Duration = .seconds(120),
         recoveryDuration: Duration = .seconds(60),
-        mergeWindow: Duration = .seconds(120)
+        mergeWindow: Duration = .seconds(120),
+        repeatedQuitQuietPeriod: Duration = .seconds(300)
     ) {
         self.cpuBusyFractionThreshold = cpuBusyFractionThreshold
         self.cpuSustainedDuration = cpuSustainedDuration
@@ -65,6 +113,7 @@ public struct IncidentPolicy: Sendable, Equatable {
         self.thermalSustainedDuration = thermalSustainedDuration
         self.recoveryDuration = recoveryDuration
         self.mergeWindow = mergeWindow
+        self.repeatedQuitQuietPeriod = repeatedQuitQuietPeriod
     }
 
     public static let `default` = IncidentPolicy()
@@ -75,6 +124,10 @@ public struct IncidentPolicy: Sendable, Equatable {
         case .memoryPressure: memoryPressureSustainedDuration
         case .thermalPressure: thermalSustainedDuration
         case .lowStorage: .seconds(60)
+        // Zero on purpose. See `repeatedQuitQuietPeriod`: the pattern threshold in
+        // `RelaunchPattern` is what satisfies FR-006 here, and a second clock on
+        // top of it would count the same evidence twice.
+        case .repeatedApplicationQuits: .zero
         }
     }
 }
@@ -95,13 +148,23 @@ public struct SystemObservation: Sendable {
     /// offered", never "nothing was running".
     public var attribution: AttributionSample?
 
+    /// Repeated-quit patterns observed at this instant (TASK-71, FR-046).
+    ///
+    /// Empty is the ordinary case and means "no pattern rose to the threshold",
+    /// never "no application quit" — a single exit is not a pattern, by design.
+    /// Nor does empty mean an application is healthy: the patterns are bounded by
+    /// the lifecycle tracker's window, so anything that happened before monitoring
+    /// started is invisible here (FR-045).
+    public var lifecycleFindings: [RelaunchPattern]
+
     public init(
         at: Date,
         cpuBusyFraction: Double,
         memoryPressure: MemoryPressureLevel = .normal,
         thermalState: ThermalState = .nominal,
         lowStorage: Bool = false,
-        attribution: AttributionSample? = nil
+        attribution: AttributionSample? = nil,
+        lifecycleFindings: [RelaunchPattern] = []
     ) {
         self.at = at
         self.cpuBusyFraction = cpuBusyFraction
@@ -109,6 +172,7 @@ public struct SystemObservation: Sendable {
         self.thermalState = thermalState
         self.lowStorage = lowStorage
         self.attribution = attribution
+        self.lifecycleFindings = lifecycleFindings
     }
 
     public func breaches(_ condition: IncidentCondition, policy: IncidentPolicy) -> Bool {
@@ -117,7 +181,30 @@ public struct SystemObservation: Sendable {
         case .memoryPressure: memoryPressure >= .warning
         case .thermalPressure: thermalState.rawValue >= ThermalState.serious.rawValue
         case .lowStorage: lowStorage
+        case .repeatedApplicationQuits: !activeLifecycleFindings(policy: policy).isEmpty
         }
+    }
+
+    /// Patterns whose most recent exit is inside the quiet period — the ones that
+    /// are still an episode rather than a finished one the tracker still remembers.
+    public func activeLifecycleFindings(policy: IncidentPolicy) -> [RelaunchPattern] {
+        lifecycleFindings.filter {
+            at.timeIntervalSince($0.lastAt) < policy.repeatedQuitQuietPeriod.totalSeconds
+        }
+    }
+
+    /// When a breaching condition actually began, where the evidence says something
+    /// the detector's own clock cannot.
+    ///
+    /// Nil for every resource condition, and that is correct: a threshold crossing
+    /// is known only from the moment we saw it cross. A repeated-quit episode is
+    /// different — the pattern carries the time of its first exit, so the incident
+    /// can be dated from when the quitting started rather than from the sweep that
+    /// noticed the third one. That is what makes the incident's duration the span
+    /// of the episode rather than the age of a breach flag (TASK-71).
+    func intrinsicBreachStart(for condition: IncidentCondition, policy: IncidentPolicy) -> Date? {
+        guard condition == .repeatedApplicationQuits else { return nil }
+        return activeLifecycleFindings(policy: policy).map(\.firstAt).min()
     }
 }
 
@@ -166,6 +253,18 @@ public struct Incident: Sendable, Identifiable, Equatable, Codable {
     /// says why the user never saw it.
     public var suppressions: [SuppressedDetection] = []
 
+    /// The repeated-quit patterns this incident was opened or updated on (TASK-71).
+    ///
+    /// Recorded on the incident rather than looked up live, for the same reason
+    /// `attribution` is: lifecycle events are bounded by the tracker's 15-minute
+    /// window and are not persisted, so an incident read back tomorrow would
+    /// otherwise have nothing to show and would render as an empty resource
+    /// timeline — the exact failure this condition was added to prevent. What is
+    /// stored is what was observed at the time, and it is never re-derived.
+    ///
+    /// Empty on a resource incident, which is the ordinary case.
+    public var lifecycleFindings: [RelaunchPattern] = []
+
     /// Whether `beganAt` was established from retained readings rather than from
     /// observations made after the condition was first noticed (TASK-69).
     ///
@@ -197,6 +296,7 @@ public struct Incident: Sendable, Identifiable, Equatable, Codable {
         case conditions, severity, peakCPUBusyFraction, peakMemoryPressure
         case attribution, actions, suppressions
         case beganAtEstablishedFromRetainedHistory
+        case lifecycleFindings
     }
 
     public var isOpen: Bool { closedAt == nil }
@@ -242,6 +342,10 @@ extension Incident {
             [SuppressedDetection].self, forKey: .suppressions) ?? []
         beganAtEstablishedFromRetainedHistory = try container.decodeIfPresent(
             Bool.self, forKey: .beganAtEstablishedFromRetainedHistory) ?? false
+        // Absent in every file written before TASK-71, and absent on a resource
+        // incident. The property has a default, so a v1 file still decodes.
+        lifecycleFindings = try container.decodeIfPresent(
+            [RelaunchPattern].self, forKey: .lifecycleFindings) ?? []
     }
 }
 
@@ -474,7 +578,13 @@ public struct IncidentDetector: Sendable {
         var sustained: Set<IncidentCondition> = []
         for condition in IncidentCondition.allCases {
             if observation.breaches(condition, policy: policy) {
-                let start = state.breachStart[condition] ?? observation.at
+                // The evidence's own start wins where it has one, and only ever
+                // moves the start earlier — a later pattern joining an episode must
+                // not re-date it forward over exits we already recorded.
+                let intrinsic = observation.intrinsicBreachStart(for: condition, policy: policy)
+                let start = [state.breachStart[condition], intrinsic, observation.at]
+                    .compactMap { $0 }
+                    .min() ?? observation.at
                 state.breachStart[condition] = start
                 let held = observation.at.timeIntervalSince(start)
                 if held >= policy.sustainedDuration(for: condition).totalSeconds {
@@ -517,6 +627,7 @@ public struct IncidentDetector: Sendable {
             previous.recoveryStartedAt = nil
             previous.conditions.formUnion(sustained)
             Self.recordAttribution(from: observation, into: &previous)
+            Self.recordLifecycleFindings(from: observation, policy: policy, into: &previous)
             state.current = previous
             state.lastClosed = nil
             return .updated(previous)
@@ -543,6 +654,9 @@ public struct IncidentDetector: Sendable {
         // FR-011: an incident is created with its leading contributors, not merely
         // with its times and severity.
         Self.recordAttribution(from: observation, into: &incident)
+        // FR-046: the episode's own evidence travels on the incident, so a screen
+        // opened after a restart shows what quit rather than an empty timeline.
+        Self.recordLifecycleFindings(from: observation, policy: policy, into: &incident)
         state.current = incident
         return .opened(incident)
     }
@@ -552,6 +666,42 @@ public struct IncidentDetector: Sendable {
     /// Deliberately never reports a change: refreshing the recorded attribution is
     /// not a reason to emit `.updated`, or every sample would re-notify the user
     /// about an incident they have already been told about (FR-014).
+    /// Folds the observation's repeated-quit patterns into the incident (TASK-71).
+    ///
+    /// One entry per command, keeping the widest account of the episode we have
+    /// seen: the earliest first exit, the latest last exit, and the highest exit
+    /// count. Never averaged and never re-derived — each field is a value that was
+    /// actually observed.
+    ///
+    /// Confidence is taken as the **weakest** seen, not the strongest. Two sightings
+    /// of the same command must not combine into a more confident association than
+    /// either supported on its own (FR-038).
+    ///
+    /// Like `recordAttribution`, this deliberately reports no change: refreshing the
+    /// recorded evidence is not a reason to re-notify a user about an episode they
+    /// have already been told about (FR-014).
+    static func recordLifecycleFindings(
+        from observation: SystemObservation, policy: IncidentPolicy, into incident: inout Incident
+    ) {
+        let findings = observation.activeLifecycleFindings(policy: policy)
+        guard !findings.isEmpty else { return }
+        var byCommand = Dictionary(
+            incident.lifecycleFindings.map { ($0.command, $0) }, uniquingKeysWith: { first, _ in first })
+        for finding in findings {
+            guard let existing = byCommand[finding.command] else {
+                byCommand[finding.command] = finding
+                continue
+            }
+            byCommand[finding.command] = RelaunchPattern(
+                command: finding.command,
+                exits: max(existing.exits, finding.exits),
+                firstAt: min(existing.firstAt, finding.firstAt),
+                lastAt: max(existing.lastAt, finding.lastAt),
+                confidence: min(existing.confidence, finding.confidence))
+        }
+        incident.lifecycleFindings = byCommand.values.sorted { $0.exits > $1.exits }
+    }
+
     static func recordAttribution(from observation: SystemObservation, into incident: inout Incident) {
         guard let sample = observation.attribution else { return }
         if incident.attribution == nil {
@@ -578,6 +728,7 @@ public struct IncidentDetector: Sendable {
         // including the recovery clock, so the last thing recorded is what the
         // machine looked like as it came back.
         Self.recordAttribution(from: observation, into: &incident)
+        Self.recordLifecycleFindings(from: observation, policy: policy, into: &incident)
 
         var changed = false
         if stillBreaching {

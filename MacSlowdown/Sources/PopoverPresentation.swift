@@ -341,6 +341,10 @@ enum PopoverPresentation {
         case .memoryPressure: "Memory has been under pressure"
         case .thermalPressure: "This Mac has been running hot"
         case .lowStorage: "Storage has been low"
+        // What we saw, and only what we saw. Not "keeps crashing", not "keeps
+        // freezing" — we observe a PID going and another taking its place, never
+        // the reason (FR-046).
+        case .repeatedApplicationQuits: "An application has been quitting and reopening"
         }
     }
 

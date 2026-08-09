@@ -16,7 +16,17 @@ public struct StoredIncidentHistory: Sendable, Codable, Equatable {
     /// Step this whenever the meaning of an existing field changes. Adding a field
     /// with a default does not require a step — `Incident`'s decoder tolerates a
     /// missing field wherever the property has a default.
-    public static let currentSchemaVersion = 1
+    ///
+    /// **2 (TASK-71).** `Incident.lifecycleFindings` on its own would not have
+    /// needed a step; it is additive and defaults to empty, so a version-1 file
+    /// still decodes and is still read here. What forced the step is
+    /// `IncidentCondition.repeatedApplicationQuits`: the *meaning* of the existing
+    /// `conditions` field changed, because it can now hold a value an earlier build
+    /// cannot decode. Without the step, an earlier build reading a newer file would
+    /// fail on the enum, call the whole file `.malformed`, and discard the user's
+    /// entire history. With it, that build sees `.futureSchema`, refuses, and
+    /// leaves the file intact for the build that can read it.
+    public static let currentSchemaVersion = 2
 
     public let schemaVersion: Int
     public let writtenAt: Date
