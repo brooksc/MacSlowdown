@@ -43,7 +43,7 @@ public enum IncidentSeverity: Int, Sendable, Comparable, Codable {
 ///     that dips for one sample does not split into two incidents.
 ///   - **2-minute merge window**, so related conditions arriving slightly apart
 ///     become one episode rather than several.
-public struct IncidentPolicy: Sendable {
+public struct IncidentPolicy: Sendable, Equatable {
     public var cpuBusyFractionThreshold: Double
     public var cpuSustainedDuration: Duration
     public var memoryPressureSustainedDuration: Duration
@@ -158,6 +158,28 @@ public struct Incident: Sendable, Identifiable, Equatable {
     /// says why the user never saw it.
     public var suppressions: [SuppressedDetection] = []
 
+    /// Whether `beganAt` was established from retained readings rather than from
+    /// observations made after the condition was first noticed (TASK-69).
+    ///
+    /// Set only when a threshold change re-decided an already-present condition
+    /// against samples the app had already kept. It is the reason an incident can
+    /// appear the instant a setting changes and claim to have begun minutes
+    /// earlier — a claim that is true, and that FR-038 requires be attributable.
+    public var beganAtEstablishedFromRetainedHistory = false
+
+    /// Why this incident is dated before the moment its threshold changed
+    /// (FR-038). Nil when nothing unusual established the start.
+    public var startProvenance: Conclusion? {
+        guard beganAtEstablishedFromRetainedHistory else { return nil }
+        return Conclusion(
+            "Dated from readings MacSlowdown had already kept. When the threshold "
+                + "changed, CPU was above the new line and the retained readings show "
+                + "it had been since \(beganAt.formatted(date: .omitted, time: .standard)) "
+                + "— so this is recorded from when the condition actually began, not "
+                + "from when the setting changed.",
+            evidence: .measured)
+    }
+
     public var isOpen: Bool { closedAt == nil }
     public var duration: Duration {
         .seconds((closedAt ?? Date()).timeIntervalSince(beganAt))
@@ -263,6 +285,9 @@ public struct IncidentDetector: Sendable {
     public struct State: Sendable {
         public init() {}
         var breachStart: [IncidentCondition: Date] = [:]
+        /// Conditions whose `breachStart` was established from retained readings
+        /// by `adopt(_:state:retainedCPU:)` rather than by a live observation.
+        var breachStartFromRetainedHistory: Set<IncidentCondition> = []
         public internal(set) var current: Incident?
         /// Kept after closing so a new breach inside the merge window can rejoin
         /// the previous episode rather than starting a second one.
@@ -289,6 +314,106 @@ public struct IncidentDetector: Sendable {
         self.policy = policy
     }
 
+    // MARK: - Changing thresholds while the machine is already in trouble (TASK-69)
+
+    /// One retained CPU reading, in the units the detector judges (fraction of
+    /// total machine capacity, 0...1).
+    ///
+    /// A separate type rather than `HistorySample` because the detector must not
+    /// be handed anything it could be tempted to derive a *second* opinion from.
+    /// The only thing re-deciding a threshold is allowed to use is a busy fraction
+    /// and the moment it was measured.
+    public struct RetainedCPUReading: Sendable, Equatable {
+        public let at: Date
+        public let busyFraction: Double
+
+        public init(at: Date, busyFraction: Double) {
+            self.at = at
+            self.busyFraction = busyFraction
+        }
+    }
+
+    /// Adopts a changed policy without postponing an incident that was already
+    /// building (TASK-69).
+    ///
+    /// Two things go wrong if a threshold change is treated as a fresh start, and
+    /// both delay the very incident the user tightened settings to catch sooner:
+    ///
+    ///  1. Clearing `breachStart` restarts the sustained-duration clock on a
+    ///     condition that had already been running for minutes. So it is kept.
+    ///  2. Keeping it is not enough. `breachStart` is only ever set while
+    ///     `breaches()` is true, so *tightening* a threshold finds it nil for a
+    ///     condition that was sitting just below the old line — and the clock then
+    ///     starts from the next observation, delaying the incident by the whole
+    ///     sustained duration for a condition that was present throughout.
+    ///
+    /// The second is fixed by re-deciding the start against `retainedCPU`: readings
+    /// the app actually took and kept. **Nothing is assumed.** The walk stops at the
+    /// first reading below the new threshold and at any gap wider than
+    /// `maximumSampleGap`, so a period we did not measure can never be counted as a
+    /// period the condition held. If the retained series does not reach back far
+    /// enough, the answer is a shorter start — never a longer one.
+    ///
+    /// CPU only. Memory pressure and thermal state are not in the retained series,
+    /// so for those conditions there is nothing to look back over and the clock
+    /// legitimately starts from the change.
+    ///
+    /// `retainedCPU` must be in ascending time order, which is the order
+    /// `MetricsHistory` accumulates it.
+    ///
+    /// Returns whether the start was moved back over retained readings, so a caller
+    /// cannot quietly assume either outcome.
+    @discardableResult
+    public mutating func adopt(
+        _ newPolicy: IncidentPolicy,
+        state: inout State,
+        retainedCPU: [RetainedCPUReading] = [],
+        maximumSampleGap: Duration = .seconds(30)
+    ) -> Bool {
+        guard newPolicy != policy else { return false }
+        // Deliberately left alone: a condition already breaching keeps every second
+        // it has accumulated, whichever way the threshold moved.
+        policy = newPolicy
+
+        guard let derived = Self.earliestRetainedBreachStart(
+            in: retainedCPU,
+            threshold: newPolicy.cpuBusyFractionThreshold,
+            maximumSampleGap: maximumSampleGap)
+        else { return false }
+
+        if let existing = state.breachStart[.cpuSaturation], existing <= derived {
+            return false
+        }
+        state.breachStart[.cpuSaturation] = derived
+        state.breachStartFromRetainedHistory.insert(.cpuSaturation)
+        return true
+    }
+
+    /// The earliest moment in an unbroken run of retained readings, ending at the
+    /// most recent one, that all sit at or above `threshold`.
+    ///
+    /// Nil when the most recent reading is below the threshold — which is the
+    /// honest answer for "the condition is not present now" — and nil when there
+    /// are no readings at all.
+    static func earliestRetainedBreachStart(
+        in readings: [RetainedCPUReading],
+        threshold: Double,
+        maximumSampleGap: Duration
+    ) -> Date? {
+        var start: Date?
+        var previous: Date?
+        for reading in readings.reversed() {
+            guard reading.busyFraction >= threshold else { break }
+            if let previous,
+               previous.timeIntervalSince(reading.at) > maximumSampleGap.totalSeconds {
+                break  // an unmeasured gap is not evidence the condition held
+            }
+            start = reading.at
+            previous = reading.at
+        }
+        return start
+    }
+
     public func observe(_ observation: SystemObservation, state: inout State) -> IncidentEvent? {
         // Which conditions are breaching right now, and for how long.
         var sustained: Set<IncidentCondition> = []
@@ -302,6 +427,7 @@ public struct IncidentDetector: Sendable {
                 }
             } else {
                 state.breachStart[condition] = nil
+                state.breachStartFromRetainedHistory.remove(condition)
             }
         }
 
@@ -352,6 +478,13 @@ public struct IncidentDetector: Sendable {
             peakCPUBusyFraction: observation.cpuBusyFraction,
             peakMemoryPressure: observation.memoryPressure
         )
+        // If the start we are dating this from was recovered from retained readings
+        // after a threshold change, say so on the incident rather than leave a user
+        // to discover an incident that appeared instantly and claims to be minutes
+        // old (TASK-69, FR-038).
+        incident.beganAtEstablishedFromRetainedHistory = sustained.contains {
+            state.breachStartFromRetainedHistory.contains($0) && state.breachStart[$0] == began
+        }
         // FR-011: an incident is created with its leading contributors, not merely
         // with its times and severity.
         Self.recordAttribution(from: observation, into: &incident)

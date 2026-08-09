@@ -57,6 +57,12 @@ public struct InterruptionContext: Sendable {
 }
 
 public struct NotificationSettings: Sendable {
+    /// Whether to announce anything at all (FR-014). Off is the "tell me about
+    /// slowdowns" switch turned off, and it is a separate fact from
+    /// `minimumSeverity`: raising the floor to `.severe` still announces severe
+    /// incidents, which is not what someone who turned alerts off asked for.
+    /// Detection and recording are unaffected either way.
+    public var announcesIncidents: Bool
     /// Incidents below this are recorded but never announced.
     public var minimumSeverity: IncidentSeverity
     public var respectFocus: Bool
@@ -66,11 +72,13 @@ public struct NotificationSettings: Sendable {
     public var expectedApplications: Set<String>
 
     public init(
+        announcesIncidents: Bool = true,
         minimumSeverity: IncidentSeverity = .high,
         respectFocus: Bool = true,
         deferDuringAudio: Bool = true,
         expectedApplications: Set<String> = []
     ) {
+        self.announcesIncidents = announcesIncidents
         self.minimumSeverity = minimumSeverity
         self.respectFocus = respectFocus
         self.deferDuringAudio = deferDuringAudio
@@ -106,6 +114,10 @@ public struct NotificationGate: Sendable {
         at date: Date = Date(),
         state: inout State
     ) -> NotificationDecision {
+        if !settings.announcesIncidents {
+            return .suppress(reason: "you asked not to be told about slowdowns")
+        }
+
         if incident.severity < settings.minimumSeverity {
             return .suppress(reason: "below the severity you asked to hear about")
         }

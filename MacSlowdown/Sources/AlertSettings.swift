@@ -67,12 +67,13 @@ enum AlertSensitivity: String, CaseIterable, Identifiable, Sendable {
 
 /// Alert and privacy preferences, persisted in `UserDefaults`.
 ///
-/// **What this does not do.** It does not apply anything. The monitoring loop
-/// owns the `IncidentDetector` and the `NotificationGate`, and until it reads
-/// these values they are a saved preference and nothing more — which is why
-/// `isAppliedToMonitoring` exists and why the interface says so rather than
-/// implying a control took effect (FR-002's rule against presenting something we
-/// have not measured, applied to our own behaviour).
+/// **What this does not do.** It does not apply anything itself. The monitoring
+/// loop owns the `IncidentDetector` and the `NotificationGate` and reads these
+/// values on each sample (`MonitorStore.applyAlertSettings`), which is what sets
+/// `isAppliedToMonitoring`. Until monitoring is running they are a saved
+/// preference and nothing more, and the interface says so rather than implying a
+/// control took effect (FR-002's rule against presenting something we have not
+/// measured, applied to our own behaviour).
 @MainActor
 @Observable
 final class AlertSettings {
@@ -198,6 +199,10 @@ final class AlertSettings {
     /// holds the banner instead. A toggle would claim a decision we do not make.
     var notificationSettings: NotificationSettings {
         NotificationSettings(
+            // Both, not either. The floor is what the chosen word means; the switch
+            // is whether anything is announced at all. Raising the floor alone still
+            // announced severe incidents to someone who turned alerts off.
+            announcesIncidents: announceIncidents,
             minimumSeverity: announceIncidents ? sensitivity.minimumSeverity : .severe,
             respectFocus: true,
             deferDuringAudio: deferDuringAudio,
@@ -218,9 +223,10 @@ final class AlertSettings {
             recordFilePaths: recordFilePaths)
     }
 
-    /// Set by whatever consumes the values above. Nothing does yet, so the
-    /// interface says "saved, not yet in effect" — and stops saying it, without a
-    /// copy change, the moment the monitoring loop calls this.
+    /// Set by whatever consumes the values above — `MonitorStore` does, when it
+    /// starts monitoring and on every sample thereafter. The interface says
+    /// "saved, not yet in effect" until then, and stops saying it without a copy
+    /// change the moment the monitoring loop calls this (TASK-69).
     private(set) var isAppliedToMonitoring = false
 
     func markAppliedToMonitoring() { isAppliedToMonitoring = true }
