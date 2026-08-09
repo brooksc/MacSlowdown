@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-09 03:31'
-updated_date: '2026-08-09 04:43'
+updated_date: '2026-08-09 04:56'
 labels:
   - core
 milestone: m-3
@@ -66,4 +66,12 @@ Two additions found by TASK-65.4 after this task was written.
 **6. A `PolicyStore` instance already exists on a branch — do not create a second.** TASK-65.4 added `InspectorPolicies` on worktree branch `worktree-agent-ae83f187193f08460` (commit `caa0425`) because it needed `markExpected` and the app had no instance. Item 3 above should adopt or replace that one, not add another alongside it. Two independent policy stores would disagree about what the user marked expected, and the disagreement would be invisible.
 
 Related: `ActionPerformer` deliberately refuses `markExpected`, so that action is handled in the view against the policy store. Keep that separation when wiring.
+
+**7. `diskRates` defaults to `.zero`, so an unreadable disk reads as an idle one.** Found by TASK-65.1. Same class of defect as item 1: unavailable data presented as a plausible number, which FR-002 and FR-010 forbid. Make it optional or carry an explicit unavailable case so consumers can tell '0 MB/s' from 'cannot read'. The 65.1 popover works around it with a one-shot `DiskSignals.counters() != nil` on appear, duplicating a read the store already performs; that workaround should become unnecessary.
+
+**8. `monitoringStartedAt` does not exist.** TASK-65.1 needs 'Watching since 8:02 AM' for its popover and uses `NSRunningApplication.current.launchDate` as a proxy. That is a real measurement and correct today, because `AppDelegate` starts the sampler at launch -- but it breaks silently if `stop()`/`start()` are ever called. A real start timestamp on the store fixes it properly.
+
+**9. Startup-volume capacity is read independently by two surfaces.** The popover and `StorageView` both call `StorageSignals.snapshot()` on their own, so they can disagree about free space at the same moment. Exposing it once on the store removes the possibility.
+
+Sent to the running TASK-66 session; recorded here in case it had already finished.
 <!-- SECTION:NOTES:END -->
