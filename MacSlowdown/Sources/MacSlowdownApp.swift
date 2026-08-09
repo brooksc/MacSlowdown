@@ -40,13 +40,16 @@ struct MacSlowdownApp: App {
             set: { showMenuBarItem = $0 })) {
             MenuBarContentView(store: store)
         } label: {
-            // The label changes shape with severity, not only colour (FR-034).
+            // Four states, shape-led (design 2d, TASK-65.17). Everything the icon
+            // decides — the state, the badge, the 2 s rate limit, the
+            // expected-workload cap and the spoken label — lives in
+            // `MenuBarPresentation.swift` and `MenuBarIconRateLimiter.swift`, so
+            // none of it is reachable only by looking at a menu bar.
             //
             // Monitoring starts here rather than on a window: the menu bar item is
             // the only always-present surface, and FR-001's whole point is noticing
             // degradation without opening anything.
-            Image(systemName: store.severity.symbolName)
-                .accessibilityLabel("MacSlowdown: \(store.severity.label)")
+            MenuBarIconLabel(store: store)
         }
         .menuBarExtraStyle(.window)
 

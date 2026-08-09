@@ -3,9 +3,10 @@ id: TASK-74
 title: >-
   Stop re-sorting the inventory every sample, and file the SwiftUI Table
   Feedback
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 18:23'
+updated_date: '2026-08-09 19:16'
 labels:
   - ui
   - core

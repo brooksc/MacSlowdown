@@ -4,7 +4,7 @@ title: Incidents renders blank instead of its empty state
 status: In Progress
 assignee: []
 created_date: '2026-08-09 02:14'
-updated_date: '2026-08-09 18:34'
+updated_date: '2026-08-09 19:12'
 labels:
   - ui
 milestone: m-3
@@ -188,4 +188,19 @@ That almost certainly explains this pane too. `ContentUnavailableView` **centres
 **Do TASK-75 first, then re-check this pane before touching it.** If the pane renders once the window stops growing, close the remaining criteria and drop the `.inspector` suspicion rather than pursuing it — it was a reasonable suspect but there is now a better-evidenced explanation.
 
 General lesson worth carrying: **an offscreen render harness cannot answer a question about window sizing**, because the harness decides the size.
+
+## TASK-75 is done, and the geometry explanation now has numbers behind it — but this still needs eyes
+
+The over-tall window is real, measured and fixed. Offscreen, asking the content what size it *demands* rather than laying it out at a supplied size: the Apps & Processes pane inside a `NavigationSplitView` detail column demanded **9,880 pt**, and the whole `MainWindowView` demanded **1,243 pt**. After the fix, 205 pt and 320 pt. The container's own saved `NSSplitView Subview Frames` recorded 9,932 pt, written by the running app — the same figure from an entirely independent source.
+
+**Does that plausibly explain the blank Incidents pane? Yes, and the fit is good.** A detail column thousands of points tall puts a vertically-centred `ContentUnavailableView` far below the fold, and puts the unconditional `Divider` and footer at the very bottom — which is the one observation no theory about `ContentUnavailableView` alone could account for. It also explains why sixteen offscreen configurations rendered the pane correctly: they were all given a sane height.
+
+**But it is still a hypothesis about this pane.** Two things stop it being more than that:
+
+- The cause was *not* the inventory table's rows, as TASK-75 assumed. It was seven paragraphs of `fixedSize`-vertical caption text in the inventory's footer answering a width-less ideal-size query with thousands of points. That is a defect in the **Apps & Processes** pane specifically. Incidents on its own demanded 0 pt and inside a split view demanded 10 pt — it never asked for height itself. It was a bystander to a window the Apps pane had already inflated, *if* the window was inflated at the moment Incidents was captured. Nobody has established that it was.
+- Nothing was put on screen this session, so the pane has not been looked at since the fix.
+
+**Next step, unchanged from TASK-75's criterion #5:** open the app with no incidents recorded, select Incidents, and look. If the empty state appears, close criteria #1–#4 here, record the cause as the window geometry, and drop the `.inspector` suspicion rather than pursuing it. If it is still blank, the `.inspector` line of enquiry is back and this note should say so plainly.
+
+Note the window id changed from `"main"` to `"main-v2"` as part of TASK-75, to stop AppKit restoring the saved 3599 pt frame. The window will open at 900 x 600 in a default position on the first launch after that change; that is expected, not a new fault.
 <!-- SECTION:NOTES:END -->

@@ -4,6 +4,7 @@ title: 'Audit the framework-app seam: capabilities built, tested, and never conn
 status: To Do
 assignee: []
 created_date: '2026-08-09 18:23'
+updated_date: '2026-08-09 18:53'
 labels:
   - core
   - risk
@@ -46,3 +47,30 @@ Note the honest counter-argument, which should be weighed rather than dismissed:
 - [ ] #4 A check exists that would catch the next instance -- whatever form is practical, from a documented review step to a test that asserts a capability is reachable end to end
 - [ ] #5 The audit distinguishes deliberate staging from oversight rather than treating every unreferenced type as a defect
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Audit complete, read-only. No `.swift` file modified, no build or test run. Full classification table in `probe/SEAM-AUDIT.md`. Two new non-Swift files: `probe/seam-reachability.sh` and `probe/seam-allowlist.txt`.
+
+**Counts.** 130 public types: 121 used, 2 staged, 7 forgotten. 400 public members: 371 used, 6 staged, 23 forgotten.
+
+The "used" bucket includes types reached transitively. 23 of the 32 types with no direct app reference are in it — the app calls `StorageSignals.snapshot()` without spelling `StorageSnapshot`. Counting those as forgotten would have produced a list nobody would read, which is the reason "unreferenced by the app" is the wrong discriminator.
+
+**FRs whose criteria are met only by framework tests, with whether the behaviour can occur:**
+
+- FR-016 (per-app policies) — suppression happens, the audit trail cannot. `MonitorStore.swift:575` drops the `.suppress` decision, so `SuppressedDetectionsSheet` is permanently empty and its copy is false whenever a rule did suppress something. → **TASK-76**
+- FR-029 (retention) — **no**. `RetentionPolicy.retained`/`.expired` have no caller. Two Privacy-tab controls write `UserDefaults` and are read by nothing. → **TASK-79** (depends on TASK-72)
+- FR-039 (correct family attribution) — grouping half **no**; `MonitorStore.swift:488` never passes `overrides:` and no view creates a `GroupingCorrection`. "Mark expected" half works. → **TASK-77**
+- FR-050 (verify remediation) — **no**. 22 test references on `ActionVerifier.verify`, zero callers. Arguably correct staging given FR-020–024 are deferred, but nobody wrote that down. → **TASK-78** (decision)
+- FR-008 swap usage, FR-009 per-app-I/O disclosure, FR-038 start provenance and storage-trend label — measured, never shown. → **TASK-80**
+- Residual unused conveniences → **TASK-81**
+
+Verified as genuinely reachable and needing nothing: FR-042 (TASK-66's wire holds; `IncidentPolicy.requiredDuration(.lowStorage)` = 60 s enforces sustained-ness, so `LowStorageDetector.isSustained` is redundant not missing), FR-028 (TASK-70's `hideFilePaths` finding is closed — all three redaction fields read at `ExportDocument.swift:431-459` from both the sheet and the App Intent), FR-054, FR-007, FR-040.
+
+**Staging done properly, for the record.** `PrivacySettings.persistAcrossRestarts` is the model: the reason is in `AlertSettings.swift:215`, the user is told the truth at `SettingsView.swift:512` ("This session only"), and CLAUDE.md lists the open question. Every other staged item was staged by silence. That distinction is what criterion #5 asked for and it is the audit's main conclusion: undocumented staging and having forgotten are indistinguishable six weeks later.
+
+**The check (criterion #4).** `probe/seam-reachability.sh`. The discriminator is *declared public, referenced by tests, referenced by no caller* — zero call sites in `MacSlowdown/Sources/` and none in `Metrics/Sources/` beyond the declaration, while at least one test exercises it. That is the exact signature of all five confirmed instances. Run today it gives 20 hits with no manual triage, including three (`isProtected`, `isCalculated`, `isDestructive`) the manual pass missed; 4 are now allowlisted with reasons, 16 remain and are covered by TASK-76…81. Needs no build, takes ~30 s. Known blind spot: matching is by name, so a member two types share is invisible — `MetricsHistory.restore()` is dead while `StorageHistory.restore()` is live, and three findings came from reading call sites instead.
+
+TASK-71 and TASK-72 were already open and are referenced rather than duplicated.
+<!-- SECTION:NOTES:END -->

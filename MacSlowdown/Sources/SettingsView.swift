@@ -42,6 +42,8 @@ struct SettingsView: View {
 /// established — the form read as two unrelated halves.
 private struct GeneralSettingsTab: View {
     @Binding var showMenuBarItem: Bool
+    @AppStorage(MenuBarReadout.storageKey)
+    private var menuBarReadout = MenuBarReadout.default.rawValue
     @State private var loginItem = LoginItem()
     private var notifications: NotificationDelivery { MonitorStore.shared.notifications }
 
@@ -58,6 +60,18 @@ private struct GeneralSettingsTab: View {
                 .onChange(of: showMenuBarItem) { _, shown in
                     ActivationPolicy.menuBarItemVisibilityChanged(isVisible: shown)
                 }
+
+                // Design 2d's optional readouts (TASK-65.17). Off by default: the
+                // icon is ~16 pt in a crowded strip, and a figure beside it is a
+                // choice rather than the baseline.
+                Picker("Menu bar readout", selection: $menuBarReadout) {
+                    ForEach(MenuBarReadout.allCases) { readout in
+                        Text(readout.label).tag(readout.rawValue)
+                    }
+                }
+                .accessibilityHint("Adds a CPU percentage or a 60-second trend "
+                                   + "beside the menu bar icon.")
+                .disabled(!showMenuBarItem)
             }
 
             Section {
