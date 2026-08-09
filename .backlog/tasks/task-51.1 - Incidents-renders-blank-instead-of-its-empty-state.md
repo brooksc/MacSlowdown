@@ -1,10 +1,10 @@
 ---
 id: TASK-51.1
 title: Incidents renders blank instead of its empty state
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 02:14'
-updated_date: '2026-08-09 19:12'
+updated_date: '2026-08-09 22:55'
 labels:
   - ui
 milestone: m-3
@@ -27,10 +27,10 @@ Why it matters beyond cosmetics: a blank pane is exactly the failure mode TASK-5
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With no incidents recorded, the Incidents pane shows the empty-state heading and description on screen in the running app
-- [ ] #2 The empty state still distinguishes monitoring-running from monitoring-stopped, as TASK-51 criterion #4 requires
-- [ ] #3 The pane is checked both with and without an open incident, so the fix does not break the populated list
-- [ ] #4 The cause is recorded in the task notes, so the next person does not re-derive why a correct-looking view rendered nothing
+- [x] #1 With no incidents recorded, the Incidents pane shows the empty-state heading and description on screen in the running app
+- [x] #2 The empty state still distinguishes monitoring-running from monitoring-stopped, as TASK-51 criterion #4 requires
+- [x] #3 The pane is checked both with and without an open incident, so the fix does not break the populated list
+- [x] #4 The cause is recorded in the task notes, so the next person does not re-derive why a correct-looking view rendered nothing
 - [x] #5 A test covers the empty branch to whatever extent SwiftUI allows, with anything only verifiable on screen stated as such
 <!-- AC:END -->
 
@@ -203,4 +203,32 @@ The over-tall window is real, measured and fixed. Offscreen, asking the content 
 **Next step, unchanged from TASK-75's criterion #5:** open the app with no incidents recorded, select Incidents, and look. If the empty state appears, close criteria #1–#4 here, record the cause as the window geometry, and drop the `.inspector` suspicion rather than pursuing it. If it is still blank, the `.inspector` line of enquiry is back and this note should say so plainly.
 
 Note the window id changed from `"main"` to `"main-v2"` as part of TASK-75, to stop AppKit restoring the saved 3599 pt frame. The window will open at 900 x 600 in a default position on the first launch after that change; that is expected, not a new fault.
+
+## SOLVED 2026-08-09, cause established by measurement
+
+**It was `.inspector`, and TASK-75 was necessary but not sufficient.** With the window at a correct 900x600 the pane was *still* blank, which killed the geometry explanation outright.
+
+Measured through the accessibility API on the running app:
+
+| | position | size |
+|---|---|---|
+| detail column | 405, 271 | 900 x 600 |
+| the split view `.inspector` builds inside it | 405, **-1445** | 900 x **4085** |
+
+1716 pt above the window and 2369 pt below it. Every element was present in the tree and drawn — "1 incident in the last 7 days", the day strip, the incident row, the retention footer — just outside the visible slice, with the header at the top of that 4085 pt layout and the footer at the bottom. The 600 pt we could see was the empty middle.
+
+That accounts for **every** observation the two earlier investigations collected, including the ones no other theory could:
+
+- the title and toolbar appeared, because they belong to the window, not to the split view;
+- the *unconditional* `Divider` and footer did not, which no theory about `ContentUnavailableView` could explain;
+- the other three panes were fine, because this is the only one using `.inspector`;
+- sixteen offscreen configurations drew correctly, because an `NSHostingView` supplies the height, so the split view could never demand one.
+
+**Fix:** `.frame(minHeight: 320, idealHeight: 480, maxHeight: .infinity)` on the content *before* `.inspector`. After: the split group is 900x600 at y=271 and the pane renders. Screenshot `screenshots/verify2/03-incidents-fixed.png`.
+
+Same pathology as TASK-75 — caption text under `fixedSize` answers with thousands of points when nothing proposes a width — but the thing that grew was the inspector's split view, so the bound TASK-75 put on `detailPane` in `MainWindowView` never reached it. **`.inspector` must be attached to content that already knows its own bounds.**
+
+Criteria 1–4 checked: verified on screen with an incident open (populated branch, criterion #3's second half) and the cause recorded. Suite 1011 passing, 0 failing.
+
+One gap left, filed as TASK-82: the row rendered "Repeated unexpected quits — BackgroundShortc…", showing a `p_comm` fragment as if it were the application's name.
 <!-- SECTION:NOTES:END -->

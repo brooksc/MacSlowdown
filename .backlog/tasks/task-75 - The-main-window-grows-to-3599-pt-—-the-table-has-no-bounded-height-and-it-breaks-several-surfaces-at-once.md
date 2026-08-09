@@ -3,10 +3,10 @@ id: TASK-75
 title: >-
   The main window grows to 3599 pt — the table has no bounded height, and it
   breaks several surfaces at once
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 18:33'
-updated_date: '2026-08-09 19:11'
+updated_date: '2026-08-09 22:55'
 labels:
   - ui
 milestone: m-1
@@ -50,12 +50,12 @@ That is the durable lesson here: an offscreen render harness cannot answer a que
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The main window no longer resizes itself to the content height; a window set to a given size keeps it, verified by measuring the window on screen
-- [ ] #2 The inventory scrolls internally, and its column headers stay visible while scrolling
-- [ ] #3 The sidebar remains visible when switching to Apps & Processes, and collapse/expand works
-- [ ] #4 The segmented control, search field and census footer are reachable without resizing the window
-- [ ] #5 The Incidents pane is re-checked immediately after this fix and the result recorded on TASK-51.1, whichever way it goes
-- [ ] #6 Behaviour is checked against both an existing container with persisted window frames and a fresh one
+- [x] #1 The main window no longer resizes itself to the content height; a window set to a given size keeps it, verified by measuring the window on screen
+- [x] #2 The inventory scrolls internally, and its column headers stay visible while scrolling
+- [x] #3 The sidebar remains visible when switching to Apps & Processes, and collapse/expand works
+- [x] #4 The segmented control, search field and census footer are reachable without resizing the window
+- [x] #5 The Incidents pane is re-checked immediately after this fix and the result recorded on TASK-51.1, whichever way it goes
+- [x] #6 Behaviour is checked against both an existing container with persisted window frames and a fresh one
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -153,4 +153,22 @@ Nothing was put on screen. **Criteria #1, #2, #3, #4 and #6 are unverified**, an
 ### Left alone deliberately
 
 The `fixedSize(horizontal: false, vertical: true)` calls themselves are untouched. They are correct for rendering — they are what stops the footers truncating at a real width — and the same pattern appears on many views across the app. What was wrong was letting their answer to a width-less ideal-size query escape to the window. Bounding the ideal at the container is the narrow fix; removing `fixedSize` would be a wide one with its own regressions. Worth knowing the pattern is there, though: **any `fixedSize`-vertical wrapping text inside a `NavigationSplitView` column will do this again** if a future view puts one somewhere the bound does not cover.
+
+## VERIFIED ON SCREEN 2026-08-09 — all six criteria met
+
+Run on macOS 27, built Debug app, measured through the accessibility API rather than judged by eye.
+
+**Before, from the container's own persisted state:** `NSWindow Frame main = 120 -8911 1300 9984`. Not the 3599 originally reported — it had grown to **9984 pt**, positioned 8911 pt above the top of a 1073 pt screen.
+
+**After:** window `900 x 600`, and `NSWindow Frame main-v2 = 405 236 900 600`. The `main-v2` rename worked exactly as intended — the old 9984 pt key is still in the plist, untouched and now inert, so an existing container behaves identically to a fresh one (criterion #6, which was flagged as the riskiest assumption of the day).
+
+Criteria #2–#4 confirmed from `screenshots/verify2/04-apps.png`: the table scrolls internally with column headers pinned, the sidebar is present and the Apps/All-processes segmented control, the search field and the census footer are all reachable without resizing.
+
+**Criterion #5 — Incidents re-checked immediately, and the answer was no.** With the window correct at 900x600 the pane was *still* blank. That killed the geometry explanation for TASK-51.1 outright, and the real cause was then found by measuring the same way: `.inspector` builds a split view inside the detail column, and that split view was **900 x 4085 at y=-1445**. Recorded in full on TASK-51.1, now closed.
+
+So this task's own diagnosis was right about the window and wrong to expect it would carry TASK-51.1 with it — which is exactly why criterion #5 was written as "whichever way it goes".
+
+**Bonus, measured:** the geometry bug was the dominant cost in the app's CPU use. `sample` on the pre-fix process showed half the display-cycle work in `updateConstraintsForSubtreeIfNeeded` — Auto Layout re-solving an enormous unvirtualised view tree every cycle. The app's own self-report went from **27% of one core to 3.0%** after this and TASK-74 landed.
+
+Suite: 1011 passing, 0 failing.
 <!-- SECTION:NOTES:END -->
