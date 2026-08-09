@@ -9,7 +9,7 @@ import Synchronization
 /// memory can be perfectly healthy, because macOS fills unused RAM with cache it
 /// will surrender on demand. Only the kernel knows whether that memory is
 /// reclaimable, so the kernel's own signal is the one that means anything.
-public enum MemoryPressureLevel: Int, Sendable, Comparable, CaseIterable {
+public enum MemoryPressureLevel: Int, Sendable, Comparable, CaseIterable, Codable {
     case normal
     case warning
     case critical

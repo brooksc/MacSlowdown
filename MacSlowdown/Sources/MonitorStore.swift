@@ -64,7 +64,8 @@ final class MonitorStore {
     /// Shared because the app delegate starts monitoring at launch, independently
     /// of any view. Tying the sampling loop to a view's lifecycle meant that
     /// hiding the menu bar item stopped monitoring altogether.
-    static let shared = MonitorStore(alertSettings: .shared)
+    static let shared = MonitorStore(
+        alertSettings: .shared, incidentHistory: MonitorStore.persistentIncidentHistory)
 
     private(set) var attribution: CPUAttribution?
     private(set) var families: [ProcessFamily] = []
@@ -169,9 +170,21 @@ final class MonitorStore {
         }
         if let index = recentIncidents.firstIndex(
             where: { $0.covers(verification.requestedAt) }) {
-            return recentIncidents[index].record(verification)
+            let linked = recentIncidents[index].record(verification)
+            if linked { persistRecentIncidents() }
+            return linked
         }
         return false
+    }
+
+    /// Writes the closed-incident list back after one of them was mutated in place.
+    ///
+    /// Without this an action or a suppression linked to a closed incident lived
+    /// only in memory, and the restart that the history now survives would have
+    /// dropped exactly the evidence that lets a report say "recovered after you
+    /// acted" (FR-050) or "not alerted, because you marked this expected" (FR-016).
+    private func persistRecentIncidents() {
+        recentIncidents = incidents.replace(recentIncidents, settings: privacySettings)
     }
 
     /// Links a policy-suppressed detection to the incident it suppressed (FR-016).
@@ -187,7 +200,9 @@ final class MonitorStore {
         }
         if let index = recentIncidents.firstIndex(where: { $0.covers(suppression.at) }) {
             let linked = suppression.linked(to: recentIncidents[index].id)
-            return recentIncidents[index].record(linked)
+            let recorded = recentIncidents[index].record(linked)
+            if recorded { persistRecentIncidents() }
+            return recorded
         }
         return false
     }
@@ -333,9 +348,26 @@ final class MonitorStore {
     /// 30 s of appearing.
     static let storageCheckInterval: Duration = .seconds(30)
 
-    /// Kept small: FR-005 bounds retained evidence, and the UI shows recent
-    /// history rather than an archive.
-    static let retainedIncidents = 20
+    /// The count bound on incident history, alongside the age bound the user sets
+    /// (TASK-72).
+    ///
+    /// Both are real and both are stated in the interface. A period alone bounds
+    /// nothing on a machine that is in trouble all day, which is why FR-005's
+    /// "bounded" is not satisfied by "30 days" on its own; a count alone throws away
+    /// last week's evidence on a busy afternoon. Whichever bites first is what is
+    /// kept, and `IncidentHistory.retentionFooter` says both.
+    static let retainedIncidents = IncidentHistoryStore.defaultLimit
+
+    /// The single on-disk incident history, beside the policy store and separate
+    /// from it: rules are the user's decisions and history is recorded evidence, so
+    /// "delete all history" must be able to take one without the other (FR-029).
+    static let persistentIncidentHistory: IncidentHistoryStore = {
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask).first
+        return IncidentHistoryStore(url: base?
+            .appendingPathComponent("MacSlowdown", isDirectory: true)
+            .appendingPathComponent("incidents.json"))
+    }()
 
     // MARK: - User policies (FR-016)
 
@@ -359,12 +391,28 @@ final class MonitorStore {
     /// this is injected rather than reached for through `AlertSettings.shared`.
     private let alertSettings: AlertSettings?
 
+    /// Incident history that survives a restart (TASK-72).
+    ///
+    /// Defaults to memory-only so a test gets a hermetic store; the shipping app
+    /// passes `persistentIncidentHistory`. Every write goes through this object,
+    /// which applies retention before anything reaches disk — there is no path that
+    /// stores an incident without pruning first.
+    private let incidents: IncidentHistoryStore
+
+    /// Where "delete all history" looks for anything else we have written.
+    /// Injectable only so a test can delete from a scratch folder rather than from
+    /// the running user's container.
+    private let evidenceDirectory: URL?
+
     init(cadence: Duration = MetricsHistory.defaultCadence,
          history: MetricsHistory = MetricsHistory(),
          policy: IncidentPolicy = .default,
          policies: PolicyStore = MonitorStore.defaultPolicies,
          storage: StorageScreenModel = .shared,
-         alertSettings: AlertSettings? = nil) {
+         alertSettings: AlertSettings? = nil,
+         incidentHistory: IncidentHistoryStore = IncidentHistoryStore(url: nil),
+         evidenceDirectory: URL? = StoredData.directory) {
+        self.evidenceDirectory = evidenceDirectory
         self.baseCadence = cadence
         self.history = history
         self.detector = IncidentDetector(policy: policy)
@@ -372,6 +420,22 @@ final class MonitorStore {
         self.policies = policies
         self.storage = storage
         self.alertSettings = alertSettings
+        self.incidents = incidentHistory
+        // Read at construction rather than at `start()`: a window can open before
+        // monitoring begins, and showing an empty history for those seconds would
+        // look exactly like history that had not survived the restart.
+        //
+        // Retention is applied by `load` itself, so a machine that was off for two
+        // months never displays expired incidents even briefly.
+        recentIncidents = incidentHistory.load(
+            settings: alertSettings?.privacySettings ?? .default)
+    }
+
+    /// The retention and persistence choices in force, or the framework's defaults
+    /// for a store with no settings attached (which is every test that drives the
+    /// detector directly).
+    private var privacySettings: PrivacySettings {
+        alertSettings?.privacySettings ?? .default
     }
 
     // MARK: - Applying the user's alert settings (TASK-69, FR-006, FR-014)
@@ -593,10 +657,20 @@ final class MonitorStore {
                 }
             case .closed(let incident):
                 openIncident = nil
-                recentIncidents = Presentation.retained(
-                    [incident] + recentIncidents, limit: Self.retainedIncidents)
+                // The store applies both bounds and writes; what it returns is what
+                // is actually kept, so the screen and the disk cannot disagree
+                // (FR-029).
+                recentIncidents = incidents.record(incident, settings: privacySettings)
             case nil:
                 break
+            }
+
+            // Retention, enforced on a machine that is simply left running: nothing
+            // has to close and no screen has to be opened for an incident to age
+            // out. Costs a date comparison per retained incident, and writes only
+            // when something actually expired.
+            if !self.incidents.enforceRetention(settings: privacySettings).isEmpty {
+                recentIncidents = self.incidents.incidents
             }
 
             // MARK: Adaptive cadence (FR-031)
@@ -713,5 +787,41 @@ final class MonitorStore {
     /// which is a limit of observation, not evidence of health (FR-045, FR-046).
     var relaunchPatterns: [RelaunchPattern] {
         lifecycle.relaunchPatterns(in: lifecycleEvents)
+    }
+
+    // MARK: - Deleting recorded evidence (FR-029)
+
+    /// What "Delete all history" actually removed.
+    struct DeletionOutcome: Equatable {
+        let incidents: Int
+        let files: Int
+        let bytes: UInt64
+
+        var isEmpty: Bool { incidents == 0 && files == 0 }
+    }
+
+    /// Deletes recorded evidence, in memory and on disk, and says how much went.
+    ///
+    /// Both halves are required. Deleting the file alone would leave the incidents
+    /// in memory to be written straight back by the next close, so the user would
+    /// watch "deleted" history reappear — the delete would have been a lie the
+    /// moment the next incident ended.
+    ///
+    /// User rules are untouched: `PolicyStore` writes `policies.json`, which
+    /// `StoredData` excludes by name.
+    @discardableResult
+    func deleteRecordedHistory() -> DeletionOutcome {
+        let removedIncidents = incidents.deleteAll()
+        recentIncidents = []
+        // The live metric series is recorded evidence too (FR-005). Leaving it would
+        // make "delete everything" untrue of the sparklines still on screen.
+        history.removeAll()
+        let files = StoredData.deleteRecordedEvidence(in: evidenceDirectory)
+        return DeletionOutcome(
+            incidents: removedIncidents.incidents,
+            files: files.files,
+            // Summed, not maxed: the incident file is deleted first, so the second
+            // pass no longer sees it and the two figures cover disjoint sets.
+            bytes: files.bytes + removedIncidents.bytes)
     }
 }

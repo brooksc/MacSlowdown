@@ -508,15 +508,19 @@ private struct PrivacySettingsTab: View {
                     Text("Helps identify which copy of an app was running. Off by default.")
                 }
 
-                // Not a control. Whether history survives a restart is an open
-                // product decision, and shipping the switch would settle it by
-                // accident. What the app does today is stated instead.
+                // Not a control, and no longer an open question: the product
+                // decision is that history persists, on by default (TASK-72).
+                // Stated rather than switched, because a toggle whose off position
+                // silently throws away recorded evidence is not a privacy control —
+                // the retention picker above and "Delete all history" below are.
                 LabeledContent {
-                    Text("This session only").foregroundStyle(.secondary)
+                    Text("Always").foregroundStyle(.secondary)
                 } label: {
                     Text("Keep history across restarts")
-                    Text("History is held in memory and discarded when MacSlowdown quits. "
-                         + "Whether to keep it, and how, has not been decided.")
+                    Text("Incidents are saved \(StoredData.containerStatement), and "
+                         + "kept for the period above or the "
+                         + "\(MonitorStore.retainedIncidents) most recent, whichever "
+                         + "comes first.")
                 }
             }
 
@@ -540,19 +544,28 @@ private struct PrivacySettingsTab: View {
             Button("Delete", role: .destructive) { delete() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your per-app rules are kept. Incidents from this session are held in "
-                 + "memory and are discarded when you quit either way.")
+            Text("Your per-app rules are kept. Every recorded incident is removed, "
+                 + "from disk and from the screens showing it.")
         }
     }
 
     /// Reports what was removed rather than assuming the call did something — the
     /// same rule FR-050 applies to actions taken on the user's behalf.
     private func delete() {
-        let removed = StoredData.deleteRecordedEvidence()
+        let removed = MonitorStore.shared.deleteRecordedHistory()
         usage = StoredData.usageDescription()
-        deletionOutcome = removed == 0
-            ? "There was nothing recorded on disk to delete."
-            : "Deleted \(removed) stored file\(removed == 1 ? "" : "s")."
+        guard !removed.isEmpty else {
+            deletionOutcome = "There was nothing recorded to delete."
+            return
+        }
+        let size = ByteCountFormatter.string(
+            fromByteCount: Int64(removed.bytes), countStyle: .file)
+        let incidents = removed.incidents == 0
+            ? "no recorded incidents"
+            : "\(removed.incidents) recorded incident\(removed.incidents == 1 ? "" : "s")"
+        deletionOutcome = "Deleted \(incidents) and "
+            + "\(removed.files) other stored file\(removed.files == 1 ? "" : "s"), "
+            + "freeing \(size)."
     }
 }
 

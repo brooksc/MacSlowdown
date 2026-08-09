@@ -272,17 +272,28 @@ enum IncidentHistory {
 
     // MARK: - Retention
 
-    /// What is actually true of our storage today, rather than what the design
-    /// mock says (FR-029).
+    /// What is actually true of our storage, which is what FR-029 requires the
+    /// screen to say.
     ///
-    /// The design's footer reads "kept for 30 days on this Mac". We do not keep
-    /// them for 30 days: `MonitorStore` holds the most recent
-    /// `MonitorStore.retainedIncidents` in memory and nothing persists them across
-    /// a restart. Saying otherwise would be a claim we cannot support.
-    static func retentionFooter(limit: Int) -> String {
-        "The \(limit) most recent incidents are kept in memory while MacSlowdown is "
-            + "running, on this Mac only. They are not saved across a restart, and "
-            + "nothing about them leaves this Mac unless you export a report."
+    /// **Both bounds, because there are two** (TASK-72). History is kept for the
+    /// period the user chose *and* capped at `limit` records; a footer naming only
+    /// the period would promise 30 days of a busy fortnight that we do not keep.
+    /// Whichever bites first is what is on disk.
+    ///
+    /// The period is read from the setting rather than written into the sentence,
+    /// so changing the picker changes this line — the interface cannot state a
+    /// retention the store is not applying.
+    ///
+    /// Nothing here says "encrypted". See `StoredData.containerStatement`.
+    @MainActor
+    static func retentionFooter(
+        limit: Int,
+        retention: PrivacySettings.Retention = AlertSettings.shared.retention
+    ) -> String {
+        "Incidents are kept for \(retention.label) on this Mac, and no more than the "
+            + "\(limit) most recent — whichever comes first. They are saved "
+            + "\(StoredData.containerStatement), and nothing about them leaves this "
+            + "Mac unless you export a report."
     }
 
     /// Why a closed row names no application. Stated once, on screen, rather than

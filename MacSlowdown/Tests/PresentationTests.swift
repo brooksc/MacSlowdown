@@ -295,7 +295,9 @@ struct SortingTests {
 struct RetentionAndShareTests {
     @Test("Retention keeps the newest and drops the rest")
     func retentionBounds() {
-        let incidents = (0..<25).map { index in
+        // Five past the bound, whatever the bound currently is. Hard-coding 25 made
+        // this test silently stop bounding anything when TASK-72 raised the limit.
+        let incidents = (0..<(MonitorStore.retainedIncidents + 5)).map { index in
             Incident(
                 id: UUID(), beganAt: Date(timeIntervalSince1970: Double(1000 - index)),
                 triggeredAt: Date(), recoveryStartedAt: nil, closedAt: Date(),

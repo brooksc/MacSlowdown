@@ -325,7 +325,6 @@ Don't build Phase N+1 infrastructure during Phase N.
 
 Not yet chosen, and not inferable from the repo:
 
-- Whether incidents persist across restarts, and default retention.
 - Whether summaries use an on-device model or deterministic templates (FR-013).
 - Whether to amend the spec for an optional user-installed helper. The Mac App
   Store edition of iStat Menus reaches sensors only through a separately
@@ -334,6 +333,14 @@ Not yet chosen, and not inferable from the repo:
 
 Settled, and not to be re-opened:
 
+- **Incident history persists across restarts, on by default, kept 30 days**
+  (user-adjustable 7/30/90) *and* count-bounded at
+  `IncidentHistoryStore.defaultLimit`. Written to `incidents.json` in the app's
+  Application Support directory with a schema version. Retention is enforced on
+  every write and on the sampling loop, not only when a screen is open. The
+  FR-005 metric sample series is deliberately **not** persisted. Never say the
+  store is encrypted — say "in MacSlowdown's own container, which no other app
+  can read". See the settled-decision subsection under FR-029 and TASK-72.
 - Build system is **Tuist**; manifests are the source of truth. Test framework is
   **Swift Testing**. No CI yet.
 - Raw temperature is **not** exposed. Public thermal state only.

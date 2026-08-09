@@ -264,16 +264,37 @@ struct IncidentLifecycleEntryTests {
 @Suite("Incident retention and local-only wording")
 @MainActor
 struct IncidentRetentionTests {
-    /// FR-029. The design's footer claims 30 days; we do not keep them for 30
-    /// days, so the screen states what is true of our storage instead.
-    @Test("The footer states the real limit, that it is local, and that it is not persisted")
-    func footerIsTrueRatherThanTheMockText() {
-        let text = IncidentHistory.retentionFooter(limit: MonitorStore.retainedIncidents)
+    /// FR-029, and TASK-72's decision. History now persists for 30 days by default,
+    /// so the design's "kept for 30 days" is finally a claim we can support — but
+    /// only alongside the count bound, which is the other half of what is actually
+    /// kept. A footer naming one bound would promise storage we do not provide.
+    ///
+    /// This test previously asserted the opposite, that the footer must *not* say
+    /// "30 days". It changed with the behaviour, not before it.
+    @Test("The footer states both bounds, where the file is, and that it stays local")
+    func footerStatesWhatIsActuallyKept() {
+        let text = IncidentHistory.retentionFooter(
+            limit: MonitorStore.retainedIncidents, retention: .thirtyDays)
+        #expect(text.contains("30 days"))
         #expect(text.contains("\(MonitorStore.retainedIncidents) most recent"))
         #expect(text.contains("this Mac"))
-        #expect(text.contains("not saved across a restart"))
+        #expect(text.contains("no other app can read"))
         #expect(text.contains("unless you export"))
-        #expect(!text.contains("30 days"))
+        // FileVault is the user's setting and NSFileProtection is not what the word
+        // implies. We never claim it.
+        #expect(!text.lowercased().contains("encrypt"))
+    }
+
+    /// The stated period follows the setting. If it did not, the interface could
+    /// promise a retention the store is not applying, which is precisely what
+    /// FR-029 forbids.
+    @Test("The footer's period is the one the user chose")
+    func footerFollowsTheSetting() {
+        for retention in PrivacySettings.Retention.allCases {
+            let text = IncidentHistory.retentionFooter(
+                limit: MonitorStore.retainedIncidents, retention: retention)
+            #expect(text.contains(retention.label))
+        }
     }
 
     @Test("The screen explains why a closed incident names no application")

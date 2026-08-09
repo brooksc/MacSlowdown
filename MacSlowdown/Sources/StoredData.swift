@@ -23,7 +23,11 @@ enum StoredData {
     static let rulesFileName = "policies.json"
 
     /// Files holding recorded evidence, as opposed to configuration.
-    static func recordedEvidenceFiles() -> [URL] {
+    ///
+    /// The directory is a parameter so a test can point this at a scratch folder.
+    /// Without that, a test exercising deletion would delete the running user's
+    /// real history, which is not a cost a test may impose.
+    static func recordedEvidenceFiles(in directory: URL? = StoredData.directory) -> [URL] {
         guard let directory else { return [] }
         let contents = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil)) ?? []
@@ -49,9 +53,9 @@ enum StoredData {
 
     /// What the privacy tab prints beside the retention period.
     ///
-    /// Nothing on disk is stated as nothing on disk. History is currently held in
-    /// memory only (`MetricsHistory` defaults to `.memoryOnly`), so a zero here is
-    /// the truth rather than a failure to look.
+    /// Nothing on disk is stated as nothing on disk — a zero here is the truth
+    /// rather than a failure to look. Before the first incident closes there is
+    /// genuinely nothing recorded, even though history now persists.
     static func usageDescription() -> String {
         guard let bytes = bytesOnDisk() else {
             return "Currently using: unknown — the storage folder could not be read"
@@ -62,15 +66,33 @@ enum StoredData {
         return "Currently using \(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))"
     }
 
-    /// Deletes recorded evidence. Returns how many files were removed, so the
-    /// interface can report what happened rather than assume it (FR-050's rule:
-    /// a call returning without error is not an outcome).
+    /// Deletes recorded evidence. Returns how many files and how many bytes were
+    /// removed, so the interface can report what happened rather than assume it
+    /// (FR-050's rule: a call returning without error is not an outcome).
+    ///
+    /// Sizes are read before the removal, because a deleted file has no size to
+    /// ask for afterwards.
     @discardableResult
-    static func deleteRecordedEvidence() -> Int {
+    static func deleteRecordedEvidence(
+        in directory: URL? = StoredData.directory
+    ) -> (files: Int, bytes: UInt64) {
         var removed = 0
-        for url in recordedEvidenceFiles() where (try? FileManager.default.removeItem(at: url)) != nil {
+        var bytes: UInt64 = 0
+        for url in recordedEvidenceFiles(in: directory) {
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            guard (try? FileManager.default.removeItem(at: url)) != nil else { continue }
             removed += 1
+            bytes += UInt64(size)
         }
-        return removed
+        return (removed, bytes)
     }
+
+    /// The container statement the privacy surface prints.
+    ///
+    /// Deliberately **not** "encrypted". FileVault is the user's setting and not
+    /// ours, and `NSFileProtection` on macOS is not the guarantee the word implies.
+    /// What is true and checkable is that the App Sandbox container is not readable
+    /// by other apps, so that is what we say.
+    static let containerStatement =
+        "in MacSlowdown's own container, which no other app can read"
 }
