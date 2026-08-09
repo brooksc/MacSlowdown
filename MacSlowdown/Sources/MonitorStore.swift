@@ -139,6 +139,14 @@ final class MonitorStore {
         Presentation.rankedFamilies(families, contributions: contributionIndex)
     }
 
+    /// The inventory as a tree: families with their processes beneath them, plus
+    /// the processes we are not permitted to measure collected into one group.
+    var inventory: [InventoryRow] {
+        Presentation.inventory(
+            families, contributions: contributionIndex,
+            unattributedPercentOfOneCore: attribution?.unattributedPercentOfOneCore ?? 0)
+    }
+
     private var contributionIndex: [ProcessIdentity: Double] = [:]
 
     /// A recognisable name for a contributor (FR-003, FR-013).
@@ -157,6 +165,10 @@ final class MonitorStore {
 
     func icon(for family: ProcessFamily) -> NSImage? {
         icons.icon(forExecutablePath: family.members.first?.resolved.executablePath)
+    }
+
+    func icon(forExecutablePath path: String?) -> NSImage? {
+        icons.icon(forExecutablePath: path)
     }
 
     func accessibilityName(for usage: ProcessCPUUsage) -> String {

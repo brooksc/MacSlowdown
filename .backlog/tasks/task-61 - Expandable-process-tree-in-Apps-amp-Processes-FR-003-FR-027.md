@@ -1,10 +1,10 @@
 ---
 id: TASK-61
 title: 'Expandable process tree in Apps &amp; Processes (FR-003, FR-027)'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-08 23:02'
-updated_date: '2026-08-08 23:11'
+updated_date: '2026-08-09 01:24'
 labels: []
 dependencies: []
 ---
