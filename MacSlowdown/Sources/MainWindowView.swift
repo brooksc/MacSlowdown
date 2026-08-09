@@ -222,9 +222,30 @@ struct NowView: View {
 
     // MARK: - Cards
 
+    /// Four cards, four across wherever they fit (design 1c).
+    ///
+    /// `.adaptive(minimum:)` cannot express this. It packs as many columns as the
+    /// width allows, so at 900 pt it fitted three of the four and dropped "Thermals
+    /// & power" below the fold, while at 1250 pt it would lay out six columns for
+    /// four cards. There are exactly four, and the requirement is that all four are
+    /// visible — so the number of columns is chosen against the width the container
+    /// actually has, and only falls back when four genuinely will not fit.
     private var cards: some View {
+        // Read once and handed to each candidate: `ViewThatFits` builds all three
+        // to measure them, and `memoryDetails` calls `host_statistics64`.
+        let memory = memoryDetails
+        return ViewThatFits(in: .horizontal) {
+            cardGrid(columns: 4, memoryDetails: memory)
+            cardGrid(columns: 2, memoryDetails: memory)
+            cardGrid(columns: 1, memoryDetails: memory)
+        }
+    }
+
+    private func cardGrid(columns: Int, memoryDetails: [String]) -> some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 190), spacing: 12, alignment: .top)],
+            columns: Array(
+                repeating: GridItem(.flexible(minimum: 150), spacing: 12, alignment: .top),
+                count: columns),
             spacing: 12
         ) {
             MetricCard(
@@ -475,24 +496,61 @@ struct IncidentBanner: View {
     let showIncidents: () -> Void
     @Binding var outcome: String?
 
+    /// Increase Contrast and Reduce Transparency, read from the environment so the
+    /// banner re-draws when either is switched while the window is open. The rule
+    /// they feed is `NowPresentation.BannerTreatment.resolve`, which is where it can
+    /// be tested — the same split as `MenuBarIconTreatment` (FR-034).
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var treatment: NowPresentation.BannerTreatment {
+        .resolve(
+            increaseContrast: contrast == .increased,
+            reduceTransparency: reduceTransparency)
+    }
+
+    /// Severity's hue. Never the only carrier of severity: the word is in the chip,
+    /// the glyph's *shape* changes with it, and under Increase Contrast this is not
+    /// used at all (FR-034).
+    private var tint: Color {
+        switch NowPresentation.tint(for: incident.severity) {
+        case .yellow: .yellow
+        case .orange: .orange
+        case .red: .red
+        }
+    }
+
     private var summary: IncidentSummary {
         IncidentSummarizer.summarize(incident: incident, attribution: store.attribution)
     }
 
     var body: some View {
         let summary = self.summary
+        let headline = NowPresentation.bannerHeadline(
+            incident: incident, conditionHeadline: summary.headline)
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .accessibilityHidden(true)
-                Text(summary.headline).font(.title3).bold()
-                Text(NowPresentation.incidentChip(incident))
-                    .font(.caption).bold()
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: NowPresentation.symbolName(for: incident.severity))
+                        .imageScale(.large)
+                        .foregroundStyle(treatment.usesTint ? tint : Color.primary)
+                        .accessibilityHidden(true)
+                    Text(headline.text).font(.title3).bold()
+                    chip
+                }
+                // The confidence for naming an application, kept with the sentence
+                // that names it. A headline that stated a cause without this would
+                // be the unlabelled causal claim FR-013 forbids.
+                if let qualifier = headline.qualifier {
+                    Text(qualifier)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 26)
+                }
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(summary.headline), \(NowPresentation.incidentChip(incident))")
+            .accessibilityLabel(
+                "\(headline.spoken) \(NowPresentation.incidentChip(incident))")
 
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(Array(summary.conclusions.enumerated()), id: \.offset) { _, conclusion in
@@ -511,20 +569,118 @@ struct IncidentBanner: View {
             HStack(spacing: 8) {
                 Button("Open incident", action: showIncidents)
                     .buttonStyle(.borderedProminent)
-                if let leader = store.attribution?.contributors.first {
-                    Button("Bring \(store.displayName(for: leader)) forward") {
-                        bringForward(leader)
-                    }
-                }
+                bringForwardButton
+                expectedWorkloadButton
             }
 
             if let outcome {
-                Text(outcome).font(.caption).foregroundStyle(.secondary)
+                Text(outcome)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+        .background(field)
+    }
+
+    // MARK: - The field
+
+    /// The banner's own background, in the three forms the accessibility settings
+    /// allow. Every one of them is a rectangle with the same content in it; only
+    /// the colour changes, which is the point (FR-034).
+    @ViewBuilder
+    private var field: some View {
+        let shape = RoundedRectangle(cornerRadius: 10)
+        switch treatment.field {
+        case .tintedFill:
+            shape.fill(tint.opacity(0.16))
+                .overlay(shape.strokeBorder(tint.opacity(0.5), lineWidth: 1))
+        case .tintedBorder:
+            // Opaque, because Reduce Transparency is a request not to be shown a
+            // wash. Severity moves into a solid border instead of a fill.
+            shape.fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(shape.strokeBorder(tint, lineWidth: 2))
+        case .plain:
+            shape.fill(.quaternary)
+                .overlay(shape.strokeBorder(Color.primary, lineWidth: 2))
+        }
+    }
+
+    /// Severity and elapsed time. The severity **word** is here in every treatment,
+    /// so the colour beside it is reinforcement and never the message.
+    private var chip: some View {
+        Text(NowPresentation.incidentChip(incident))
+            .font(.caption).bold()
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(chipBackground)
+    }
+
+    @ViewBuilder
+    private var chipBackground: some View {
+        let capsule = Capsule()
+        switch treatment.field {
+        case .tintedFill: capsule.fill(tint.opacity(0.28))
+        case .tintedBorder: capsule.strokeBorder(tint, lineWidth: 1.5)
+        case .plain: capsule.fill(.quaternary)
+        }
+    }
+
+    // MARK: - Actions
+
+    /// Whom to bring forward.
+    ///
+    /// For a repeated-quit episode this is the command that kept exiting, **not**
+    /// the largest CPU contributor: the two are different applications, and the
+    /// contributor had nothing to do with the finding (TASK-82). The button is
+    /// omitted when nothing by that name is running, because there is then nothing
+    /// to bring forward and a control that could only fail is worse than none.
+    @ViewBuilder
+    private var bringForwardButton: some View {
+        if let pattern = NowPresentation.leadingRelaunchPattern(incident) {
+            if let member = NowPresentation.familyMember(
+                forCommand: pattern.command, in: store.families) {
+                let name = member.resolved.displayName(command: member.record.command)
+                Button("Bring \(name) forward") { bringForward(member, named: name) }
+            }
+        } else if let leader = store.attribution?.contributors.first {
+            Button("Bring \(store.displayName(for: leader)) forward") {
+                bringForward(leader)
+            }
+        }
+    }
+
+    /// Design 1c's third action: mark this application's load as expected, at the
+    /// moment it is annoying the user (FR-016).
+    ///
+    /// Offered only where the incident actually attributed itself to an application.
+    /// "Heavy load is expected" is meaningless for a repeated-quit episode, and
+    /// there would be nothing to key the rule on.
+    @ViewBuilder
+    private var expectedWorkloadButton: some View {
+        if NowPresentation.leadingRelaunchPattern(incident) == nil,
+           let leader = incident.attribution?.leadingApplication {
+            Button(NowPresentation.expectedPolicyActionTitle(leader.displayName)) {
+                markExpected(leader)
+            }
+            .help("Records that heavy load is normal for this application. It stops the "
+                  + "alerts, not the monitoring — incidents are still recorded.")
+        }
+    }
+
+    /// FR-016. Written through the store's `PolicyStore` and then **read back**:
+    /// `setPolicy` returning is not evidence that a rule exists (FR-017, FR-050).
+    private func markExpected(_ leader: IncidentContributor) {
+        let policy = ApplicationPolicy(
+            bundleID: leader.bundleID, bundlePath: leader.bundlePath,
+            displayName: leader.displayName, classification: .expected)
+        store.policies.setPolicy(policy)
+        let saved = store.policies.policies.contains {
+            $0.id == policy.id && $0.classification == .expected
+        }
+        outcome = NowPresentation.expectedPolicyOutcome(
+            name: leader.displayName, saved: saved)
     }
 
     /// FR-017: report what happened, not that the call was made.
@@ -534,11 +690,15 @@ struct IncidentBanner: View {
             outcome = "\(store.displayName(for: usage)) is no longer in the last reading."
             return
         }
+        bringForward(member, named: store.displayName(for: usage))
+    }
+
+    private func bringForward(_ member: FamilyMember, named name: String) {
         let result = ActionPerformer().perform(
             .activate, on: member.record, resolved: member.resolved)
         switch result {
         case .succeeded:
-            outcome = "macOS brought \(store.displayName(for: usage)) forward. "
+            outcome = "macOS brought \(name) forward. "
                 + "That changes what you are looking at, not what it is using."
         case .failed(let reason), .withheld(let reason):
             outcome = reason

@@ -79,6 +79,174 @@ enum NowPresentation {
         return "\(incident.severity.label) · \(duration)"
     }
 
+    /// How the banner is drawn for a severity, and how that survives the two
+    /// accessibility settings that forbid conveying anything by a wash of colour
+    /// (FR-034).
+    ///
+    /// Colour is only ever *added* here. The severity word is in the chip and the
+    /// glyph differs per severity, so removing every colour from this treatment
+    /// loses no information — which is the test of whether colour was carrying
+    /// meaning on its own. The same rule, and the same shape of type, as
+    /// `MenuBarIconTreatment`.
+    struct BannerTreatment: Equatable {
+        /// Whether colour is applied at all. Not under Increase Contrast: the
+        /// banner is then drawn in the foreground colour against a plain field.
+        var usesTint: Bool
+        var field: Field
+
+        /// How the banner's own field is filled.
+        enum Field: Equatable {
+            /// A faint tinted wash, the design's rendering.
+            case tintedFill
+            /// An opaque field with a solid tinted border. Used under Reduce
+            /// Transparency, which is a request not to convey state with a
+            /// washed-out fill.
+            case tintedBorder
+            /// No colour at all: a neutral field with a foreground-colour border.
+            case plain
+        }
+
+        static func resolve(
+            increaseContrast: Bool, reduceTransparency: Bool
+        ) -> BannerTreatment {
+            if increaseContrast { return BannerTreatment(usesTint: false, field: .plain) }
+            if reduceTransparency { return BannerTreatment(usesTint: true, field: .tintedBorder) }
+            return BannerTreatment(usesTint: true, field: .tintedFill)
+        }
+    }
+
+    /// The hue for a severity. Named rather than a `Color` so the rule is testable
+    /// outside a view, exactly as `MenuBarIconTint` is.
+    enum SeverityTint: Equatable { case yellow, orange, red }
+
+    static func tint(for severity: IncidentSeverity) -> SeverityTint {
+        switch severity {
+        case .moderate: .yellow
+        case .high: .orange
+        case .severe: .red
+        }
+    }
+
+    /// The banner glyph. **Shape differs per severity as well as hue**, so the
+    /// three levels stay distinguishable with every colour removed (FR-034).
+    static func symbolName(for severity: IncidentSeverity) -> String {
+        switch severity {
+        case .moderate: "exclamationmark.circle.fill"
+        case .high: "exclamationmark.triangle.fill"
+        case .severe: "exclamationmark.octagon.fill"
+        }
+    }
+
+    // MARK: - The banner headline (design 1c, FR-013, FR-038)
+
+    /// The banner's opening line, which names an application where one is known.
+    ///
+    /// Design 1c leads with "Xcode is using most of the CPU" rather than with the
+    /// condition, because that is the reader's actual question. Naming an
+    /// application as the subject of a slowdown is a *heuristic* claim, so the
+    /// confidence recorded at the time travels with the sentence and is shown
+    /// beside it — the headline is not allowed to state a cause outright (FR-013,
+    /// FR-038).
+    ///
+    /// Where no application is known the condition-only headline is used unchanged,
+    /// which is the summariser's own.
+    struct BannerHeadline: Equatable {
+        let text: String
+        /// The evidence class and confidence for `text`, present exactly when the
+        /// headline names an application. Nil when the headline states only what
+        /// was measured, because a measured fact carries no confidence.
+        let qualifier: String?
+
+        var spoken: String { qualifier.map { "\(text). \($0)." } ?? text }
+    }
+
+    /// A heuristic's label, in the framework's own words rather than a second
+    /// wording of them.
+    static func heuristicQualifier(_ confidence: Confidence) -> String {
+        "\(Evidence.heuristic.label) · \(confidence.label)"
+    }
+
+    static func bannerHeadline(
+        incident: Incident, conditionHeadline: String
+    ) -> BannerHeadline {
+        // Repeated quits first. An episode where an application kept exiting is
+        // about that application whatever else the machine was doing, and the
+        // largest CPU contributor is a different subject entirely (TASK-82).
+        if let pattern = leadingRelaunchPattern(incident) {
+            return BannerHeadline(
+                text: "\(ProcessNaming.labelled(command: pattern.command)) "
+                    + "keeps quitting and reopening",
+                // The *association* confidence: whether these exits are one
+                // application rather than unrelated processes sharing a truncated
+                // 16-byte command. Nothing here claims to know why it exited.
+                qualifier: heuristicQualifier(pattern.confidence))
+        }
+
+        // The recorded attribution, never the live one: for the banner's subject to
+        // be the machine's current busiest process would put a passer-by's name on
+        // an incident it had nothing to do with.
+        if incident.conditions.contains(.cpuSaturation),
+           let recorded = incident.attribution,
+           let leader = recorded.leadingApplication {
+            let share = recorded.peakTotalBusyPercentOfOneCore > 0
+                ? leader.peakPercentOfOneCore / recorded.peakTotalBusyPercentOfOneCore
+                : 0
+            // "Most of the CPU" is a claim about a majority. It is only made when
+            // the recorded figures support one; otherwise the sentence says what
+            // was actually established, which is that this was the largest thing we
+            // were permitted to measure.
+            let text = share > 0.5
+                ? "\(leader.displayName) is using most of the CPU"
+                : "\(leader.displayName) is the largest measurable use of the CPU"
+            return BannerHeadline(text: text, qualifier: heuristicQualifier(recorded.confidence))
+        }
+
+        return BannerHeadline(text: conditionHeadline, qualifier: nil)
+    }
+
+    /// The repeated-quit pattern the banner is about: the command that exited most,
+    /// with the most recent episode winning a tie.
+    ///
+    /// Nil on a resource incident, which is the ordinary case.
+    static func leadingRelaunchPattern(_ incident: Incident) -> RelaunchPattern? {
+        incident.lifecycleFindings.max { first, second in
+            (first.exits, first.lastAt.timeIntervalSince1970, second.command)
+                < (second.exits, second.lastAt.timeIntervalSince1970, first.command)
+        }
+    }
+
+    /// The live process a repeated-quit banner's action should act on.
+    ///
+    /// The **newest** instance of the command, because the whole finding is that
+    /// the previous ones are gone: an older match would be a process that has
+    /// already exited. Matched on the command because a relaunched process has a
+    /// new pid and therefore a new identity by construction.
+    static func familyMember(
+        forCommand command: String, in families: [ProcessFamily]
+    ) -> FamilyMember? {
+        families
+            .flatMap(\.members)
+            .filter { $0.record.command == command }
+            .max { $0.record.identity.startTime < $1.record.identity.startTime }
+    }
+
+    // MARK: - Marking a workload expected from the banner (FR-016, design 1c)
+
+    static func expectedPolicyActionTitle(_ name: String) -> String {
+        "Heavy load is expected for \(name)"
+    }
+
+    /// What to say afterwards. `saved` must come from reading the store back — an
+    /// API returning without error is not evidence that a rule exists (FR-017,
+    /// FR-050).
+    static func expectedPolicyOutcome(name: String, saved: Bool) -> String {
+        saved
+            ? "Recorded: heavy load is expected for \(name), so future alerts about it are "
+                + "suppressed. Monitoring and recording continue, and this incident stays in "
+                + "the history."
+            : "The rule for \(name) was not saved, so nothing has changed."
+    }
+
     // MARK: - The metric cards
 
     /// Memory in use, as a share of physical memory.
