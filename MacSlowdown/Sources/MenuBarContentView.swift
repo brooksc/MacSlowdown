@@ -249,13 +249,43 @@ struct MenuBarContentView: View {
                 causeSentence(cause)
             }
 
-            // No sparkline. Design 1b marks the incident start on a 15-minute CPU
-            // trend; the series FR-005 retains lives in MonitorStore's private
-            // MetricsHistory with no accessor, and drawing a second series
-            // accumulated here would not be the one we keep as evidence. Omitted
-            // rather than approximated — see TASK-65.2 notes.
+            incidentSparkline(incident)
 
             shareOfBusyTime(attribution)
+        }
+    }
+
+    /// Total CPU over the retained window with the incident start marked
+    /// (design 1b).
+    ///
+    /// The points are `MonitorStore.retainedSamples` — the series FR-005 keeps as
+    /// evidence — so this popover and the incident report cannot show two different
+    /// histories of the same minutes. Nothing is accumulated here.
+    ///
+    /// The mark is `incident.beganAt`, the detector's own record of when the
+    /// condition first breached. It is never inferred from the shape of the curve:
+    /// marking "where it looks like it started" would assert a detection we did not
+    /// make. When the incident began before anything we still hold, the caption says
+    /// so rather than sliding the mark to the left edge.
+    ///
+    /// Design 1b labels this "last 15 minutes". We label it with the span actually
+    /// retained, which early in a run is much less — the app may have been watching
+    /// for two minutes.
+    @ViewBuilder
+    private func incidentSparkline(_ incident: Incident) -> some View {
+        let points = SparklinePresentation.totalBusySeries(store.retainedSamples)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Total CPU")
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+            HistorySparklineBlock(
+                title: "Total CPU",
+                points: points,
+                markers: [incident.beganAt],
+                cadence: store.cadence?.interval ?? MetricsHistory.defaultCadence,
+                axisCaption: SparklinePresentation.markerCaption(
+                    beganAt: incident.beganAt, points: points))
         }
     }
 
