@@ -594,6 +594,13 @@ final class MonitorStore {
                 previousDisk = counters
             }
             refreshStorageIfDue(now: now)
+            // Before the observation is built, not after it. This used to run at the
+            // end of the loop, which was harmless while lifecycle evidence only fed
+            // screens; now that a repeated-quit pattern can open an incident of its
+            // own (TASK-71, FR-046), recording exits after the detector has already
+            // judged the sample would delay every lifecycle incident by one cadence
+            // and would date it from the wrong sweep.
+            recordLifecycle(from: previous, to: snapshot)
             // Read the user's thresholds before judging this observation, so a
             // setting changed a moment ago is what this sample is judged against
             // (TASK-69). Placed after `history.record` of the previous pass and
@@ -603,13 +610,10 @@ final class MonitorStore {
             // `var` because the attribution is folded in below: an incident records
             // what it was judged on (TASK-68), and that has to travel with the
             // observation the detector sees.
-            var observation = SystemObservation(
+            var observation = currentObservation(
                 at: Date(),
                 cpuBusyFraction: result.totalBusyPercentOfOneCore
-                    / (Double(machine.logicalCores) * 100),
-                memoryPressure: memoryPressure,
-                thermalState: thermalState,
-                lowStorage: isLowStorage)
+                    / (Double(machine.logicalCores) * 100))
 
             let breaching = IncidentCondition.allCases.contains {
                 observation.breaches($0, policy: detector.policy)
@@ -679,8 +683,6 @@ final class MonitorStore {
                 at: Date(), incidentOpen: openIncident != nil,
                 conditionBreaching: breaching, state: &cadenceState)
 
-            recordLifecycle(from: previous, to: snapshot)
-
             history.record(result)
             resolver.prune(keeping: Set(snapshot.records.keys))
             // Persisting history is best-effort: it is evidence, not configuration,
@@ -690,6 +692,27 @@ final class MonitorStore {
             previous = snapshot
             previousHost = host
         }
+    }
+
+    /// Everything the detector is asked to judge this sample.
+    ///
+    /// A method rather than four lines inside `run()` because this is the seam
+    /// TASK-71 is about. The framework could open a repeated-quit incident and the
+    /// app never offered it one, and nothing failed when that was true — a gap in
+    /// what is *handed over* is invisible to tests of either side. It is testable
+    /// here without running the sampler.
+    func currentObservation(at: Date, cpuBusyFraction: Double) -> SystemObservation {
+        SystemObservation(
+            at: at,
+            cpuBusyFraction: cpuBusyFraction,
+            memoryPressure: memoryPressure,
+            thermalState: thermalState,
+            lowStorage: isLowStorage,
+            // FR-046 as narrowed: an application failing while the machine is fine
+            // is an episode no resource threshold can ever open, so the lifecycle
+            // findings are part of what the detector judges rather than a
+            // decoration on a screen.
+            lifecycleFindings: relaunchPatterns)
     }
 
     // MARK: - Storage (FR-041, FR-042)

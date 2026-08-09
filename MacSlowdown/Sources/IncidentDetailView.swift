@@ -46,7 +46,13 @@ struct IncidentDetailView: View {
     /// applications explain must not be dressed in the language of a limit we did
     /// not hit.
     private var unattributed: UnattributedIncidentReport? {
-        UnattributedIncidentReport.build(
+        // A lifecycle-only incident is not an unattributable resource incident, and
+        // narrating it as one would lead with a CPU split for an episode in which no
+        // resource condition was ever breached (TASK-71). The share can look high
+        // simply because the machine was idle, so this is guarded on the conditions
+        // rather than on the numbers.
+        guard incident.conditions.contains(where: \.isResourceCondition) else { return nil }
+        return UnattributedIncidentReport.build(
             incident: incident,
             liveAttribution: store.attribution,
             protected: store.attribution?.protectedProcesses ?? [],
@@ -62,12 +68,21 @@ struct IncidentDetailView: View {
     ///
     /// Bounded by the lifecycle tracker's own window, so this is "what we watched"
     /// and never "what has ever happened".
+    ///
+    /// The incident's **own** record wins where it has one, exactly as the
+    /// attribution does: lifecycle events are not persisted, so after a restart the
+    /// live tracker holds nothing about an episode that ended yesterday, and reading
+    /// from it would turn a recorded finding into a blank section (TASK-71).
+    private var repeatedQuitPatterns: [RelaunchPattern] {
+        if !incident.lifecycleFindings.isEmpty { return incident.lifecycleFindings }
+        return store.relaunchPatterns.filter { pattern in
+            pattern.lastAt >= incident.beganAt
+                && pattern.firstAt <= (incident.closedAt ?? Date())
+        }
+    }
+
     private var repeatedQuits: [RepeatedQuitReport] {
-        store.relaunchPatterns
-            .filter { pattern in
-                pattern.lastAt >= incident.beganAt
-                    && pattern.firstAt <= (incident.closedAt ?? Date())
-            }
+        repeatedQuitPatterns
             .map { pattern in
                 RepeatedQuitReport.build(
                     pattern: pattern,

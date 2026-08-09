@@ -135,6 +135,10 @@ enum IncidentVerdict {
         case .cpuSaturation: "Your Mac's processors were close to fully busy"
         case .thermalPressure: "macOS reported raised thermal conditions"
         case .lowStorage: "Free space on the startup disk stayed low"
+        // A statement of what the process table showed, with no claim about why.
+        // "Crashed", "froze" and "stopped responding" are all unavailable to us
+        // (FR-046) and none of them appears here.
+        case .repeatedApplicationQuits: "An application quit and started again, repeatedly"
         }
     }
 

@@ -259,6 +259,79 @@ struct IncidentLifecycleEntryTests {
             range: .week, now: now)
         #expect(entries.isEmpty)
     }
+
+    // MARK: - One episode, one row (TASK-71)
+
+    /// An incident opened for a repeated-quit episode, carrying the pattern it was
+    /// opened on — which is what the detector now records.
+    private func lifecycleIncident(daysAgo: Double, command: String = "Final Cut Pro")
+        -> Incident {
+        var built = incident(daysAgo: daysAgo, conditions: [.repeatedApplicationQuits])
+        built.lifecycleFindings = [
+            RelaunchPattern(
+                command: command, exits: 3,
+                firstAt: built.beganAt, lastAt: built.beganAt.addingTimeInterval(720),
+                confidence: .moderate)
+        ]
+        return built
+    }
+
+    /// The defect TASK-71 would otherwise have introduced. The tracker holds the
+    /// pattern for fifteen minutes and the incident it opened is in the list at the
+    /// same time, so without this the user sees two findings where there was one
+    /// event — and "3 incidents this week" counts it twice.
+    @Test("An episode already recorded as an incident is not also listed as a pattern")
+    func anEpisodeIsListedOnce() {
+        let episode = lifecycleIncident(daysAgo: 1)
+        let entries = IncidentHistory.entries(
+            open: nil, recent: [episode],
+            relaunches: [pattern(daysAgo: 1)], range: .week, now: now)
+
+        #expect(entries.count == 1)
+        // The incident wins: it is selectable, it opens the detail with the evidence
+        // attached, and it survives a restart. The live pattern is none of those.
+        if case .resource(let listed) = entries[0].kind {
+            #expect(listed.id == episode.id)
+        } else {
+            Issue.record("the incident should be the surviving row, not the pattern")
+        }
+        #expect(IncidentHistory.pattern(for: entries, range: .week).headline
+                == "1 incident in the last 7 days")
+    }
+
+    /// Deduplication must not swallow a finding no incident covers — one below the
+    /// quiet period, or one seen before this build began opening incidents for them.
+    @Test("A pattern no incident covers still gets its own row")
+    func anUncoveredPatternStillAppears() {
+        let entries = IncidentHistory.entries(
+            open: nil, recent: [lifecycleIncident(daysAgo: 1, command: "Photocopier")],
+            relaunches: [pattern(daysAgo: 2)], range: .week, now: now)
+        #expect(entries.count == 2)
+    }
+
+    /// Matched on the command, not on times: an episode's window grows as it goes,
+    /// so a time-equality test would stop matching the moment another exit landed
+    /// and the row would reappear beside its own incident.
+    @Test("The match survives the episode's window growing")
+    func matchSurvivesAGrowingWindow() {
+        let episode = lifecycleIncident(daysAgo: 1)
+        let widened = RelaunchPattern(
+            command: "Final Cut Pro", exits: 9,
+            firstAt: episode.beganAt.addingTimeInterval(-60),
+            lastAt: episode.beganAt.addingTimeInterval(3000),
+            confidence: .low)
+        let entries = IncidentHistory.entries(
+            open: nil, recent: [episode], relaunches: [widened], range: .week, now: now)
+        #expect(entries.count == 1)
+    }
+
+    /// The row and the condition must be counted as the same finding, or a mixed
+    /// week would report two differently-spelled kinds of the same thing.
+    @Test("A lifecycle row and a lifecycle incident share one label")
+    func labelsAgree() {
+        #expect(IncidentHistory.Entry.repeatedQuitsLabel
+                == IncidentCondition.repeatedApplicationQuits.label)
+    }
 }
 
 @Suite("Incident retention and local-only wording")

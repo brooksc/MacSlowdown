@@ -359,6 +359,52 @@ struct LifecycleWiringTests {
         #expect(patterns.first?.confidence == .moderate)
     }
 
+    // MARK: TASK-71 — the pattern reaches the detector, not only the screen
+
+    /// The gap TASK-71 closed. `relaunchPatterns` was published and read by views,
+    /// and the detector was never offered it, so the one episode FR-046 exists for
+    /// could not open an incident. Nothing failed while that was true — a gap in
+    /// what is *handed over* is invisible to tests of either side, which is why this
+    /// asserts on the observation rather than on either component.
+    @Test("A relaunch pattern reaches the observation the detector judges")
+    func patternsReachTheDetector() {
+        let store = store()
+        var last = snapshot([record(100, command: "Crashy", startTime: 1)])
+        for generation in 2...5 {
+            let next = snapshot([record(pid_t(100 + generation), command: "Crashy",
+                                        startTime: UInt64(generation))])
+            store.recordLifecycle(from: last, to: next)
+            last = next
+        }
+
+        // A quiet machine: nothing here can pass because a resource threshold was
+        // crossed as well.
+        let observation = store.currentObservation(at: Date(), cpuBusyFraction: 0.05)
+        #expect(observation.lifecycleFindings.first?.command == "Crashy")
+        #expect(observation.breaches(.repeatedApplicationQuits, policy: .default))
+        #expect(!observation.breaches(.cpuSaturation, policy: .default))
+
+        // And through the detector, so this is the real trigger and not a flag.
+        var detectorState = IncidentDetector.State()
+        let event = IncidentDetector().observe(observation, state: &detectorState)
+        guard case .opened(let incident)? = event else {
+            Issue.record("a relaunch pattern did not open an incident: \(String(describing: event))")
+            return
+        }
+        #expect(incident.conditions == [.repeatedApplicationQuits])
+        #expect(incident.lifecycleFindings.first?.exits == 4)
+    }
+
+    /// With no pattern the observation must claim nothing, or every quiet sample
+    /// would keep a lifecycle incident alive.
+    @Test("With nothing quitting, the observation breaches no lifecycle condition")
+    func noPatternNoBreach() {
+        let store = store()
+        let observation = store.currentObservation(at: Date(), cpuBusyFraction: 0.05)
+        #expect(observation.lifecycleFindings.isEmpty)
+        #expect(!observation.breaches(.repeatedApplicationQuits, policy: .default))
+    }
+
     /// Before monitoring has run, a count of zero means "we have not been looking",
     /// and the interface must be able to tell the difference (FR-002).
     @Test("Nothing is claimed before we have watched long enough")

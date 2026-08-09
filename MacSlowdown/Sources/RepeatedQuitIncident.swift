@@ -327,9 +327,11 @@ struct RepeatedQuitReport {
         likely += "the same problem each time — a particular file, a plug-in, an export. "
         likely += "We have no way to see why it exited, only that it did, so this cannot "
         likely += "be narrowed further from here."
+        // From the pattern, not written out here, so the framework and the screen
+        // cannot come to disagree about how confident we are — the same rule
+        // `hangLimitation` follows for the copy.
         conclusions.append(Conclusion(
-            likely, evidence: .heuristic,
-            confidence: min(.low, pattern.confidence)))
+            likely, evidence: .heuristic, confidence: pattern.causeConfidence))
 
         return conclusions
     }
