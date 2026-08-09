@@ -9,10 +9,24 @@ continuously observes system resource conditions, detects *sustained*
 degradation, attributes it to application families, preserves bounded evidence
 before/during/after the event, and explains it without overstating causation.
 
-Phase 1 (m-1, core monitor) is built. Tuist project, sandboxed menu bar app,
-`Metrics` framework with the sampler, identity resolver, family grouping,
-attribution and bounded history, plus the FR-030 overhead harness. Run it with
-`./run-menubar.sh`; test with `tuist xcodebuild test -scheme AllTests`.
+Phases 1-3 (m-1 … m-3) are built: sandboxed menu bar app plus a `Metrics`
+framework carrying the sampler, identity resolution and naming, family grouping,
+attribution, bounded history, incident detection and summarisation, notifications,
+safe actions, export and privacy controls, and the FR-030 overhead harness.
+
+- Run: `./run-menubar.sh`
+- Test: `nice env TUIST_SKIP_UPDATE_CHECK=1 tuist xcodebuild test -scheme AllTests \
+  -configuration Debug -destination 'platform=macOS' -derivedDataPath .build`
+  — currently **382 passing**. Two bundles: `MetricsTests` (plain) and
+  `MacSlowdownTests` (app-hosted; `AppDelegate` skips launch work under XCTest so
+  a test run does not start monitoring or put a status item in your menu bar).
+- FR-030 measurement: `probe/overhead/run.sh 300` — standalone and authoritative.
+  Run it for **at least 300 s**; a 90 s run reads high because a one-off
+  cold-cache cost has not yet amortised (TASK-62).
+
+The app-hosted bundle occasionally fails to bootstrap under load
+("Early unexpected exit"). Re-run before investigating; it is the test runner,
+not the product.
 
 ## Working practice
 
@@ -35,6 +49,15 @@ attribution and bounded history, plus the FR-030 overhead harness. Run it with
 - Build sandboxed test binaries with `probe/build-sandboxed.sh` — it needs only
   `swiftc` + `codesign`, no Xcode project. Sandbox behavior must always be
   verified in a signed `.app`; an unsandboxed binary proves nothing about it.
+  `probe/Sources/` holds one file per question already answered; read
+  `probe/FINDINGS.md` before writing a new one.
+- **A UI criterion is not met by a passing unit test.** Several tasks carry
+  criteria left deliberately unchecked because nothing was seen on screen. If you
+  cannot look, say "not verified" and why, rather than inferring from tests.
+- **Ask before using the screen.** Launching the app, driving the UI, taking
+  screenshots or triggering a TCC prompt collides with whatever the user is
+  doing. Permission lasts about 5 minutes. Terminal work, builds, tests, probes,
+  git and Backlog need no permission.
 
 ## Authority
 
@@ -123,6 +146,30 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
   pid plus `IsRunning` / `IsRunningInput` / `IsRunningOutput` per audio process.
   Input covers microphone use, output covers playback. Verified against real
   playback, not just a zero reading.
+- **Naming: `Info.plist` is readable under the sandbox.** 145 of 151 processes in
+  a `.app` yield `CFBundleDisplayName`/`CFBundleName`; with
+  `NSRunningApplication.localizedName` 187 of 800 carry a real name and 188 a real
+  icon. Resolution order is running-application, outermost `.app`, `.appex`, then
+  the command. `.framework` is excluded — 269 processes live in one and it never
+  yields a better name. **`p_comm` is 16 bytes**: measure truncation in *bytes*,
+  and never show the fragment as if it were the name (FR-002).
+- **`NSWorkspace.icon(forFile:)` never returns nil** — it returns a generic icon.
+  Compare against `icon(for: .unixExecutable)` or the interface claims an icon it
+  does not have.
+- **PID recycling is not theoretical.** macOS wraps allocation at **99999**; on a
+  machine with 12 days of uptime the counter had already wrapped, with live
+  processes holding pids near 99999 while new ones came from ~45000. Identity is
+  always `(pid, start time)`, and any `ppid` use must reject a parent that started
+  *after* its child.
+- **`ppid` corroborates, it does not group.** 82% of the table is parented by
+  launchd, because macOS launches helpers through launchd and XPC. Where it does
+  point at a real process it confirms a path claim the signature could not, and it
+  attributes unbundled processes to the app that spawned them — 13 shells under a
+  terminal rather than 13 unrelated rows. **"Parented by launchd" is NOT
+  "unmeasurable"**: 464 of 690 launchd-parented processes are ours and readable.
+- **Measurability is decided by uid, exactly.** 599 own-uid processes, 0 denied;
+  229 other-uid, 229 denied. No exceptions either way, so a "System processes"
+  group keyed on `uid != getuid()` is precisely the unmeasurable set.
 - **The binding limit is uid, not the sandbox.** Other-uid processes
   (`WindowServer`, `mds_stores`, `backupd`, `coreaudiod`, `launchd`) are denied
   identically sandboxed and unsandboxed; only root sees them. ~40 percentage
@@ -152,6 +199,11 @@ These recur across many FRs and have burned similar products:
   recovery hysteresis; a single spike is not an incident. (FR-006, FR-011)
 - **Label every conclusion** as measured fact / derived calculation / heuristic
   hypothesis / user-provided. (FR-038)
+- **An overhead harness must exercise the path the app actually runs.** Ours
+  measured only the top few contributors while the app groups every process every
+  sweep; it reported a budget nobody was held to. Cold grouping of 844 processes
+  costs **819 ms** against **2.90 ms** warm, so a short run and a long one
+  disagree wildly. Measure over 300 s and treat first-sighting cost separately.
 - **A notification that macOS accepts is not a notification the user saw.**
   Banners are suppressed while our own app is frontmost unless a
   `UNUserNotificationCenterDelegate` returns `.banner` from `willPresent`. Verify
@@ -182,6 +234,25 @@ Non-negotiable per FR-034: VoiceOver labels, full keyboard operation, increased
 contrast and reduced transparency support. **Severity is never conveyed by
 color alone.**
 
+## Where the work stands
+
+Open, in dependency order. Read the Backlog entry before starting any of them —
+each records what was measured and what was deliberately not done.
+
+- **TASK-62** (high) — cold-start identity resolution costs 819 ms in one burst.
+  Affects FR-030 headroom and delays the first reading under FR-032.
+- **TASK-63** — the inventory opens alphabetically instead of busiest-first.
+  SwiftUI overwrites a `Table`'s `sortOrder` during layout; four approaches
+  failed, and the untried ones are listed in the task.
+- **TASK-58** — richer popover over the FR-005 history. Large; the user wants to
+  scope it in conversation first. **Do not start it unprompted.**
+- **TASK-15** (parked, high) — accessibility baseline. Needs a person with
+  VoiceOver. Several UI criteria elsewhere are parked waiting on it.
+- **TASK-45** (parked, high) — re-validate every Tier 0 finding on macOS 26.
+  Everything measured so far is macOS 27 only, and the spec targets both.
+- **TASK-50** — the Apple DTS question on `sysctl KERN_PROC_ALL`. The user's
+  action, not a work item.
+
 ## Phasing
 
 1. Core monitor — status surface, inventory, grouping, bounded history, search,
@@ -198,11 +269,18 @@ Don't build Phase N+1 infrastructure during Phase N.
 
 Not yet chosen, and not inferable from the repo:
 
-- Build system (Tuist vs. Xcode project), test framework, CI.
-- Module boundaries and persistence format.
 - Whether incidents persist across restarts, and default retention.
 - Whether summaries use an on-device model or deterministic templates (FR-013).
-- Whether raw temperature is exposed beyond public thermal state.
+- Whether to amend the spec for an optional user-installed helper. The Mac App
+  Store edition of iStat Menus reaches sensors only through a separately
+  downloaded, non-sandboxed binary — the pattern A-03/A-04/FR-037 currently
+  forbid. Raised and **set aside by the user**; do not act on it.
+
+Settled, and not to be re-opened:
+
+- Build system is **Tuist**; manifests are the source of truth. Test framework is
+  **Swift Testing**. No CI yet.
+- Raw temperature is **not** exposed. Public thermal state only.
 
 Resolved by the Tier 0 probe: per-process I/O (FR-009) and wakeups (FR-048) are
 **blocked** sandboxed — scope FR-009 to aggregate-only and drop FR-048 from the

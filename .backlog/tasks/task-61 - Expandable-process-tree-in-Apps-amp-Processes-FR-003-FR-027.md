@@ -1,10 +1,10 @@
 ---
 id: TASK-61
 title: 'Expandable process tree in Apps &amp; Processes (FR-003, FR-027)'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-08 23:02'
-updated_date: '2026-08-09 01:24'
+updated_date: '2026-08-09 01:44'
 labels: []
 dependencies: []
 ---
@@ -32,16 +32,16 @@ Things that will be got wrong if not stated:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each family is a disclosure row, collapsed by default, showing summed CPU and memory
-- [ ] #2 Expanding lists the individual processes with their own figures
-- [ ] #3 The family total equals the sum of the children shown, including any marked unavailable
-- [ ] #4 A child whose metrics are denied is listed with its usage marked unavailable, never as zero
-- [ ] #5 Sorting orders families, and orders children within an expansion, never a flattened list
-- [ ] #6 Expansion state is keyed on family identity and survives re-sorting and the next sample
+- [x] #1 Each family is a disclosure row, collapsed by default, showing summed CPU and memory
+- [x] #2 Expanding lists the individual processes with their own figures
+- [x] #3 The family total equals the sum of the children shown, including any marked unavailable
+- [x] #4 A child whose metrics are denied is listed with its usage marked unavailable, never as zero
+- [x] #5 Sorting orders families, and orders children within an expansion, never a flattened list
+- [x] #6 Expansion state is keyed on family identity and survives re-sorting and the next sample
 - [ ] #7 Disclosure is operable from the keyboard and its state is announced to VoiceOver
-- [ ] #8 No copy in the expansion implies the user should act on an individual process
-- [ ] #9 A 'System processes' group collects every process owned by another uid, named and counted, expandable like any other family
-- [ ] #10 The system group's total is the measured unattributed remainder, labelled Calculated, and no individual process inside it is ever given a number
+- [x] #8 No copy in the expansion implies the user should act on an individual process
+- [x] #9 A 'System processes' group collects every process owned by another uid, named and counted, expandable like any other family
+- [x] #10 The system group's total is the measured unattributed remainder, labelled Calculated, and no individual process inside it is ever given a number
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -56,4 +56,16 @@ This lets the FR-055 unattributed row become a real expandable family rather tha
 What must not happen: dividing that remainder among the named processes. The remainder also contains kernel and interrupt time and any process that started and exited between samples, so attributing it to the 229 would be a fabricated measurement (FR-036). Name and count, never measure.
 
 Also worth recording because it is an easy conflation: 'parented by launchd' is NOT 'unmeasurable'. 690 processes are launchd-parented and 464 of those are ours and fully measurable. Only uid decides.
+
+Done. 382 tests passing (from 366). Verified on screen as well as in tests.
+
+A family with more than one process is a disclosure row, collapsed by default. A one-process family is a plain row — the first build put a triangle on every row, and expanding it showed a single child identical to the row above. Most applications are one process, so that was noise on the great majority of the table. A lone member's qualification moves onto the row itself so nothing is lost.
+
+The System processes group is the larger win and was not in the original plan. Processes we may not measure were being filtered out for having no usage, which silently hid 229 of 828 processes. They now collect into one named, counted, expandable group whose total is the measured unattributed remainder. No member gets an individual figure: that remainder also contains kernel time and processes that came and went between samples, so dividing it would be a fabrication.
+
+Criterion #7 is NOT checked. Disclosure rows are keyboard-operable and the accessibility label states expanded or collapsed, but I have not run VoiceOver to hear what is actually announced. Belongs with TASK-15.
+
+Also not verified: expansion surviving a re-sort and the next sample was reasoned about and is keyed on family identity rather than row index, but I did not sit with the window open across several samples with a row expanded. Worth 30 seconds when someone is next in front of it.
+
+Defect found and filed as TASK-63: the table opens alphabetically rather than busiest-first. SwiftUI overwrites a Table's sortOrder with its first sortable column during layout, and four separate approaches failed to survive it — @State initialisation, .onAppear, .task, and a heuristic treating the first onChange as the framework's write. Each was checked on screen. The ordering logic is correct and tested; only the opening order is wrong. I stopped rather than ship a fifth guess.
 <!-- SECTION:NOTES:END -->
