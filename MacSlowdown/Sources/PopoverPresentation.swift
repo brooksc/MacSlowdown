@@ -554,10 +554,15 @@ enum PopoverPresentation {
     /// FR-015: muting suppresses the interruption, never the monitoring. Said
     /// plainly, because a user who mutes and then finds no history would be right
     /// to feel misled.
+    /// Delegated to `MuteAlerts` so the popover and the mute sheet cannot describe
+    /// the same mute differently.
+    ///
+    /// This used to format raw minutes, which read an indefinite mute — stored as a
+    /// long finite duration, because `MonitorStore.mute(forMinutes:)` is the only
+    /// vocabulary there is — as "muted for another 52,560,000 min". `MuteAlerts`
+    /// recognises that case and says "until you turn them back on".
     static func muteStatus(_ mute: MuteState, now: Date) -> String? {
-        guard let remaining = mute.remaining(at: now) else { return nil }
-        let minutes = max(1, Int((remaining.totalSeconds / 60).rounded()))
-        return "Alerts muted for another \(minutes) min. Monitoring is still running."
+        MuteAlerts.status(for: mute, now: now)
     }
 }
 
