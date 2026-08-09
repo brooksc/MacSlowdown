@@ -162,6 +162,161 @@ enum NowPresentation {
         return "Sampling every \(interval) (\(cadence.mode.label.lowercased()) cadence)"
     }
 
+    // MARK: - Per-metric freshness (FR-002, FR-032, design 1n)
+
+    /// How fresh one reading is, and what that follows from.
+    ///
+    /// Per metric rather than per screen — but only where the metrics genuinely
+    /// have separate ages, which on this screen is *one* of them. CPU, the
+    /// contributor list, disk throughput, swap, paging, thermal state and power
+    /// are all assigned in a single pass of `MonitorStore.run()`, so they share
+    /// one age exactly; giving them separate ones would be an invented
+    /// distinction. Memory pressure is the exception, and the reason is the
+    /// kernel's: `MemoryPressureMonitor` is a dispatch source that pushes a
+    /// transition the moment it happens, so once the store adopts those pushes the
+    /// pressure level does not wait on the sampling loop at all.
+    ///
+    /// Design 1n also shows Disk as current while CPU is stale. That is not true
+    /// of this app — disk rates are computed in the same pass as the CPU
+    /// attribution — so the card says what is true here rather than what the mock
+    /// drew (the mocks are directional).
+    enum MetricFreshness: Equatable {
+        /// Nothing has been read yet. Not "unchanged", and not zero (FR-002).
+        case noReadingYet
+        /// From the sampling loop's last pass, which arrived when it was due.
+        case current(age: Duration)
+        /// The last complete reading. The pass that would have replaced it has not
+        /// arrived, and nothing is estimated forward.
+        case stale(age: Duration)
+        /// Pushed by the kernel when it changes, so it never waits on our loop.
+        case reportedOnChange
+
+        var isStale: Bool { if case .stale = self { true } else { false } }
+
+        /// The line under the figure on a card.
+        var caption: String {
+            switch self {
+            case .noReadingYet: "no reading yet"
+            case .current: "current"
+            case .stale(let age): "as of \(NowPresentation.ageInWords(age)) ago"
+            case .reportedOnChange: "current · reported when it changes"
+            }
+        }
+
+        /// A glyph, because "this figure is old" must not be carried by grey text
+        /// alone (FR-034).
+        var symbolName: String? {
+            switch self {
+            case .stale: "exclamationmark.triangle"
+            case .noReadingYet: "clock"
+            case .current, .reportedOnChange: nil
+            }
+        }
+
+        /// What VoiceOver is told. The age reaches it in words — a dimmed value is
+        /// not a fact a screen reader can convey (FR-034).
+        var spoken: String {
+            switch self {
+            case .noReadingYet: "no reading yet"
+            case .current: "current"
+            case .stale(let age): "not current, as of \(NowPresentation.ageInWords(age)) ago"
+            case .reportedOnChange: "current, reported by the system when it changes"
+            }
+        }
+
+        /// The short form a contributor row carries, or nil when the row is current
+        /// and an age would be noise.
+        var rowCaption: String? {
+            guard case .stale(let age) = self else { return nil }
+            return "\(Int(age.totalSeconds.rounded())) s ago"
+        }
+    }
+
+    /// When a reading stops being able to describe now.
+    ///
+    /// Twice the interval we said we would sample at, with a two-second floor so a
+    /// 1 s investigation cadence is not called stale merely because the next sample
+    /// is a moment away.
+    static func staleThreshold(cadence: Duration) -> Duration {
+        max(cadence * 2, cadence + .seconds(2))
+    }
+
+    /// The age of a reading **at render time**, which is not the same fact as the
+    /// interval the sampling loop measured.
+    ///
+    /// `MonitorStore.freshness` can only be recomputed when a sample arrives, so a
+    /// loop that has stopped arriving leaves it saying `.current` forever — during
+    /// exactly the stall this screen exists to describe. Deriving the age from the
+    /// timestamp of the last reading and a clock that ticks on its own is what lets
+    /// the screen admit it (FR-032, DR-03).
+    static func metricFreshness(
+        observedAt: Date?, now: Date, cadence: Duration
+    ) -> MetricFreshness {
+        guard let observedAt else { return .noReadingYet }
+        let age = Duration.seconds(max(0, now.timeIntervalSince(observedAt)))
+        return age > staleThreshold(cadence: cadence) ? .stale(age: age) : .current(age: age)
+    }
+
+    /// An age in words. Never a bare number the reader has to decode.
+    static func ageInWords(_ age: Duration) -> String {
+        let seconds = Int(age.totalSeconds.rounded())
+        switch seconds {
+        case ..<1: return "under a second"
+        case 1: return "1 second"
+        case ..<90: return "\(seconds) seconds"
+        case ..<120: return "1 minute"
+        default: return "\(seconds / 60) minutes"
+        }
+    }
+
+    /// An interval, formatted the way the cadence line formats it.
+    static func intervalInWords(_ interval: Duration) -> String {
+        let seconds = interval.totalSeconds
+        return seconds < 1
+            ? String(format: "%.0f ms", seconds * 1000)
+            : String(format: "%.0f s", seconds)
+    }
+
+    /// The banner shown while sampling is behind (design 1n).
+    struct CatchingUpBanner: Equatable {
+        let headline: String
+        let body: String
+        /// What we are still trying to do, so "behind" does not read as "stopped".
+        let retry: String
+    }
+
+    static func catchingUpBanner(cadence: Duration) -> CatchingUpBanner {
+        CatchingUpBanner(
+            headline: "These readings are catching up",
+            body: "The system is too busy to sample right now, so we are showing the "
+                + "last reading we trust rather than guessing. Recording is still "
+                + "running — nothing is being lost, it is just arriving late.",
+            retry: "Retrying every \(intervalInWords(cadence))")
+    }
+
+    /// The qualifier on the contributor list's title, or nil while it is current.
+    static func contributorHeaderNote(_ freshness: MetricFreshness) -> String? {
+        guard case .stale(let age) = freshness else { return nil }
+        return "from the reading \(ageInWords(age)) ago — not updating right now"
+    }
+
+    /// The two sentences that must appear beneath a screen full of late figures.
+    ///
+    /// The second one is deliberately *not* the design's. Design 1n promises "the
+    /// menu bar icon runs on a higher-priority path, so it keeps updating even
+    /// while this window is behind", and that is false of this app: the sampling
+    /// loop, the store and both surfaces are on the main actor and read the same
+    /// `@Observable` state, and `MenuBarIconModel` adds a rate limit on top, so the
+    /// icon is at best exactly as current as this window and at worst two seconds
+    /// behind it. Saying so is more use to the reader than a reassurance we cannot
+    /// support (TASK-65.14 criterion #5).
+    static let staleFootnotes = [
+        "Values marked “as of …” are the last complete reading, not a current one. "
+            + "Nothing here is estimated forward.",
+        "The menu bar icon is drawn from this same reading, on the same update path, "
+            + "so it is never more up to date than this window."
+    ]
+
     // MARK: - The contributor table
 
     /// The rows Now shows: the biggest few, plus the system group whatever its

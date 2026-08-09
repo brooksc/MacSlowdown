@@ -80,6 +80,16 @@ final class MonitorStore {
     /// Current sampling cadence, exposed so the user can inspect it (FR-031).
     private(set) var cadence: SamplingCadence?
     private(set) var memoryPressure: MemoryPressureLevel = .normal
+    /// Whether the kernel's pressure notifications are reaching this store, rather
+    /// than the level only being copied on the sampling loop's next pass.
+    ///
+    /// This is what makes the Now screen's per-metric freshness a fact rather than
+    /// a decoration: when it is true, memory pressure is current even while every
+    /// other figure on the screen is late, because a dispatch source pushed it
+    /// (FR-007's two-second requirement, FR-032). When it is false — a store that
+    /// was never started — pressure is exactly as old as the last sample and the
+    /// screen says so.
+    private(set) var memoryPressureIsLive = false
     private(set) var thermalState: ThermalState = .nominal
     private(set) var power: PowerContext = PowerSignals.current()
     private(set) var pagingRates: PagingRates = .zero
@@ -638,7 +648,13 @@ final class MonitorStore {
         applyAlertSettings()
         // A dispatch source catches pressure transitions between samples, which
         // the cadence alone could not guarantee within FR-007's 2 seconds.
-        pressureMonitor.start()
+        // ...and the transition is adopted here rather than waited for, so a
+        // pressure change reaches the interface within FR-007's two seconds even
+        // when the loop is minutes behind (TASK-65.14).
+        pressureMonitor.start { [weak self] transition in
+            Task { @MainActor in self?.memoryPressure = transition.level }
+        }
+        memoryPressureIsLive = true
         task = Task { [weak self] in await self?.run() }
     }
 
@@ -654,6 +670,7 @@ final class MonitorStore {
         task?.cancel()
         task = nil
         pressureMonitor.stop()
+        memoryPressureIsLive = false
         isRunning = false
     }
 
