@@ -22,11 +22,16 @@ struct IncidentsView: View {
         IncidentHistory.entries(
             open: store.openIncident,
             recent: store.recentIncidents,
-            // Lifecycle findings belong in this list (design 1f, row four) and the
-            // row below renders them. Nothing publishes them yet: `MonitorStore`
-            // does not run a `LifecycleTracker`, so today this is always empty.
-            // Recorded in the task notes rather than faked here.
-            relaunches: [],
+            // Lifecycle findings belong in this list (design 1f, row four).
+            //
+            // TASK-65.6 built the row and left this empty because nothing published
+            // patterns; TASK-66 then wired the real `LifecycleTracker` into the
+            // store. Connected here, at the seam between the two.
+            //
+            // Bounded by the tracker's window, so an app that crashed repeatedly
+            // before monitoring started does not appear. That is a limit of what we
+            // watched, not a claim the app is healthy.
+            relaunches: store.relaunchPatterns,
             range: range)
     }
 

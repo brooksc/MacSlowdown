@@ -565,4 +565,15 @@ final class MonitorStore {
         lifecycle.relaunchPatterns(
             in: lifecycleEvents.filter { commands.contains($0.command) })
     }
+
+    /// Every relaunch pattern currently observed, for surfaces that list findings
+    /// rather than ask about one application — the incidents history in particular.
+    ///
+    /// Bounded by the tracker's own window, so this is "what we have watched",
+    /// never "what has ever happened". A caller must not present it as the latter:
+    /// an app that crashed repeatedly before monitoring started is invisible here,
+    /// which is a limit of observation, not evidence of health (FR-045, FR-046).
+    var relaunchPatterns: [RelaunchPattern] {
+        lifecycle.relaunchPatterns(in: lifecycleEvents)
+    }
 }

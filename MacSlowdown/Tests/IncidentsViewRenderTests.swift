@@ -132,16 +132,32 @@ struct IncidentsViewRenderTests {
     /// this builds the same rows the view builds.
     @Test("A populated list draws its rows")
     func populatedListDrawsRows() {
+        // Dated relative to now, because `IncidentHistory.entries` filters by
+        // range. Fixed 1970 timestamps fall outside every range and produce an
+        // empty list, which would pass an "is anything drawn" assertion only by
+        // drawing the *empty* state — the exact failure this test exists to catch.
+        let now = Date()
         let incidents = (0..<3).map { index in
-            Incident(
-                id: UUID(), beganAt: Date(timeIntervalSince1970: Double(1000 - index)),
-                triggeredAt: Date(), recoveryStartedAt: nil, closedAt: Date(),
+            let began = now.addingTimeInterval(-3600 * Double(index + 1))
+            return Incident(
+                id: UUID(), beganAt: began,
+                triggeredAt: began, recoveryStartedAt: nil,
+                closedAt: began.addingTimeInterval(600),
                 conditions: [.cpuSaturation], severity: .high,
                 peakCPUBusyFraction: 0.9, peakMemoryPressure: .normal)
         }
+        // Built through `IncidentHistory.entries` rather than by hand, so this
+        // test keeps exercising the row the view actually renders. `IncidentRow`
+        // took an `Incident` when this was written and takes an `Entry` since
+        // TASK-65.6; going through the same builder the view uses means the next
+        // such change breaks the builder's own tests rather than silently
+        // bypassing this one.
+        let entries = IncidentHistory.entries(
+            open: nil, recent: incidents, relaunches: [], range: .month, now: now)
+        #expect(entries.count == 3, "fixtures must fall inside the range")
         let ink = detailColumnInk(
             MainWindowShape {
-                List(incidents) { IncidentRow(incident: $0) }
+                List(entries) { IncidentRow(entry: $0) }
                     .navigationTitle("Incidents")
             },
             size: CGSize(width: 900, height: 600))
