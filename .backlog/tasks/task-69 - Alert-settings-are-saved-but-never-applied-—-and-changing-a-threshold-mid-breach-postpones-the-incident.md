@@ -3,9 +3,10 @@ id: TASK-69
 title: >-
   Alert settings are saved but never applied — and changing a threshold
   mid-breach postpones the incident
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 05:17'
+updated_date: '2026-08-09 06:45'
 labels:
   - core
 milestone: m-3
