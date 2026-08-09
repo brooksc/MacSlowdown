@@ -437,9 +437,15 @@ private struct AppRulesSettingsTab: View {
 
 /// The audit trail behind a rule (FR-016).
 ///
-/// A suppression that hides its own effects is how a monitoring tool quietly
-/// stops working, so this list exists even when — as now — nothing has been
-/// suppressed. The empty state says which of the two it is.
+/// A suppression that hides its own effects is how a monitoring tool quietly stops
+/// working, so this list exists even when nothing has been suppressed, and the
+/// empty state says which of the two it is. Until TASK-76 that was the *only* state
+/// it could show: the gate withheld alerts and nothing recorded that it had, so the
+/// sentence below was printed whether or not it was true.
+///
+/// Only per-application rules appear here. A muted alert and one held during audio
+/// were withheld too, but neither is a rule about an application — see
+/// `SuppressionCause`.
 private struct SuppressedDetectionsSheet: View {
     @Environment(\.dismiss) private var dismiss
     private var detections: [SuppressedDetection] {
@@ -452,7 +458,8 @@ private struct SuppressedDetectionsSheet: View {
             if detections.isEmpty {
                 Text("Nothing has been suppressed by a rule. Every slowdown MacSlowdown "
                      + "detected was either announced or held back for another reason, "
-                     + "such as being below the severity you asked about.")
+                     + "such as being below the severity you asked about, muted, or "
+                     + "held during audio — none of which are listed here.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -517,9 +524,20 @@ private struct PrivacySettingsTab: View {
                     Text(usage)
                 }
 
+                // TASK-79. The old copy — "Helps identify which copy of an app was
+                // running" — described a control that did nothing: paths were
+                // recorded either way. What is actually a choice is whether a
+                // location is written into the incident history that persists for
+                // up to ninety days, and the second sentence says plainly what is
+                // not a choice, because path *resolution* is how processes are
+                // grouped and icons found and cannot be switched off.
                 Toggle(isOn: $settings.recordFilePaths) {
-                    Text("Record file paths")
-                    Text("Helps identify which copy of an app was running. Off by default.")
+                    Text("Record file paths with incidents")
+                    Text("Saves where each app was launched from alongside a recorded "
+                         + "incident, so you can tell which copy was running. "
+                         + "MacSlowdown always reads locations while monitoring — that "
+                         + "is how it groups an app's processes and finds its icon — so "
+                         + "this changes only what is written to disk. Off by default.")
                 }
 
                 // Not a control, and no longer an open question: the product

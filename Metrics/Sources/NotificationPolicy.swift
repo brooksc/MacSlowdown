@@ -1,16 +1,46 @@
 import Foundation
 
+/// Why an alert was withheld, as a fact the app can act on rather than a sentence
+/// written for a person (FR-014, FR-015, FR-016, FR-019).
+///
+/// Only one of these is *a rule the user wrote about an application*, and that is
+/// the only one FR-016's audit trail is about. Answering "why was I not told" with
+/// "you muted alerts" when the truth was "you marked Xcode expected" — or the
+/// reverse — would make the trail worse than no trail at all. `reason` is the
+/// sentence and this is the cause; they are produced in the same place so they
+/// cannot disagree, which parsing the sentence back out would not guarantee.
+public enum SuppressionCause: Sendable, Equatable {
+    /// The "tell me about slowdowns" switch is off.
+    case alertsOff
+    case belowMinimumSeverity
+    /// A per-application rule (FR-016), naming the application the rule is about.
+    case applicationPolicy(application: String)
+    /// Muted for a period (FR-015). A rule about *time*, not about an application.
+    case muted
+    case focus
+    /// Held during playback, a call or recording (FR-019).
+    case audio
+    /// The one-alert-per-incident rule, which is not a user preference at all.
+    case alreadyAnnounced
+}
+
 /// Why a notification was or was not delivered. Recorded rather than discarded,
 /// so a user who wonders why they were not told can find out (FR-014, FR-016).
 public enum NotificationDecision: Sendable, Equatable {
     case send(reason: String)
-    case suppress(reason: String)
+    case suppress(reason: String, cause: SuppressionCause)
 
     public var shouldSend: Bool { if case .send = self { true } else { false } }
     public var reason: String {
         switch self {
-        case .send(let reason), .suppress(let reason): reason
+        case .send(let reason), .suppress(let reason, _): reason
         }
+    }
+
+    /// The cause, or nil for a decision to send.
+    public var suppressionCause: SuppressionCause? {
+        if case .suppress(_, let cause) = self { return cause }
+        return nil
     }
 }
 
@@ -115,37 +145,44 @@ public struct NotificationGate: Sendable {
         state: inout State
     ) -> NotificationDecision {
         if !settings.announcesIncidents {
-            return .suppress(reason: "you asked not to be told about slowdowns")
+            return .suppress(reason: "you asked not to be told about slowdowns",
+                             cause: .alertsOff)
         }
 
         if incident.severity < settings.minimumSeverity {
-            return .suppress(reason: "below the severity you asked to hear about")
+            return .suppress(reason: "below the severity you asked to hear about",
+                             cause: .belowMinimumSeverity)
         }
 
         if let contributor = leadingContributor,
            settings.expectedApplications.contains(contributor) {
-            return .suppress(reason: "you marked \(contributor) as expected")
+            return .suppress(reason: "you marked \(contributor) as expected",
+                             cause: .applicationPolicy(application: contributor))
         }
 
         if mute.isMuted(at: date) {
             let remaining = mute.remaining(at: date).map { Int($0.totalSeconds / 60) } ?? 0
-            return .suppress(reason: "alerts are muted for another \(remaining) minutes")
+            return .suppress(reason: "alerts are muted for another \(remaining) minutes",
+                             cause: .muted)
         }
 
         if settings.respectFocus, context.focusActive {
-            return .suppress(reason: "Focus is on — this is waiting for you in Incidents")
+            return .suppress(reason: "Focus is on — this is waiting for you in Incidents",
+                             cause: .focus)
         }
 
         if settings.deferDuringAudio, context.audioActive {
             let application = context.audioApplication.map { " (\($0))" } ?? ""
             return .suppress(
-                reason: "audio is playing or the microphone is in use\(application)")
+                reason: "audio is playing or the microphone is in use\(application)",
+                cause: .audio)
         }
 
         // The core rule: announce once, and again only on material escalation.
         if let alreadyAnnounced = state.announced[incident.id] {
             guard incident.severity > alreadyAnnounced else {
-                return .suppress(reason: "already announced this incident")
+                return .suppress(reason: "already announced this incident",
+                                 cause: .alreadyAnnounced)
             }
             state.announced[incident.id] = incident.severity
             return .send(reason: "severity rose to \(incident.severity.label.lowercased())")

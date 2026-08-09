@@ -206,6 +206,79 @@ final class MonitorStore {
         }
         return false
     }
+
+    // MARK: - Announcing an incident (FR-014, FR-015, FR-016, FR-019)
+
+    /// Decides whether an incident interrupts the user, writes down a decision not
+    /// to, and hands an approved one to delivery.
+    ///
+    /// A method rather than a block inside `run()` for exactly the reason TASK-76
+    /// exists: the gate's `.suppress` was computed in the sampling loop and dropped
+    /// on the floor, and neither side's tests could see that. The gate was correct
+    /// and `PolicyStore.recordSuppression` was correct; nothing joined them. This is
+    /// the join, and it is drivable without running the sampler.
+    ///
+    /// Returns the decision so a caller — and a test — can assert on what was
+    /// decided rather than on whether a notification appeared, which is a separate
+    /// fact macOS owns.
+    @discardableResult
+    func announce(
+        incident: Incident,
+        leadingContributor: String?,
+        context: InterruptionContext,
+        at date: Date = Date()
+    ) -> NotificationDecision {
+        // The gate decides; delivery only carries out an approved decision.
+        let decision = notificationGate.decide(
+            incident: incident,
+            leadingContributor: leadingContributor,
+            mute: mute,
+            context: context,
+            at: date,
+            state: &notificationState)
+
+        // Only a per-application rule is written to the audit trail. A mute or an
+        // audio deferral withheld the alert too, but neither is a rule about an
+        // application, and listing them under "what your rules hid" would be the
+        // misattribution FR-016's trail exists to prevent.
+        if case .applicationPolicy(let application) = decision.suppressionCause {
+            recordPolicySuppression(application: application, incident: incident, at: date)
+        }
+
+        Task { [notifications] in
+            await notifications.deliver(
+                decision: decision, incident: incident,
+                leadingContributor: leadingContributor)
+        }
+        return decision
+    }
+
+    /// FR-016's audit trail: a rule that withholds an alert writes down that it did.
+    ///
+    /// Recorded in two places on purpose. `PolicyStore` holds the standalone trail
+    /// the Apps tab lists — "what your rules hid" — and the incident holds the same
+    /// event so its own row can say *not alerted, because you marked this expected*
+    /// without the reader having to correlate two lists by hand.
+    ///
+    /// The classification comes from the rule that actually matched, never from a
+    /// default: writing `.expected` for a rule we could not find would be inventing
+    /// the user's decision. If no rule is found nothing is recorded, and the gate's
+    /// own reason string still explains the suppression.
+    private func recordPolicySuppression(
+        application: String, incident: Incident, at date: Date
+    ) {
+        guard let rule = policies.policies.first(where: { $0.displayName == application })
+        else { return }
+        let detection = SuppressedDetection(
+            application: application,
+            classification: rule.classification,
+            at: date,
+            severity: incident.severity,
+            incidentID: incident.id)
+        policies.recordSuppression(detection)
+        record(suppression: detection)
+    }
+
     private(set) var lastUpdate: Date?
     private(set) var isRunning = false
     let machine = MachineContext.current()
@@ -317,7 +390,9 @@ final class MonitorStore {
     private let pressureMonitor = MemoryPressureMonitor()
     private var notificationGate = NotificationGate()
     private var notificationState = NotificationGate.State()
-    let notifications = NotificationDelivery()
+    /// Injectable only so a test can drive `announce` without a banner appearing on
+    /// the user's screen. The app always uses the system centre.
+    let notifications: NotificationDelivery
     private var previousPaging: PagingCounters?
     private var previousDisk: DiskCounters?
     private var previousOwn: UInt64?
@@ -411,7 +486,9 @@ final class MonitorStore {
          storage: StorageScreenModel = .shared,
          alertSettings: AlertSettings? = nil,
          incidentHistory: IncidentHistoryStore = IncidentHistoryStore(url: nil),
-         evidenceDirectory: URL? = StoredData.directory) {
+         evidenceDirectory: URL? = StoredData.directory,
+         notifications: NotificationDelivery = NotificationDelivery()) {
+        self.notifications = notifications
         self.evidenceDirectory = evidenceDirectory
         self.baseCadence = cadence
         self.history = history
@@ -436,6 +513,58 @@ final class MonitorStore {
     /// detector directly).
     private var privacySettings: PrivacySettings {
         alertSettings?.privacySettings ?? .default
+    }
+
+    // MARK: - "Record file paths" (FR-029, TASK-79)
+
+    /// An attribution sample as it will be **recorded**, honouring the user's
+    /// choice about executable locations.
+    ///
+    /// The distinction this rests on is between reading a path and keeping one.
+    /// MacSlowdown cannot stop reading them: the outermost `.app` in the executable
+    /// path is what groups an application's processes and what finds its icon, so a
+    /// setting that stopped path *resolution* would stop the product working, and a
+    /// setting that claimed to and did not would be worse. What is a genuine choice
+    /// is whether a location is written into the incident history that persists on
+    /// disk for up to ninety days — and the shipped default says no, which until
+    /// now the app did not honour.
+    ///
+    /// `applicationID` is rewritten too, and has to be: it *is* the bundle path
+    /// wherever one exists, so leaving it would keep the location on disk under a
+    /// different field name. The name-keyed form is the same fallback the framework
+    /// already uses for the ~85% of processes that live in no bundle, so recurrence
+    /// across incidents still works — it just cannot tell two applications with the
+    /// same display name apart, which is the cost of the choice.
+    ///
+    /// `bundleID` is kept. A signing identifier is not a location on this Mac; it
+    /// says which application, not where the user put it.
+    nonisolated static func withoutFilePaths(_ sample: AttributionSample)
+        -> AttributionSample {
+        AttributionSample(
+            applications: sample.applications.map {
+                IncidentContributor(
+                    applicationID: "name:\($0.displayName)",
+                    displayName: $0.displayName,
+                    bundleID: $0.bundleID,
+                    bundlePath: nil,
+                    peakPercentOfOneCore: $0.peakPercentOfOneCore,
+                    hasUncertainMembers: $0.hasUncertainMembers)
+            },
+            totalBusyPercentOfOneCore: sample.totalBusyPercentOfOneCore,
+            attributedPercentOfOneCore: sample.attributedPercentOfOneCore,
+            unattributedPercentOfOneCore: sample.unattributedPercentOfOneCore,
+            logicalCoreCount: sample.logicalCoreCount)
+    }
+
+    /// Applies the setting to one sample on its way to the detector.
+    ///
+    /// Applied here rather than at the point of writing to disk because an incident
+    /// holds its attribution in memory too, and a screen showing a path the user
+    /// asked not to record would be the same broken promise a moment earlier.
+    /// Changing the setting mid-incident leaves whatever was already merged as it
+    /// was; only later samples are affected.
+    func recordable(_ sample: AttributionSample) -> AttributionSample {
+        privacySettings.recordFilePaths ? sample : Self.withoutFilePaths(sample)
     }
 
     // MARK: - Applying the user's alert settings (TASK-69, FR-006, FR-014)
@@ -625,8 +754,8 @@ final class MonitorStore {
             // sustained duration, so the snapshot is always there before the
             // detector needs it.
             if breaching || detectorState.current != nil {
-                observation.attribution = AttributionSample.from(
-                    attribution: result, families: grouped)
+                observation.attribution = recordable(
+                    AttributionSample.from(attribution: result, families: grouped))
             }
 
             let event = detector.observe(observation, state: &detectorState)
@@ -638,12 +767,9 @@ final class MonitorStore {
             openIncident = detectorState.current
             switch event {
             case .opened(let incident), .updated(let incident):
-                // The gate decides; delivery only carries out an approved decision.
-                let leadingContributor = result.contributors.first?.label
-                let decision = notificationGate.decide(
+                announce(
                     incident: incident,
-                    leadingContributor: leadingContributor,
-                    mute: mute,
+                    leadingContributor: result.contributors.first?.label,
                     // `focusActive` is deliberately left at its default. No public
                     // API reports the current Focus mode to a sandboxed app, and
                     // guessing would be a fabricated measurement. Focus is still
@@ -652,13 +778,7 @@ final class MonitorStore {
                     // gate's own check stands ready for a signal we can measure.
                     context: InterruptionContext(
                         audioActive: AudioSignals.isAnyProcessPlaying(),
-                        audioApplication: AudioSignals.firstActiveProcessName()),
-                    state: &notificationState)
-                Task { [notifications] in
-                    await notifications.deliver(
-                        decision: decision, incident: incident,
-                        leadingContributor: leadingContributor)
-                }
+                        audioApplication: AudioSignals.firstActiveProcessName()))
             case .closed(let incident):
                 openIncident = nil
                 // The store applies both bounds and writes; what it returns is what

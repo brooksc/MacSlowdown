@@ -172,6 +172,12 @@ final class AlertSettings {
     // MARK: - Privacy
 
     /// FR-029: off by default, and an explicit opt-in when it is on.
+    ///
+    /// Read by `MonitorStore.recordable(_:)`, which is what makes it a control
+    /// rather than a stored value (TASK-79). It governs what is *kept* — the
+    /// executable location written into an incident record — not whether paths are
+    /// resolved, which grouping and icons depend on and which no setting can turn
+    /// off without breaking them.
     var recordFilePaths: Bool {
         didSet { defaults.set(recordFilePaths, forKey: Key.recordFilePaths) }
     }
@@ -212,10 +218,17 @@ final class AlertSettings {
                     .map(\.displayName)))
     }
 
-    /// The privacy settings these describe. `persistAcrossRestarts` is left at the
-    /// type's own default and is **not** surfaced as a control: whether incident
-    /// history survives a restart is an open product decision, and building the
-    /// switch would settle it by accident.
+    /// The privacy settings these describe.
+    ///
+    /// Read by `MonitorStore.privacySettings`, which applies the retention period
+    /// to stored incidents on every write and on every sample (TASK-72) and decides
+    /// whether an executable location is recorded (TASK-79). Nothing here is a
+    /// stored value with no reader.
+    ///
+    /// `persistAcrossRestarts` is left at the type's own default and is **not**
+    /// surfaced as a control: the product decision is that history persists, and the
+    /// Privacy tab states that rather than offering a switch whose off position
+    /// would silently throw recorded evidence away.
     var privacySettings: PrivacySettings {
         PrivacySettings(
             retention: retention,

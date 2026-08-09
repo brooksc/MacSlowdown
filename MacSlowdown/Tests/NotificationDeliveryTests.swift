@@ -90,10 +90,16 @@ struct NotificationDeliveryTests {
         centre.status = .authorized
         let delivery = NotificationDelivery(centre: centre)
 
-        for reason in ["muted", "Focus is on", "already announced this incident",
-                       "audio is playing", "you marked Xcode as expected"] {
+        let suppressions: [(String, SuppressionCause)] = [
+            ("muted", .muted),
+            ("Focus is on", .focus),
+            ("already announced this incident", .alreadyAnnounced),
+            ("audio is playing", .audio),
+            ("you marked Xcode as expected", .applicationPolicy(application: "Xcode")),
+        ]
+        for (reason, cause) in suppressions {
             let sent = await delivery.deliver(
-                decision: .suppress(reason: reason), incident: incident(),
+                decision: .suppress(reason: reason, cause: cause), incident: incident(),
                 leadingContributor: "bash")
             #expect(!sent)
         }
@@ -414,7 +420,8 @@ struct AlertOutcomeTests {
         let subject = incident()
 
         let sent = await delivery.deliver(
-            decision: .suppress(reason: "alerts are muted for another 42 minutes"),
+            decision: .suppress(reason: "alerts are muted for another 42 minutes",
+                                cause: .muted),
             incident: subject, leadingContributor: "Xcode")
 
         #expect(!sent)
@@ -457,7 +464,7 @@ struct AlertOutcomeTests {
 
         for _ in 0..<260 {
             await delivery.deliver(
-                decision: .suppress(reason: "muted"), incident: incident(),
+                decision: .suppress(reason: "muted", cause: .muted), incident: incident(),
                 leadingContributor: nil)
         }
         #expect(delivery.outcomes.count == 200)
@@ -473,7 +480,8 @@ struct AlertOutcomeTests {
         let subject = incident()
 
         await delivery.deliver(
-            decision: .suppress(reason: "muted"), incident: subject, leadingContributor: nil)
+            decision: .suppress(reason: "muted", cause: .muted), incident: subject,
+            leadingContributor: nil)
         await delivery.deliver(
             decision: .send(reason: "severity rose to severe"), incident: subject,
             leadingContributor: nil)
