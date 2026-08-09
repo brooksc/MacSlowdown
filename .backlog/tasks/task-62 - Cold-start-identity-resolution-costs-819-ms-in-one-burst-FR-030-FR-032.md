@@ -1,10 +1,10 @@
 ---
 id: TASK-62
 title: 'Cold-start identity resolution costs 819 ms in one burst (FR-030, FR-032)'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 01:12'
-updated_date: '2026-08-09 01:13'
+updated_date: '2026-08-09 01:46'
 labels:
   - core
 milestone: m-3

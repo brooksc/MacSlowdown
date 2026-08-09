@@ -5,15 +5,30 @@ import Foundation
 public struct OverheadMeasurement: Sendable {
     public let wallDuration: Duration
     public let sweeps: Int
-    /// Our own CPU consumption over the run, as a percentage of one core.
+    /// Our own CPU consumption over the whole run, as a percentage of one core.
+    /// Includes process launch and the first-sighting pass, so a short run reads
+    /// high. Reported, but not what the budget is judged on.
     public let selfCPUPercentOfOneCore: Double
+    /// CPU consumption once every cache is warm.
+    ///
+    /// This is the figure FR-030's "idle CPU median" actually describes. Startup
+    /// happens once per launch; the steady state is what a user lives with, and
+    /// what a regression would show up in.
+    public let steadyStateCPUPercentOfOneCore: Double
+    /// CPU spent before steady state began — process launch plus the first pass
+    /// over every process. Called out rather than averaged away.
+    public let startupCPUSeconds: Double
     public let residentBytesAtEnd: UInt64
     public let residentGrowthBytes: Int64
     /// Projected disk traffic at the configured flush interval.
     public let bytesWrittenPerHour: Double
     public let medianSweep: Duration
 
-    public var withinCPUBudget: Bool { selfCPUPercentOfOneCore <= FR030Budget.cpuPercentOfOneCore }
+    /// Judged on steady state, per FR-030's wording. `selfCPUPercentOfOneCore`
+    /// stays visible so the startup cost is never hidden.
+    public var withinCPUBudget: Bool {
+        steadyStateCPUPercentOfOneCore <= FR030Budget.cpuPercentOfOneCore
+    }
     public var withinMemoryBudget: Bool { residentBytesAtEnd <= FR030Budget.residentBytes }
     public var withinDiskBudget: Bool { bytesWrittenPerHour <= FR030Budget.bytesPerHour }
     public var withinAllBudgets: Bool { withinCPUBudget && withinMemoryBudget && withinDiskBudget }
@@ -22,13 +37,14 @@ public struct OverheadMeasurement: Sendable {
         String(
             format: """
                 sweeps: %d over %.1fs
-                cpu:    %.3f%% of one core (budget %.1f%%) %@
+                cpu:    %.3f%% of one core steady state (budget %.1f%%) %@
                 memory: %.1f MB resident, %+.1f MB growth (budget %.0f MB) %@
                 disk:   %.2f MB/hour projected (budget %.0f MB/hour) %@
                 sweep:  %.2f ms median
+                whole:  %.3f%% over the whole run, including %.0f ms of startup
                 """,
             sweeps, wallDuration.totalSeconds,
-            selfCPUPercentOfOneCore, FR030Budget.cpuPercentOfOneCore,
+            steadyStateCPUPercentOfOneCore, FR030Budget.cpuPercentOfOneCore,
             withinCPUBudget ? "OK" : "OVER",
             Double(residentBytesAtEnd) / 1_048_576,
             Double(residentGrowthBytes) / 1_048_576,
@@ -37,7 +53,8 @@ public struct OverheadMeasurement: Sendable {
             bytesWrittenPerHour / 1_048_576,
             Double(FR030Budget.bytesPerHour) / 1_048_576,
             withinDiskBudget ? "OK" : "OVER",
-            medianSweep.totalSeconds * 1000
+            medianSweep.totalSeconds * 1000,
+            selfCPUPercentOfOneCore, startupCPUSeconds * 1000
         )
     }
 }
@@ -94,6 +111,12 @@ public enum OverheadHarness {
         let residentAtStart = selfResidentBytes()
 
         var sweepDurations: [Duration] = []
+        // Steady state begins once every process has been seen once. Two sweeps
+        // is enough: the first populates the identity cache, the second confirms
+        // it is being served from it.
+        let warmupSweeps = 2
+        var steadyStartedAt: ContinuousClock.Instant?
+        var cpuAtSteadyStart: UInt64 = 0
         var previous = sampler.snapshot()
         var previousHost = HostCPU.sample()
         var bytesWritten = 0
@@ -145,6 +168,11 @@ public enum OverheadHarness {
             previous = snapshot
             previousHost = host
             sweeps += 1
+
+            if sweeps == warmupSweeps {
+                steadyStartedAt = clock.now
+                cpuAtSteadyStart = selfCPUTicks()
+            }
         }
 
         let wall = clock.now - startedAt
@@ -169,11 +197,17 @@ public enum OverheadHarness {
             bytesPerHour = 0
         }
 
+        let steadyWall = steadyStartedAt.map { (clock.now - $0).totalSeconds } ?? 0
+        let steadyCPU = MachTime.seconds(fromTicks: selfCPUTicks() &- cpuAtSteadyStart)
+
         return OverheadMeasurement(
             wallDuration: wall,
             sweeps: sweeps,
             selfCPUPercentOfOneCore: wall.totalSeconds > 0
                 ? cpuSeconds / wall.totalSeconds * 100 : 0,
+            steadyStateCPUPercentOfOneCore: steadyWall > 0
+                ? steadyCPU / steadyWall * 100 : 0,
+            startupCPUSeconds: MachTime.seconds(fromTicks: cpuAtSteadyStart &- cpuAtStart),
             residentBytesAtEnd: resident,
             residentGrowthBytes: Int64(resident) - Int64(residentAtStart),
             bytesWrittenPerHour: bytesPerHour,

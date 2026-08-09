@@ -100,10 +100,24 @@ public final class ProcessIdentityResolver: Sendable {
 
     static func resolve(pid: pid_t) -> ResolvedIdentity {
         let path = executablePath(pid: pid)
-        let signature = codeSignature(pid: pid)
+        let appBundlePath = path.flatMap(outermostAppBundle)
+
+        // The signature is asked for only when it can change an answer.
+        //
+        // Measured: it is 774 ms of the 819 ms a cold pass over 801 processes
+        // costs — 94%, at 0.97 ms per call, against 0.003 ms for the path and
+        // 0.023 ms for naming. The only thing it decides is how confident a
+        // family membership is, and `classify` runs solely for processes inside a
+        // `.app`. About 85% of the table is standalone, where membership is
+        // trivially certain because the process is its own family, so paying for a
+        // signature there buys nothing.
+        let signature = appBundlePath == nil
+            ? (bundleID: nil, teamID: nil)
+            : codeSignature(pid: pid)
+
         return ResolvedIdentity(
             executablePath: path,
-            appBundlePath: path.flatMap(outermostAppBundle),
+            appBundlePath: appBundlePath,
             bundleID: signature.bundleID,
             teamID: signature.teamID,
             // Resolved here so it lands in the same (pid, start time) cache as

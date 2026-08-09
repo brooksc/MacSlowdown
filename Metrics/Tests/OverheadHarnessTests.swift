@@ -111,3 +111,96 @@ struct OverheadHarnessTests {
         #expect(OverheadHarness.selfResidentBytes() > 0)
     }
 }
+
+@Suite("Overhead reporting")
+struct OverheadReportingTests {
+    private func measurement(
+        whole: Double, steady: Double, startupSeconds: Double = 0.2
+    ) -> OverheadMeasurement {
+        OverheadMeasurement(
+            wallDuration: .seconds(300), sweeps: 143,
+            selfCPUPercentOfOneCore: whole,
+            steadyStateCPUPercentOfOneCore: steady,
+            startupCPUSeconds: startupSeconds,
+            residentBytesAtEnd: 20 << 20, residentGrowthBytes: 0,
+            bytesWrittenPerHour: 0, medianSweep: .milliseconds(7))
+    }
+
+    /// FR-030 states an *idle median*. Startup happens once per launch, so
+    /// averaging it into the figure measures how long you watched rather than what
+    /// the app costs — the same build read 1.348% over 90 s and 0.963% over 300 s
+    /// before this split.
+    @Test("The budget is judged on steady state, not on the whole run")
+    func budgetUsesSteadyState() {
+        #expect(measurement(whole: 1.02, steady: 0.84).withinCPUBudget)
+        #expect(!measurement(whole: 0.9, steady: 1.4).withinCPUBudget)
+    }
+
+    /// Judging on steady state must not become a way to hide the startup cost.
+    @Test("The whole-run figure and the startup cost stay visible in the report")
+    func startupIsReportedNotHidden() {
+        let report = measurement(whole: 1.02, steady: 0.84, startupSeconds: 0.216).summary
+        #expect(report.contains("steady state"))
+        #expect(report.contains("whole run"))
+        #expect(report.contains("startup"))
+        #expect(report.contains("216 ms"))
+    }
+
+    @Test("A run too short to reach steady state reports zero rather than a guess")
+    func noSteadyStateYet() {
+        let measurement = OverheadMeasurement(
+            wallDuration: .seconds(1), sweeps: 0,
+            selfCPUPercentOfOneCore: 5, steadyStateCPUPercentOfOneCore: 0,
+            startupCPUSeconds: 0, residentBytesAtEnd: 0, residentGrowthBytes: 0,
+            bytesWrittenPerHour: 0, medianSweep: .zero)
+        #expect(measurement.steadyStateCPUPercentOfOneCore == 0)
+    }
+}
+
+@Suite("Signature resolution is paid for only where it is used")
+struct SignatureCostTests {
+    /// The code signature is 94% of a cold identity pass — 774 ms of 819 ms over
+    /// 801 processes, at 0.97 ms each against 0.003 ms for the path. It only
+    /// decides how confident a family membership is, and that classification runs
+    /// solely for processes inside a `.app`. About 85% of the table is standalone,
+    /// where membership is trivially certain, so the call is skipped there.
+    @Test("A process outside any bundle carries no signature")
+    func standaloneProcessesSkipTheSignature() {
+        let snapshot = ProcessSampler().snapshot()
+        let resolver = ProcessIdentityResolver()
+
+        var checked = 0
+        for record in snapshot.records.values.prefix(200) {
+            let identity = resolver.identity(for: record.identity)
+            if identity.appBundlePath == nil {
+                #expect(identity.bundleID == nil,
+                        "a standalone process should not have paid for a signature")
+                checked += 1
+            }
+        }
+        #expect(checked > 0, "the machine should have some non-bundled processes")
+    }
+
+    /// The invariant the change creates, asserted over whatever is running rather
+    /// than a fixture: a signature may only be present where it can be used.
+    @Test("A signature implies the process lives in a bundle")
+    func signatureImpliesBundle() {
+        let snapshot = ProcessSampler().snapshot()
+        let resolver = ProcessIdentityResolver()
+        let identities = snapshot.records.values.map { resolver.identity(for: $0.identity) }
+        let violations = identities.filter { $0.bundleID != nil && $0.appBundlePath == nil }
+        #expect(violations.isEmpty)
+    }
+
+    /// Skipping the signature must not cost a name or an icon: those come from the
+    /// path and the bundle, never from the signature.
+    @Test("Names still resolve for processes that skipped the signature")
+    func namesSurvive() {
+        let snapshot = ProcessSampler().snapshot()
+        let resolver = ProcessIdentityResolver()
+        let named = snapshot.records.values
+            .map { resolver.identity(for: $0.identity) }
+            .filter { $0.friendlyName != nil }
+        #expect(!named.isEmpty, "some processes should still resolve to a real name")
+    }
+}

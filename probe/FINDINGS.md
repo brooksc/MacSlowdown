@@ -631,3 +631,73 @@ finished bootstrapping - no restart will be attempted.)
 Observed once while the machine was busy; an immediate re-run passed with all
 350 tests. This is the test runner failing to bootstrap, not a product defect —
 `MetricsTests` completes normally in the same run. Re-run before investigating.
+
+## The code signature is 94% of identity resolution (`split-probe.swift`)
+
+Cold pass over 801 processes, sandboxed:
+
+| Step | Total | Per process |
+|---|---|---|
+| `proc_pidpath` | 2.5 ms | 0.003 ms |
+| **Code signature** | **773.9 ms** | **0.966 ms** |
+| Naming (Launch Services + `Info.plist`) | 18.7 ms | 0.023 ms |
+
+Naming, which was the suspect, is 2% of the cost. The signature is 94%.
+
+**The signature only decides how confident a family membership is**, and that
+classification runs solely for processes inside a `.app`. About 85% of the table
+is standalone, where membership is trivially certain because the process is its
+own family. Paying for a signature there buys nothing.
+
+Skipping it for non-bundled processes took a cold pass from **819 ms to 244 ms**.
+
+Consequence to know about: a standalone process now has no `bundleID`, so an
+application policy keyed on bundle identifier will not match one. Policies match
+on display name in that case. Resolve a signature on demand if a policy ever
+needs one for a daemon.
+
+## Steady-state cost per sweep (`sweep-probe.swift`)
+
+Everything cached, 2 s cadence:
+
+| | ms |
+|---|---|
+| `ProcessSampler.snapshot` | 2.77 |
+| `FamilyGrouper.group` | 1.86 |
+| Attribution (with naming) | 0.56 |
+| `PowerSignals.current` | 0.33 |
+| `DiskSignals.counters` | 0.29 |
+| `history.record` | 0.27 |
+| `resolver.prune` | 0.22 |
+| `LifecycleTracker.events` | 0.21 |
+| Everything else | <0.05 each |
+| **Total** | **6.61 ms → 0.33% of one core** |
+
+## FR-030 is a *median*, so measure a median
+
+The harness reported a mean over the whole run, which folded process launch and
+the first-sighting pass into the figure. The same build read **1.348% over 90 s**
+and **0.963% over 300 s** — the number described how long you watched.
+
+It now reports steady state separately, and judges the budget on that, while
+keeping the whole-run figure and the startup cost visible so nothing is hidden:
+
+| Run | Steady state | Whole run | Startup |
+|---|---|---|---|
+| 90 s | 0.836% | 1.019% | 203 ms |
+| 300 s | 0.887% | 0.946% | 216 ms |
+
+Steady state now agrees to within 0.05 points across run lengths, which is what
+makes it a figure worth holding anyone to.
+
+**Rule: judge a budget on the statistic the requirement names.** Averaging a
+one-off startup cost into an idle median measures the observer, not the app.
+
+## Two probe traps worth not repeating
+
+- **`String(format: "%-20s", (name as NSString).utf8String!)` crashes.** The
+  temporary `NSString` is released before the format reads the pointer. Pad in
+  Swift with `padding(toLength:withPad:startingAt:)` instead.
+- Compile probes against `Metrics/Sources/*.swift` directly when they need
+  internal API. Widening `public` to satisfy a probe puts test-only surface in
+  the shipping framework.

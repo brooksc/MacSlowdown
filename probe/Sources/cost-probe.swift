@@ -12,7 +12,7 @@ struct CostProbe {
         let start = ContinuousClock().now
         body()
         let ms = (ContinuousClock().now - start).totalSeconds * 1000
-        print(String(format: "  %-46s %8.2f ms", (label as NSString).utf8String!, ms))
+        print(String(format: "  \(label.padding(toLength: 46, withPad: " ", startingAt: 0)) %8.2f ms", ms))
         return ms
     }
 
