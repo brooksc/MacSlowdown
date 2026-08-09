@@ -17,7 +17,10 @@ safe actions, export and privacy controls, and the FR-030 overhead harness.
 - Run: `./run-menubar.sh`
 - Test: `nice env TUIST_SKIP_UPDATE_CHECK=1 tuist xcodebuild test -scheme AllTests \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath .build`
-  — currently **845 passing**. Two bundles: `MetricsTests` (plain) and
+  — currently **1011 passing, 0 failing** (full run, quiet machine, 2026-08-09).
+  Run `tuist generate --no-open` after adding a source or test file, or the new
+  file is silently not compiled — that has cost several runs. Two bundles:
+  `MetricsTests` (plain) and
   `MacSlowdownTests` (app-hosted; `AppDelegate` skips launch work under XCTest so
   a test run does not start monitoring or put a status item in your menu bar).
 - FR-030 measurement: `probe/overhead/run.sh 300` — standalone but **no longer a
@@ -271,27 +274,23 @@ menu bar icon states, six app-icon directions) as rendered references, with
 as **directional**: structure, information hierarchy and copy intent are the
 requirement; the placeholder machine and invented numbers are not.
 
-**The largest live risk is unverified UI.** A great deal was built without anyone
-looking at it — roughly two dozen acceptance criteria across the TASK-65 subtasks
-are deliberately unchecked because they need a person at the screen. Do not treat
-those tasks as done. In particular **nobody has confirmed the Incidents pane
-renders** (TASK-51.1 fixed it without establishing the cause and said plainly that
-if it is still blank, the fix is wrong).
+**The largest live risk is unverified UI, and it has grown.** A great deal is
+built and nobody has looked at it. As of 2026-08-09 the implementable backlog is
+essentially empty and **every remaining open criterion needs a person at the
+screen** — the geometry fix, the first-run window, the menu bar icon, the
+Incidents pane, the grouping corrections, the per-metric freshness treatment.
+Do not treat any of those tasks as done. A session that cannot look must leave
+the criterion unchecked and say so; several sessions have now been burned by
+inferring an on-screen fact from a green test.
 
-- **TASK-66** (high) — the single highest-value item. `MonitorStore` never wires
-  up capabilities the `Metrics` framework already has and tests: **low-storage
-  incidents can never open** (FR-041/042 cannot fire in the running product),
-  retained history is unreachable so no sparkline in the design is buildable,
-  no `PolicyStore` owner so FR-016 is framework-only, and `LifecycleTracker` is
-  undriven. Four tasks unblock behind it. This pattern — framework ahead of app —
-  is worth checking for elsewhere.
-- **TASK-67** — AppKit logs a reentrant `NSTableView` delegate warning every ~2 s
-  from the inventory, and says it will become an assert. Noise now, crash later.
-- **TASK-51.1** — Incidents empty state. Fixed but **not diagnosed**; needs eyes.
-- **TASK-11.1** — the Dock icon is now a real route back when the menu bar item is
-  hidden. Rests on `@Environment(\.openWindow)` resolving in `App` scope, which is
-  **unverified at runtime**. If it no-ops, the fallback is Scene-level registration.
-- **TASK-65.x** — the remaining design screens. Several are blocked behind TASK-66.
+- **On-screen verification** is the whole of the critical path. The tasks each
+  carry a written, step-by-step check in their notes; TASK-75, TASK-51.1 and
+  TASK-65.20 are the ones to do first, in that order, because the other checks
+  are only meaningful once the window is the right size.
+- **TASK-78** (decision) — FR-050 post-action verification is built, tested and
+  unreachable. Wire it, or stage it explicitly with a written reason. Every
+  action the app offers is observational, so staging is defensible — but
+  undocumented staging is the exact defect TASK-73 exists to prevent.
 - **TASK-58** — richer popover over FR-005 history. Large; the user wants to scope
   it in conversation first. **Do not start it unprompted.**
 - **TASK-15** (parked, high) — accessibility baseline. Needs a person with
@@ -301,7 +300,34 @@ if it is still blank, the fix is wrong).
 - **TASK-50** — the Apple DTS question on `sysctl KERN_PROC_ALL`. The user's
   action, not a work item.
 
-Recently settled, so nobody re-opens them: TASK-62 (cold-start identity cut ~70%),
+Settled on 2026-08-09, so nobody re-derives them:
+
+- **TASK-75** — the window grew to 3599 pt because a `NavigationSplitView`
+  proposes no width when asking its detail column for an ideal size, so caption
+  paragraphs under `fixedSize(horizontal: false, vertical: true)` wrap to about
+  one word per line and answer with thousands of points. **It was never the row
+  count** — an empty store demanded 9529 pt. The offscreen harness *can* answer a
+  window-sizing question, but only by asking what the content demands
+  (`sizeThatFits` with unconstrained height), never by supplying a size and
+  watching SwiftUI clamp. The main window id is now `main-v2` so AppKit cannot
+  restore the saved bad frame.
+- **TASK-72** — incidents persist, schema-versioned, 30-day default, retention
+  enforced every sample. Dates are encoded numerically: ISO-8601 truncates to
+  whole seconds and made `Incident.covers()` disagree after a round trip.
+- **TASK-71** — repeated quits open an incident with a sustained duration of
+  zero, deliberately: `LifecycleTracker.minimumExits` already is FR-006's guard.
+- **TASK-74** — the inventory holds its order for 10 s. Reentrancy warnings went
+  from 12–14 per 20 s to 1–2. `StableOrder` holds positions, never rows, so the
+  numbers stay live while the order is held.
+- **The menu bar icon is not on a faster path than the window** (TASK-65.14).
+  Both read the same `@Observable` store on the same main actor, and the icon's
+  rate limiter puts it up to 2 s further behind. The design's claim to the
+  contrary is deleted and a test stops it returning.
+- **TASK-73** — `probe/seam-reachability.sh` is the standing check for
+  built-but-unwired capabilities. Run it before finishing anything that adds
+  public framework surface. Its blind spot is name collisions between types.
+
+Earlier: TASK-62 (cold-start identity cut ~70%),
 TASK-63 (**not a defect** — the table always sorted CPU-descending; what looked
 wrong was the alphabetical tail of a correctly sorted list seen from a scrolled
 viewport), TASK-57.1 (the processes named `2.1.220` were Claude Code itself —

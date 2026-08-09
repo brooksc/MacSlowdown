@@ -1,9 +1,10 @@
 ---
 id: TASK-40
 title: 'Spike: per-application network attribution (FR-051)'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 01:07'
+updated_date: '2026-08-09 21:32'
 labels:
   - spike
 milestone: m-4

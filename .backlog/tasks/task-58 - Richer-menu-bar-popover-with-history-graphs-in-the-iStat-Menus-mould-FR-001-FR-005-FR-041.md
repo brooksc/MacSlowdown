@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-08 19:37'
+updated_date: '2026-08-09 21:32'
 labels:
   - ui
 dependencies: []
@@ -47,3 +48,9 @@ Today our popover is a static list: severity, total CPU, three contributors, oth
 - [ ] #6 Popover refresh is decoupled from sampling cadence, and FR-030 overhead is re-measured against the real app with the popover open
 - [ ] #7 No temperature, load average, uptime or network series appears without a prior spec amendment
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Not started, at the product owner's explicit instruction:** they want to scope this in conversation first. Untouched on 2026-08-09 for that reason and no other — it is large, and the FR-005 history it would draw from is now materially better provisioned than when the task was written (incidents persist for 30 days, `retainedSamples` is reachable, `SparklinePresentation` exists), so the scoping conversation should start from what is now available rather than from the task's original assumptions.
+<!-- SECTION:NOTES:END -->

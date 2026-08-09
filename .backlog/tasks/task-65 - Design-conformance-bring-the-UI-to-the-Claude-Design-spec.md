@@ -4,6 +4,7 @@ title: 'Design conformance: bring the UI to the Claude Design spec'
 status: To Do
 assignee: []
 created_date: '2026-08-09 02:21'
+updated_date: '2026-08-09 21:32'
 labels:
   - ui
 dependencies: []
@@ -34,3 +35,15 @@ Do not treat this parent as a single deliverable. Take subtasks individually; se
 - [ ] #2 No subtask introduces a capability ruled out by probe/FINDINGS.md, and any screen that appears to require one is raised rather than approximated
 - [ ] #3 Each completed screen is verified on screen against its reference render, not by unit test alone
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Status of the umbrella, 2026-08-09.** Every subtask is now built in code. What remains across all of them is **on-screen verification**, which no automated session can supply. Roughly two dozen acceptance criteria are deliberately unchecked for that reason, each with a written step-by-step check in its own task's notes.
+
+Subtasks whose remaining criteria are on-screen only: 65.1, 65.2, 65.4, 65.5, 65.6, 65.7, 65.8, 65.9, 65.10, 65.11, 65.12, 65.13, 65.14, 65.15, 65.16, 65.17, 65.20.
+
+Still genuinely open as work: **65.18** (app icon asset), **65.19** (icon refinement — needs a designer round and the owner's judgement).
+
+**Verify in this order, because the later checks are meaningless before the earlier ones.** TASK-75 first (the window was 1300×3599 on a 1107 pt screen, which hid the sidebar, the segmented control, the search field and the census footer, and almost certainly explains TASK-51.1's blank Incidents pane). Then TASK-51.1. Then TASK-65.20 (first run, which needs its state reset before launching). Everything else can be checked in any order once the window is the right size.
+<!-- SECTION:NOTES:END -->

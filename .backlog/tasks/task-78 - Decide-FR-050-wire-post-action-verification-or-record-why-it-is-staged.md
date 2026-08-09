@@ -4,6 +4,7 @@ title: 'Decide FR-050: wire post-action verification, or record why it is staged
 status: To Do
 assignee: []
 created_date: '2026-08-09 18:52'
+updated_date: '2026-08-09 21:32'
 labels:
   - core
   - decision
@@ -44,3 +45,13 @@ What is not acceptable is leaving 22 green tests standing in for a behaviour the
 - [ ] #4 If staged: probe/seam-allowlist.txt carries the reason and the task that will connect it, and CLAUDE.md records the open question
 - [ ] #5 probe/seam-reachability.sh reports ActionVerifier and verify either not at all, or as allowlisted with a reason
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Left for the product owner, deliberately.** This is the one item the TASK-73 audit produced that is a decision rather than a defect, and criterion #1 says so. Untouched on 2026-08-09.
+
+One thing that changed since it was written, and it slightly strengthens the "stage it" case: `IncidentHistory.Entry` now reads an incident's own recorded suppressions (TASK-76), so `.suppressedByRule` is derivable and `.recoveredAfterAction` is the **only** outcome that still cannot occur. The gap is therefore narrow and well isolated rather than diffuse.
+
+`probe/seam-reachability.sh` reports exactly one unexplained item as of this session: `ActionVerifier.verify`. Whichever branch is chosen closes the audit's last open thread.
+<!-- SECTION:NOTES:END -->

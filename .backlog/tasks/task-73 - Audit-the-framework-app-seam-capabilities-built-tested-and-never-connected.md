@@ -1,10 +1,10 @@
 ---
 id: TASK-73
 title: 'Audit the framework-app seam: capabilities built, tested, and never connected'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-09 18:23'
-updated_date: '2026-08-09 18:53'
+updated_date: '2026-08-09 21:00'
 labels:
   - core
   - risk
@@ -41,11 +41,11 @@ Note the honest counter-argument, which should be weighed rather than dismissed:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public type and public entry point in Metrics/Sources is classified as: used by the app, deliberately staged for later work, or forgotten -- with the list recorded
-- [ ] #2 Each 'forgotten' item gets a task or is removed; dead code is not left in place on the grounds that it is tested
-- [ ] #3 Every requirement whose acceptance criteria are met only by framework tests is identified, and it is stated for each whether the behaviour can actually occur in the running app
-- [ ] #4 A check exists that would catch the next instance -- whatever form is practical, from a documented review step to a test that asserts a capability is reachable end to end
-- [ ] #5 The audit distinguishes deliberate staging from oversight rather than treating every unreferenced type as a defect
+- [x] #1 Every public type and public entry point in Metrics/Sources is classified as: used by the app, deliberately staged for later work, or forgotten -- with the list recorded
+- [x] #2 Each 'forgotten' item gets a task or is removed; dead code is not left in place on the grounds that it is tested
+- [x] #3 Every requirement whose acceptance criteria are met only by framework tests is identified, and it is stated for each whether the behaviour can actually occur in the running app
+- [x] #4 A check exists that would catch the next instance -- whatever form is practical, from a documented review step to a test that asserts a capability is reachable end to end
+- [x] #5 The audit distinguishes deliberate staging from oversight rather than treating every unreferenced type as a defect
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -73,4 +73,29 @@ Verified as genuinely reachable and needing nothing: FR-042 (TASK-66's wire hold
 **The check (criterion #4).** `probe/seam-reachability.sh`. The discriminator is *declared public, referenced by tests, referenced by no caller* — zero call sites in `MacSlowdown/Sources/` and none in `Metrics/Sources/` beyond the declaration, while at least one test exercises it. That is the exact signature of all five confirmed instances. Run today it gives 20 hits with no manual triage, including three (`isProtected`, `isCalculated`, `isDestructive`) the manual pass missed; 4 are now allowlisted with reasons, 16 remain and are covered by TASK-76…81. Needs no build, takes ~30 s. Known blind spot: matching is by name, so a member two types share is invisible — `MetricsHistory.restore()` is dead while `StorageHistory.restore()` is live, and three findings came from reading call sites instead.
 
 TASK-71 and TASK-72 were already open and are referenced rather than duplicated.
+
+## Audit complete — `probe/SEAM-AUDIT.md`
+
+130 public types and 400 public members classified: 121 types used, 2 staged, 7 forgotten; 371 members used, 6 staged, 23 forgotten. Every FR whose criteria are met only by framework tests is traced to a call chain or shown to have none.
+
+**The useful discriminator is not 'unreferenced by the app.'** That flags 32 types and 23 of them wrongly — the app calls `StorageSignals.snapshot()` without ever spelling `StorageSnapshot`. It is **public, exercised by tests, called by nobody**: no call site in `MacSlowdown/Sources/`, none in `Metrics/Sources/` beyond the declaration, and at least one test that does drive it. That is the signature of all five previously confirmed instances.
+
+**The check that catches the next one:** `probe/seam-reachability.sh` with `probe/seam-allowlist.txt`. No build, ~30 s, so it can gate a commit long before there is CI. Staged work goes in the allowlist **with a written reason** — a bare name is rejected, because undocumented staging and having forgotten are indistinguishable six weeks later.
+
+**Its one blind spot, found the hard way:** matching is by name, so a member two types share is invisible. `MetricsHistory.removeAll()` was reported as forgotten when `MonitorStore.deleteRecordedHistory()` had called it since TASK-72 — deleting it broke the build immediately. One false entry and one masked entry from the same cause. Three of the audit's findings came from reading call sites rather than counting.
+
+## Work this produced, all done in the same session
+
+- TASK-76 — suppressed detections never recorded. **Done.** FR-016's audit trail was permanently empty and the sheet's empty state was a false statement whenever a rule had suppressed something.
+- TASK-79 — two inert privacy controls. **Done.** Retention turned out already fixed by TASK-72 (verified by tracing, not assumed); 'Record file paths' was still inert and is now wired.
+- TASK-80 — four measured-but-unshown disclosures. **Done.** Found a second instance of the drift it was about: two hand-written paraphrases of the same sandbox limitation on one screen, and a test asserting a copied phrase.
+- TASK-81 — nine unused conveniences. **Done.** Six deleted with their assertions rewritten rather than removed, three allowlisted with reasons, and one turned out to be a real defect: `nameIsTruncatedCommand` existed because `p_comm` is 16 bytes and the ellipsis marking a cut is silent to VoiceOver — and neither inventory table used the spoken form, so FR-034 was unmet for every truncated row in two tables.
+- TASK-77 — FR-039 grouping corrections unreachable. Open.
+- TASK-78 — FR-050 post-action verification. **A product decision, not a defect**, and deliberately left for the owner.
+
+Seam-reachability went 16 unexplained → 5 over the session; the five remaining are TASK-77's and TASK-78's.
+
+## The honest limit
+
+This audit is static reading. It proves a call site exists, not that the call is reached at runtime under real conditions. The complement worth building later is a small reachability test bundle — drive `MonitorStore` through a synthetic suppressed detection, a completed action and a grouping correction, and assert the end effect. Those three assertions would have failed on the day each gap was introduced.
 <!-- SECTION:NOTES:END -->
