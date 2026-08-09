@@ -382,9 +382,26 @@ as a sustained condition, never from one sample — an idle desktop reads up to 
 from ordinary compositing. Hold the service handle; re-matching costs 2.5 ms, more
 than the whole metrics sweep.
 
-Still unproven: unresponsiveness (FR-046), per-app network (FR-051). Validate with a spike before designing features
-that depend on them; if a signal isn't reliably available, the spec's answer is
-to omit the feature, not approximate it.
+**Per-app network attribution (FR-051) is measurably impossible** (TASK-40,
+`probe/FINDINGS.md`). No public API returns a per-process byte counter at all —
+`libproc` FD enumeration reads 445/447 own-uid processes unsandboxed and 1/447
+sandboxed, the PCB tables return zero entries either way, and `socket_info`
+carries queue occupancy rather than a differenceable counter. `nettop` works only
+through a private framework. Aggregate, machine-wide throughput **is** available
+with no extra entitlement, so FR-051 can be narrowed exactly as FR-009 was — but
+that narrowing is a spec change and is **not yet applied**; proposed wording is
+in TASK-40's notes awaiting the product owner.
+
+Two rules that came out of it: **`lo0`'s counters wrap at 2^32 even through the
+64-bit `if_data64` field** (measured mid-transfer; naive subtraction gave
+1.8×10^19), and loopback must be reported separately or one local file copy reads
+as a WAN transfer. Also **the "measurability is decided by uid, exactly" rule does
+not generalise to file descriptors** — FD enumeration is one of the few places the
+sandbox itself is the binding limit.
+
+Still unproven: unresponsiveness (FR-046). Validate with a spike before designing
+features that depend on it; if a signal isn't reliably available, the spec's
+answer is to omit the feature, not approximate it.
 
 **Largest open risk:** whether App Review accepts `sysctl KERN_PROC_ALL` for
 process enumeration given that `proc_listpids` is explicitly denied. No
