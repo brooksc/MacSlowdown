@@ -69,6 +69,11 @@ struct FirstRunView: View {
         }
         .frame(width: 460)
         .frame(minHeight: 560)
+        // The window this view is in was opened by the app, not by the user, so it
+        // will not come forward on its own (TASK-65.20). Attached here because this
+        // is the only place with a guaranteed handle on the right `NSWindow`;
+        // `FirstRunWindowOpener` also asks, by lookup, and a second raise is free.
+        .background(WindowRaiserOnAppearance())
         // Live system state, read on appearance rather than remembered (FR-033).
         .task {
             loginItem.refresh()
@@ -139,8 +144,36 @@ struct FirstRunView: View {
     }
 }
 
+/// Raises the window its host view lands in, once it has one.
+///
+/// The alternative — looking the window up in `NSApp.windows` by identifier or
+/// title — is a guess about SwiftUI's internals. A view knows its own window for
+/// certain. The raise is deferred by one turn of the run loop because
+/// `viewDidMoveToWindow` runs while the window is still being put together, and
+/// ordering a window in the middle of that is how you get a window that flashes
+/// and drops back.
+private struct WindowRaiserOnAppearance: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { RaisingView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class RaisingView: NSView {
+        private var hasRaised = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard !hasRaised, let window else { return }
+            hasRaised = true
+            Task { @MainActor in WindowRaiser.raise(window) }
+        }
+    }
+}
+
 enum FirstRunWindow {
     static let id = "first-run"
+
+    /// The `Window` scene's title in `MacSlowdownApp`, used to find the window
+    /// again from outside SwiftUI.
+    static let title = "Welcome to MacSlowdown"
 }
 
 /// How the first-run window is raised, mirroring `MainWindowOpener`: a SwiftUI
@@ -157,17 +190,22 @@ enum FirstRunWindowOpener {
     static func presentIfNeeded(state: FirstRunState = .shared) -> Bool {
         guard state.shouldPresent, let action else { return false }
         action()
-        // MacSlowdown is `LSUIElement`, so a window it opens is not guaranteed to
-        // come forward on its own. This is the one moment where being unmissable
-        // is correct: the screen exists to be read before monitoring starts.
+        // MacSlowdown is `LSUIElement`, and a window an accessory app opens without
+        // being activated is ordered in behind everything: on screen, in the
+        // accessibility tree, and invisible. Measured, on screen, in TASK-65.20 —
+        // the `NSApp.activate()` that used to be on this line is exactly the call
+        // that did not work, because cooperative activation declines it for an app
+        // launched into the background.
         //
-        // **Not verified on screen** — see the task notes. Whether an accessory
-        // application can raise this window without also taking a Dock icon needs
-        // someone to look.
+        // `WindowRaiser` forces the activation instead, and needs no Dock icon to
+        // do it. The window is looked up rather than passed in because `openWindow`
+        // returns nothing; the view also raises the window it lands in, which is
+        // the deterministic half of the same job.
         //
-        // Skipped under XCTest, for the same reason the rest of the launch work is:
-        // a test run must not bring anything to the front of a developer's screen.
-        if !AppDelegate.isHostingTests { NSApp.activate() }
+        // Skipped under XCTest inside `WindowRaiser`, for the same reason the rest
+        // of the launch work is: a test run must not bring anything to the front of
+        // a developer's screen.
+        WindowRaiser.raiseWindow(sceneID: FirstRunWindow.id, title: FirstRunWindow.title)
         return true
     }
 

@@ -60,6 +60,31 @@ struct FirstRunStateTests {
         #expect(opens == 1, "a returning user must not be introduced again")
     }
 
+    /// TASK-65.20's criterion #4, and the reason the invisible window was survivable
+    /// rather than fatal: the screen was never *seen*, and because only the button
+    /// records anything, it was still owed at the next launch. A dismissal, a crash,
+    /// or a window nobody could see all leave the same state.
+    @Test("A first run that was never completed is presented again next launch")
+    func unseenFirstRunIsStillOwed() {
+        var opens = 0
+        FirstRunWindowOpener.action = { opens += 1 }
+        defer { FirstRunWindowOpener.action = nil }
+
+        let defaults = emptyDefaults()
+        #expect(FirstRunWindowOpener.presentIfNeeded(state: FirstRunState(defaults: defaults)))
+        #expect(opens == 1)
+
+        // A relaunch: a new state over the same container, nothing recorded.
+        let next = FirstRunState(defaults: defaults)
+        #expect(next.shouldPresent, "nothing but the button may retire the screen")
+        #expect(FirstRunWindowOpener.presentIfNeeded(state: next))
+        #expect(opens == 2)
+
+        // And once, finally, it is read and answered.
+        next.complete()
+        #expect(!FirstRunState(defaults: defaults).shouldPresent)
+    }
+
     /// Distinguishing "no window was asked for" from "a window was asked for and
     /// nothing happened" — the same reason `MainWindowOpener.open` reports.
     @Test("With no scene registered, presenting reports that nothing happened")
