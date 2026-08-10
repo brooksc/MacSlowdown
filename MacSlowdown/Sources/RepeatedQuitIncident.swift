@@ -219,9 +219,14 @@ enum MemoryTrendBeforeExits {
 
 struct RepeatedQuitReport {
     let command: String
-    /// The application's name, where grouping knew one. Nil is the ordinary case:
-    /// only ~15% of the process table lives in a `.app`, so most repeated-quit
-    /// subjects are known only by the kernel's command.
+    /// The application's name, where grouping knew one.
+    ///
+    /// Nil used to be the ordinary case, when any command could be the subject and
+    /// only ~15% of the table lives in a `.app`. Since TASK-84 the subject always
+    /// does, so a name is now the expectation — but not a guarantee: the probe found
+    /// 6 of 151 bundles yielding neither `CFBundleDisplayName`, `CFBundleName` nor a
+    /// Launch Services name. Those still fall back to the kernel's command, and the
+    /// command is still shown as a command rather than as a name (FR-002).
     let applicationName: String?
     let pattern: RelaunchPattern
     /// Oldest first.
@@ -288,10 +293,17 @@ struct RepeatedQuitReport {
             command: command, applicationName: applicationName, capitalized: true)
     }
 
+    /// "Final Cut Pro quit three times in 12 minutes".
+    ///
+    /// The verb and its shape come from `RepeatedQuitWording`, not from here. This
+    /// used to read "quit **unexpectedly**", which claimed an exit status we cannot
+    /// read: a clean quit and a crash reach us identically, as a process that was in
+    /// one snapshot and not in the next (TASK-84, FR-002, FR-046).
     var headline: String {
-        let minutes = max(1, Int((window.duration / 60).rounded()))
-        return "\(subjectAtSentenceStart) quit unexpectedly \(Self.count(pattern.exits)) times in "
-            + "\(minutes) minute\(minutes == 1 ? "" : "s")"
+        RepeatedQuitWording.counted(
+            subject: subjectAtSentenceStart,
+            times: Self.count(pattern.exits),
+            minutes: max(1, Int((window.duration / 60).rounded())))
     }
 
     var opening: String {
@@ -406,10 +418,10 @@ struct RepeatedQuitReport {
 
         for event in events {
             switch event {
-            case .launched(let identity, _, _):
+            case .launched(let identity, _, _, _):
                 openByPID[identity.pid] = Date(
                     timeIntervalSince1970: Double(identity.startTime) / 1_000_000)
-            case .exited(let identity, _, let at):
+            case .exited(let identity, _, _, let at):
                 let started = openByPID.removeValue(forKey: identity.pid)
                 sessions.append(AppSession(
                     pid: identity.pid, startedAt: started, endedAt: at))

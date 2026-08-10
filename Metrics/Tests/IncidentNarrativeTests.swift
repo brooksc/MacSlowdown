@@ -8,7 +8,7 @@ import Testing
 /// The defect these tests defend against was observed on screen on 2026-08-09. The
 /// Now banner read:
 ///
-///     Repeated unexpected quits for 27 minutes, 51 seconds
+///     Repeated quits for 27 minutes, 51 seconds
 ///     Calculated. 15% of busy CPU could not be attributed to any process…
 ///     Likely, high confidence. Xcode was the largest measurable contributor…
 ///
@@ -243,7 +243,7 @@ struct LifecycleSummaryTests {
                 attribution: busyXcode()),
             attribution: nil)
         #expect(summary.isWellFormed)
-        #expect(summary.headline.contains("Repeated unexpected quits"))
+        #expect(summary.headline.contains("Repeated quits"))
     }
 }
 
@@ -298,7 +298,7 @@ struct ResourceSummaryIsUnchangedTests {
 
 @Suite("A command is not a noun")
 struct SentenceSubjectTests {
-    /// "yes quit unexpectedly 30 times in 1 minute", seen on screen. The sentence
+    /// "yes quit 30 times in 1 minute", seen on screen. The sentence
     /// falls apart before the verb.
     @Test("A bare command is introduced as a process")
     func bareCommand() {

@@ -246,10 +246,12 @@ enum MenuBarIcon {
         case .lowStorage: "storage"
         case .thermalPressure: "thermal"
         // Not a resource at all — an application quitting repeatedly while the
-        // machine is fine (FR-046, design 1o). "quits" rather than a resource
+        // machine is fine (FR-046, design 1o). A verb rather than a resource
         // noun, because naming one here would imply we measured a shortage that
-        // this condition exists to say we did not (TASK-71).
-        case .repeatedApplicationQuits: "quits"
+        // this condition exists to say we did not (TASK-71). Taken from
+        // `RepeatedQuitWording` rather than written, so the menu bar cannot end up
+        // describing the episode differently from the screens (TASK-84).
+        case .repeatedApplicationQuits: RepeatedQuitWording.menuBarWord
         }
     }
 

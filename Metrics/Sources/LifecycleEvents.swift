@@ -7,34 +7,109 @@ import Foundation
 /// without exiting produces no event here, and TASK-27 established there is no
 /// public signal for one — so nothing in this file may ever imply a hang.
 public enum LifecycleEvent: Sendable, Equatable {
-    case launched(identity: ProcessIdentity, command: String, at: Date)
-    case exited(identity: ProcessIdentity, command: String, at: Date)
+    case launched(identity: ProcessIdentity, command: String, isApplication: Bool, at: Date)
+    case exited(identity: ProcessIdentity, command: String, isApplication: Bool, at: Date)
 
     public var identity: ProcessIdentity {
         switch self {
-        case .launched(let identity, _, _), .exited(let identity, _, _): identity
+        case .launched(let identity, _, _, _), .exited(let identity, _, _, _): identity
         }
     }
 
     public var command: String {
         switch self {
-        case .launched(_, let command, _), .exited(_, let command, _): command
+        case .launched(_, let command, _, _), .exited(_, let command, _, _): command
+        }
+    }
+
+    /// Whether this process ran from inside an application bundle, recorded **at the
+    /// moment we saw the event** and never re-derived (TASK-84).
+    ///
+    /// It has to be captured here. Identity resolution reads `proc_pidpath`, and a
+    /// process that has exited has no path to read; by the time a relaunch pattern
+    /// is assembled — up to fifteen minutes later — the pid is gone and the
+    /// resolver's `(pid, start time)` cache entry has been pruned. So the answer is
+    /// taken while the process is still in a snapshot, from the cache the sweep's
+    /// own grouping pass already warmed, and carried on the event.
+    ///
+    /// False is the safe direction and the deliberate default of an unknown: it
+    /// means the event is recorded and shown, but cannot on its own open an
+    /// incident.
+    public var isApplication: Bool {
+        switch self {
+        case .launched(_, _, let isApplication, _), .exited(_, _, let isApplication, _):
+            isApplication
         }
     }
 
     public var at: Date {
         switch self {
-        case .launched(_, _, let at), .exited(_, _, let at): at
+        case .launched(_, _, _, let at), .exited(_, _, _, let at): at
         }
     }
 
     public var description: String {
         switch self {
-        case .launched(let identity, let command, _):
+        case .launched(let identity, let command, _, _):
             "\(command) started as PID \(identity.pid)"
-        case .exited(let identity, let command, _):
+        case .exited(let identity, let command, _, _):
             "\(command) exited — PID \(identity.pid) disappeared"
         }
+    }
+}
+
+/// The words for a repeated-quit episode, in one place (TASK-84).
+///
+/// **"Unexpected" is gone, and must not come back.** An exit is a process that was
+/// in one snapshot and not in the next. There is no exit status, no signal, and no
+/// readable crash report under the sandbox, so a clean quit and a crash are
+/// *identical to us* — "quit unexpectedly" asserted a measurement we never took,
+/// which FR-002 forbids as plainly as inventing a number would. What follows says
+/// only what was observed: the process quit, and it quit more than once.
+///
+/// One type because the rename touched five surfaces at once — the condition label,
+/// the incidents row, the report headline, the summariser's headline (built from the
+/// condition label) and the menu bar's spoken word — and a second copy of any of
+/// them is how two screens come to describe one incident differently. Every surface
+/// composes from here; nothing writes the verb itself.
+///
+/// **This may change again.** A spike is open on whether `kqueue`/`EVFILT_PROC` with
+/// `NOTE_EXITSTATUS` can distinguish a crash from a normal exit under the sandbox.
+/// If it can, then "crashed" becomes sayable for the exits that were crashes, this
+/// wording is revisited, and the threshold argument in `LifecycleTracker` reopens
+/// too — a *crash* loop is a much stronger signal than an exit loop and would not
+/// need the application restriction below to be safe. Nothing here assumes the
+/// question is closed.
+public enum RepeatedQuitWording {
+    /// The verb, and the only place it is written. Past tense, intransitive: this
+    /// is what the process did, not what happened to it.
+    static let verb = "quit"
+
+    /// `IncidentCondition.repeatedApplicationQuits.label`. Also the summariser's
+    /// headline, which reads "\(conditionLabel) for 3 minutes, 15 seconds".
+    public static let conditionLabel = "Repeated quits"
+
+    /// The menu bar's one-word form, beside "CPU", "memory", "storage", "thermal".
+    /// A verb where the others are nouns, because there is no resource here to
+    /// name and naming one would imply a shortage this condition exists to say we
+    /// did not measure.
+    public static let menuBarWord = "quits"
+
+    /// An incidents row: "Final Cut Pro quit repeatedly".
+    ///
+    /// No count, because the row already carries the pattern's own summary
+    /// underneath it and repeating the figure in two registers invites them to
+    /// disagree.
+    public static func repeatedly(subject: String) -> String {
+        "\(subject) \(verb) repeatedly"
+    }
+
+    /// A report headline: "Final Cut Pro quit three times in 12 minutes".
+    ///
+    /// - Parameter times: already spelled out by the caller where the design spells
+    ///   it out; this type does not own number formatting.
+    public static func counted(subject: String, times: String, minutes: Int) -> String {
+        "\(subject) \(verb) \(times) times in \(minutes) minute\(minutes == 1 ? "" : "s")"
     }
 }
 
@@ -122,10 +197,9 @@ public struct LifecycleTracker: Sendable {
     /// admits is *many events that were each entirely normal*. Multiplicity is not
     /// duration.
     ///
-    /// The filter that works is FR-046's own noun: **application**. Exactly one of
-    /// the 28 lived in a `.app`. That change needs identity resolution the tracker
-    /// is not given, and it costs recall on genuinely failing daemons, so it is a
-    /// product decision and is recorded in TASK-84 rather than made here.
+    /// The filter that works is FR-046's own noun: **application** — see
+    /// `relaunchPatterns`, which now applies it. Exactly one of the 28 lived in a
+    /// `.app`, and it was MacSlowdown being rebuilt.
     public var minimumExits: Int
     public var window: Duration
 
@@ -138,10 +212,20 @@ public struct LifecycleTracker: Sendable {
     ///
     /// Identity is `(pid, start time)`, so a PID reused by a different process
     /// correctly reads as one exit and one launch rather than as continuity.
+    ///
+    /// - Parameter isApplication: whether a process ran from inside a `.app`.
+    ///   Deliberately a required parameter with no default. It is the predicate
+    ///   TASK-84 turns on, and the failure it guards against is a caller that
+    ///   silently does not supply it — the same shape of gap TASK-71 found, where
+    ///   the framework could open an incident and the app never handed it the
+    ///   evidence. **It must be answered from an already-warm cache**: identity
+    ///   resolution costs ~760 ms per full sweep and may never run on the sampling
+    ///   path, and a process that has just exited cannot be resolved at all.
     public func events(
         from earlier: ProcessSnapshot,
         to later: ProcessSnapshot,
-        at date: Date = Date()
+        at date: Date = Date(),
+        isApplication: (ProcessIdentity) -> Bool
     ) -> [LifecycleEvent] {
         // Enumeration failure means we know nothing about what changed. Emitting
         // "everything exited" would be catastrophic nonsense (FR-002).
@@ -149,10 +233,14 @@ public struct LifecycleTracker: Sendable {
 
         var events: [LifecycleEvent] = []
         for (identity, record) in later.records where earlier.records[identity] == nil {
-            events.append(.launched(identity: identity, command: record.command, at: date))
+            events.append(.launched(
+                identity: identity, command: record.command,
+                isApplication: isApplication(identity), at: date))
         }
         for (identity, record) in earlier.records where later.records[identity] == nil {
-            events.append(.exited(identity: identity, command: record.command, at: date))
+            events.append(.exited(
+                identity: identity, command: record.command,
+                isApplication: isApplication(identity), at: date))
         }
         return events.sorted { $0.at < $1.at || ($0.at == $1.at && $0.command < $1.command) }
     }
@@ -161,10 +249,36 @@ public struct LifecycleTracker: Sendable {
     ///
     /// FR-046 acceptance criterion: a relaunch loop appears as related events
     /// rather than as unrelated incidents.
+    ///
+    /// ## The subject must be an application (TASK-84, product owner 2026-08-09)
+    ///
+    /// Only exits of processes running from inside a `.app` are considered. FR-046
+    /// asks about a failing **application** in its statement, its objective and its
+    /// outcome; this predicate previously implemented "three processes sharing a
+    /// 16-byte `p_comm` disappeared inside 15 minutes", which is a different thing
+    /// and is what an ordinary Mac does all day. Measured over one 901 s window on
+    /// a developer machine, 28 commands reached three exits and exactly one of them
+    /// was in a `.app` — MacSlowdown itself, being rebuilt. With this filter the
+    /// same window yields **zero** findings.
+    ///
+    /// **The recall cost, stated rather than hidden:** a daemon, launch agent, or
+    /// command-line tool that really is failing over and over no longer opens an
+    /// incident. `sshd`, a database server, a background sync helper — if one of
+    /// those enters a crash loop, nothing here will alert. That is accepted because
+    /// the alternative is a condition that breaches continuously on any machine
+    /// that compiles, which alerts about everything and therefore about nothing.
+    /// The evidence is not discarded: every exit is still recorded as a
+    /// `LifecycleEvent`, still counted by the store's relaunch counters, and still
+    /// shown per family in the process inspector — a user who suspects a daemon can
+    /// still see its exits there. Only the *incident* is withheld.
+    ///
+    /// Multiplicity is not duration: FR-006 forbids alerting on one event too short
+    /// to matter, and the old predicate alerted on many events that were each
+    /// entirely normal. See `minimumExits` for why no value of the count fixes that.
     public func relaunchPatterns(in events: [LifecycleEvent], now: Date = Date()) -> [RelaunchPattern] {
         let cutoff = now.addingTimeInterval(-window.totalSeconds)
         let exits = events.filter {
-            if case .exited = $0 { return $0.at >= cutoff }
+            if case .exited = $0 { return $0.isApplication && $0.at >= cutoff }
             return false
         }
 

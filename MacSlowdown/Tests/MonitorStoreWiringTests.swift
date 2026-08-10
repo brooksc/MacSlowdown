@@ -343,20 +343,70 @@ struct LifecycleWiringTests {
         #expect(store.relaunchCount(forCommands: ["Helper"]) == 0)
     }
 
-    @Test("Repeated exits rise to a stated pattern")
-    func patternsAreReported() {
-        let store = store()
-        var last = snapshot([record(100, command: "Crashy", startTime: 1)])
-        for generation in 2...5 {
-            let next = snapshot([record(pid_t(100 + generation), command: "Crashy",
+    /// Four generations of one command quitting and being replaced, driven through
+    /// the store the way the sampling loop drives it: **group, then record**.
+    ///
+    /// The pid is our own, deliberately. TASK-84 restricts a relaunch pattern to a
+    /// process that resolves to a `.app`, and the only way to prove that end to end
+    /// is a pid the real `ProcessIdentityResolver` really can resolve into one. This
+    /// bundle is app-hosted, so `getpid()` is `MacSlowdown.app`'s own executable.
+    /// A synthetic pid would resolve to nothing and — correctly — produce no
+    /// pattern, which is what `commandChurnOpensNothing` below asserts.
+    ///
+    /// `regroup` before `recordLifecycle` is not test scaffolding: it is the order
+    /// `run()` uses, and it is what makes the identity a warm cache hit rather than
+    /// a resolution on the sampling path.
+    private func quitAndReplace(
+        _ store: MonitorStore, command: String, pid: pid_t, generations: Int
+    ) {
+        var last = snapshot([record(pid, command: command, startTime: 1)])
+        store.regroup(from: last)
+        for generation in 2...generations {
+            let next = snapshot([record(pid, command: command,
                                         startTime: UInt64(generation))])
+            store.regroup(from: next)
             store.recordLifecycle(from: last, to: next)
             last = next
         }
+    }
+
+    @Test("Repeated exits of an application rise to a stated pattern")
+    func patternsAreReported() {
+        let store = store()
+        quitAndReplace(store, command: "Crashy", pid: getpid(), generations: 5)
+
         #expect(store.relaunchCount(forCommands: ["Crashy"]) == 4)
         let patterns = store.relaunchPatterns(forCommands: ["Crashy"])
         #expect(patterns.first?.exits == 4)
         #expect(patterns.first?.confidence == .moderate)
+    }
+
+    /// **The defect TASK-84 exists for.** Measured over one 901 s window on a
+    /// developer Mac, 28 commands reached three exits — `swift-frontend` 112 times,
+    /// `yes` 60, `zsh` 42 — and every one of them opened, or kept open, an incident
+    /// that never closed. None was an application.
+    ///
+    /// The exits are still recorded and still counted, because the evidence is real
+    /// and a user looking at a family should see it. What must not happen is an
+    /// incident.
+    @Test("Ordinary command churn is recorded but opens nothing")
+    func commandChurnOpensNothing() {
+        let store = store()
+        // A pid that is not ours, so it resolves to no application bundle — the
+        // same answer the resolver gives for a compiler that has already exited.
+        quitAndReplace(store, command: "swift-frontend", pid: 999_98, generations: 20)
+
+        #expect(store.relaunchCount(forCommands: ["swift-frontend"]) == 19,
+                "the exits are evidence and must still be recorded (FR-045)")
+        #expect(store.relaunchPatterns(forCommands: ["swift-frontend"]).isEmpty)
+
+        let observation = store.currentObservation(at: Date(), cpuBusyFraction: 0.05)
+        #expect(observation.lifecycleFindings.isEmpty)
+        #expect(!observation.breaches(.repeatedApplicationQuits, policy: .default))
+
+        var detectorState = IncidentDetector.State()
+        let event = IncidentDetector().observe(observation, state: &detectorState)
+        #expect(event == nil, "nineteen exits of a compiler opened an incident")
     }
 
     // MARK: TASK-71 — the pattern reaches the detector, not only the screen
@@ -369,13 +419,7 @@ struct LifecycleWiringTests {
     @Test("A relaunch pattern reaches the observation the detector judges")
     func patternsReachTheDetector() {
         let store = store()
-        var last = snapshot([record(100, command: "Crashy", startTime: 1)])
-        for generation in 2...5 {
-            let next = snapshot([record(pid_t(100 + generation), command: "Crashy",
-                                        startTime: UInt64(generation))])
-            store.recordLifecycle(from: last, to: next)
-            last = next
-        }
+        quitAndReplace(store, command: "Crashy", pid: getpid(), generations: 5)
 
         // A quiet machine: nothing here can pass because a resource threshold was
         // crossed as well.

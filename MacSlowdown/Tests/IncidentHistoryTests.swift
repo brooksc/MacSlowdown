@@ -249,7 +249,7 @@ struct IncidentLifecycleEntryTests {
 
         let summary = IncidentHistory.pattern(for: entries, range: .week)
         #expect(summary.headline == "3 incidents in the last 7 days")
-        #expect(summary.recurrence == "Repeated unexpected quits in 3 of them")
+        #expect(summary.recurrence == "Repeated quits in 3 of them")
     }
 
     @Test("A lifecycle finding is scoped by the range like any other")

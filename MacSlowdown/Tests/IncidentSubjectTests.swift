@@ -8,8 +8,8 @@ import Testing
 ///
 /// Observed on screen 2026-08-09, on one incident, at the same moment:
 ///
-///   - the incidents list said **"Repeated unexpected quits — Xcode"**
-///   - the detail inspector said **"yes quit unexpectedly 30 times in 1 minute"**
+///   - the incidents list said **"Repeated quits — Xcode"**
+///   - the detail inspector said **"yes quit 30 times in 1 minute"**
 ///
 /// Both were reporting a real measurement. `IncidentsView` read
 /// `incident.attribution?.leadingApplication` — the largest *CPU* contributor —
@@ -124,7 +124,7 @@ struct IncidentRowSubjectTests {
 
 @Suite("A p_comm fragment is shown as a fragment")
 struct IncidentRowTruncationTests {
-    /// The observed row read "Repeated unexpected quits — BackgroundShortc…". The
+    /// The observed row read "Repeated quits — BackgroundShortc…". The
     /// ellipsis was there; nothing said the kernel had cut the name rather than the
     /// interface, and it was presented in the position an application's name
     /// occupies (FR-002). `p_comm` is 16 bytes.
@@ -195,13 +195,13 @@ struct IncidentVerdictSubjectTests {
 
 @Suite("A repeated-quit report reads as a sentence")
 struct RepeatedQuitSubjectTests {
-    /// "yes quit unexpectedly 30 times in 1 minute" — the command was right and the
+    /// "yes quit 30 times in 1 minute" — the command was right and the
     /// sentence was unreadable.
     @Test("A command subject is introduced rather than dropped in bare")
     func commandHeadline() {
         let report = RepeatedQuitReport.build(
             pattern: pattern("yes"), lifecycle: [], now: origin)
-        #expect(report.headline.hasPrefix("The process “yes” quit unexpectedly"))
+        #expect(report.headline.hasPrefix("The process “yes” quit"))
     }
 
     @Test("A named application still reads plainly")
@@ -209,6 +209,6 @@ struct RepeatedQuitSubjectTests {
         let report = RepeatedQuitReport.build(
             pattern: pattern("Final Cut Pro"), displayName: "Final Cut Pro",
             lifecycle: [], now: origin)
-        #expect(report.headline.hasPrefix("Final Cut Pro quit unexpectedly"))
+        #expect(report.headline.hasPrefix("Final Cut Pro quit"))
     }
 }

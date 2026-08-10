@@ -978,8 +978,27 @@ final class MonitorStore {
     /// recycled PID reads as one exit and one launch rather than as continuity.
     /// Nothing here implies a hang: TASK-27 established that macOS reports a stalled
     /// application exactly as it reports a healthy one.
+    /// Whether a process ran from inside a `.app`, answered from cache only.
+    ///
+    /// This is the seam TASK-84 needed and `ProcessRecord` could not provide: the
+    /// tracker sees commands and identities, and "is this an application" lives in
+    /// `ResolvedIdentity.appBundlePath`. It is a cache **read**, never a resolution.
+    /// The order in `run()` is what makes that sound — `regroup(from: snapshot)`
+    /// resolves every process in this sweep before `recordLifecycle` is called, and
+    /// `resolver.prune` runs after it, so both the process that just launched and
+    /// the one that just disappeared are still in the cache. Resolving here instead
+    /// would cost ~1 ms of syscalls per exiting process on the sampling path and
+    /// would ask a dead PID a question it cannot answer.
+    ///
+    /// A cache miss reads as `false`, i.e. not known to be an application, which
+    /// withholds an incident rather than opening one on a guess.
+    func isApplication(_ identity: ProcessIdentity) -> Bool {
+        resolver.cachedIdentity(for: identity).map { !$0.isStandalone } ?? false
+    }
+
     func recordLifecycle(from earlier: ProcessSnapshot, to later: ProcessSnapshot) {
-        let events = lifecycle.events(from: earlier, to: later)
+        let events = lifecycle.events(
+            from: earlier, to: later, isApplication: isApplication)
         guard !events.isEmpty || !lifecycleEvents.isEmpty else { return }
         let cutoff = Date().addingTimeInterval(-lifecycle.window.totalSeconds)
         lifecycleEvents = (lifecycleEvents + events).filter { $0.at >= cutoff }
