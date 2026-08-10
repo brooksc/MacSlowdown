@@ -4,7 +4,7 @@ title: 'Decide FR-050: wire post-action verification, or record why it is staged
 status: In Progress
 assignee: []
 created_date: '2026-08-09 18:52'
-updated_date: '2026-08-10 01:34'
+updated_date: '2026-08-10 02:00'
 labels:
   - core
   - decision
@@ -39,11 +39,11 @@ What is not acceptable is leaving 22 green tests standing in for a behaviour the
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The product owner has chosen between wiring FR-050 and staging it explicitly, and the choice is recorded
+- [x] #1 The product owner has chosen between wiring FR-050 and staging it explicitly, and the choice is recorded
 - [ ] #2 If wired: an action taken from the UI produces an ActionVerification through ActionVerifier.verify and MonitorStore.record(action:), and the incident detail shows the comparison window and the affected metric
 - [ ] #3 If wired: a successful API return alone is never labelled an improvement, and an inconclusive outcome is shown as inconclusive (FR-050 acceptance criteria)
-- [ ] #4 If staged: probe/seam-allowlist.txt carries the reason and the task that will connect it, and CLAUDE.md records the open question
-- [ ] #5 probe/seam-reachability.sh reports ActionVerifier and verify either not at all, or as allowlisted with a reason
+- [x] #4 If staged: probe/seam-allowlist.txt carries the reason and the task that will connect it, and CLAUDE.md records the open question
+- [x] #5 probe/seam-reachability.sh reports ActionVerifier and verify either not at all, or as allowlisted with a reason
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -54,4 +54,45 @@ What is not acceptable is leaving 22 green tests standing in for a behaviour the
 One thing that changed since it was written, and it slightly strengthens the "stage it" case: `IncidentHistory.Entry` now reads an incident's own recorded suppressions (TASK-76), so `.suppressedByRule` is derivable and `.recoveredAfterAction` is the **only** outcome that still cannot occur. The gap is therefore narrow and well isolated rather than diffuse.
 
 `probe/seam-reachability.sh` reports exactly one unexplained item as of this session: `ActionVerifier.verify`. Whichever branch is chosen closes the audit's last open thread.
+
+## Decided: **staged**, branch `worktree-agent-a4fb2da76881b13b3` (commit dc11b36)
+
+Product owner, 2026-08-09: stage FR-050, do not wire it. Criteria #1, #4, #5 met;
+#2 and #3 are the wired branch and do not apply.
+
+The reason, in the form the decision has to survive in: every action the app offers
+is observational — activate, reveal in Finder, open Activity Monitor, copy
+diagnostics — because FR-020–024 are deferred and escalated and FR-037 forbids even
+a dormant path for them. There is no outcome to measure. Wiring the verifier to
+"Reveal in Finder" would manufacture a before/after around an action that could not
+have moved the number, which is precisely the false causal claim FR-050 exists to
+prevent.
+
+Written down in the three places TASK-73's model case (`PrivacySettings.
+persistAcrossRestarts`) uses:
+
+1. **`Metrics/Sources/ActionOutcome.swift`** — a doc comment on `ActionVerifier`
+   saying it waits on FR-020–024, why the comparison rule is kept rather than
+   deleted, and "do not call this to make the seam audit quiet".
+2. **`probe/seam-allowlist.txt`** — the reason plus the task that connects it: the
+   one that lifts the FR-020–024 deferral. Until such a task exists, TASK-78 holds
+   the decision.
+3. **`CLAUDE.md`** — under "Settled, and not to be re-opened", so the next session
+   finds the decision rather than the silence.
+
+### One thing learned about the audit tool itself
+
+The first draft of the doc comment spelled `verify` in prose. `seam-reachability.sh`
+matches by bare name, so the comment counted as a caller and the symbol vanished from
+the report **entirely** — quieter, and wrong: the allowlisted line *is* the record,
+and a symbol silently dropped is the failure mode TASK-73 exists to prevent. The
+comment now avoids the token and says why in the comment itself.
+
+### #5, measured
+
+- Before: `1 unexplained; 3 allowed` — the unexplained one being `verify`.
+- After: `0 unexplained; 4 allowed` — listed as allowlisted with a reason, which is
+  the branch of #5 that keeps it visible.
+
+The TASK-73 audit's last open thread is closed.
 <!-- SECTION:NOTES:END -->
