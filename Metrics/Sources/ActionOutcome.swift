@@ -82,6 +82,29 @@ public struct ActionVerification: Sendable, Equatable, Codable {
     }
 }
 
+/// FR-050's before/after comparison — **built, tested, and deliberately not wired
+/// into the running app** (TASK-78, product owner 2026-08-09).
+///
+/// The entry point below has no caller and that is the decision, not an oversight.
+/// (It is named only in the declaration, deliberately: `seam-reachability.sh`
+/// matches by name, so spelling it in this comment would make the symbol look
+/// called and quietly drop it from the report instead of listing it as allowlisted.) FR-050 asks
+/// for the outcome of *user-directed remediation*, and every action this build
+/// offers is observational: activate, reveal in Finder, open Activity Monitor, copy
+/// diagnostics. None of them changes how a process runs, because FR-020–024 —
+/// suspend, quit, limit, renice — are deferred and escalated, and FR-037 forbids
+/// even a dormant code path for them. There is therefore no outcome to measure, and
+/// calling this after "Reveal in Finder" would manufacture a before/after around an
+/// action that could not have moved the number: exactly the false causal claim the
+/// type exists to prevent.
+///
+/// It is kept rather than deleted because the comparison rule is the hard part and
+/// it is right — a material-change floor, `inconclusive` as a first-class answer,
+/// and a summary that says the two line up without saying one caused the other. The
+/// staging is recorded in `probe/seam-allowlist.txt` and in CLAUDE.md, and the task
+/// that will connect it is the one that lifts the FR-020–024 deferral. Until then,
+/// **do not call this to make the seam audit quiet** — an unreachable verifier is
+/// honest; a verification of an action that cannot change anything is not.
 public enum ActionVerifier {
     /// How much the busy fraction must move to count as a change rather than noise.
     public static let materialChange = 0.10

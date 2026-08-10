@@ -324,9 +324,9 @@ enum SystemProcessRoster {
         var launches: [String: Date] = [:]
         for event in lifecycle {
             switch event {
-            case .exited(_, let command, let at):
+            case .exited(_, let command, _, let at):
                 exits[command] = max(exits[command] ?? at, at)
-            case .launched(let identity, let command, _):
+            case .launched(let identity, let command, _, _):
                 // The launch time we want is the kernel's, not the sweep's.
                 let started = Date(timeIntervalSince1970: Double(identity.startTime) / 1_000_000)
                 launches[command] = min(launches[command] ?? started, started)

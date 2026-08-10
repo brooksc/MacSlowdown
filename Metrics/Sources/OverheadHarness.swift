@@ -159,7 +159,14 @@ public enum OverheadHarness {
                 _ = cadenceController.cadence(
                     at: Date(), incidentOpen: detectorState.current != nil,
                     conditionBreaching: false, state: &cadenceState)
-                _ = lifecycle.events(from: previous, to: snapshot)
+                // Same cache read the app performs (TASK-84): the grouping pass
+                // above has already resolved everything in this snapshot, so this
+                // is a dictionary lookup per changed process and never a
+                // resolution. Measured here rather than stubbed, because a harness
+                // that skips the app's path reports a budget nobody is held to.
+                _ = lifecycle.events(from: previous, to: snapshot) {
+                    resolver.cachedIdentity(for: $0).map { !$0.isStandalone } ?? false
+                }
             }
 
             resolver.prune(keeping: Set(snapshot.records.keys))

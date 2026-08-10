@@ -26,7 +26,10 @@ public enum IncidentCondition: String, Sendable, CaseIterable, Codable {
         case .memoryPressure: "Memory pressure"
         case .lowStorage: "Low storage"
         case .thermalPressure: "Thermal pressure"
-        case .repeatedApplicationQuits: "Repeated unexpected quits"
+        // Not written here. `RepeatedQuitWording` is the one source for every
+        // surface that names this condition, because "Repeated unexpected quits"
+        // was on five screens and had to come off all of them at once (TASK-84).
+        case .repeatedApplicationQuits: RepeatedQuitWording.conditionLabel
         }
     }
 
@@ -129,8 +132,9 @@ public struct IncidentPolicy: Sendable, Equatable {
     /// the FR-006 argument for the whole condition. FR-006 forbids opening an
     /// incident on a transient; `RelaunchPattern` already enforces that — it takes
     /// `LifecycleTracker.minimumExits` (3 by default) exits of the same command
-    /// inside a 15-minute window before a pattern exists at all. A single
-    /// unexpected quit produces no pattern and therefore no condition. Requiring a
+    /// inside a 15-minute window, all of them from an application (TASK-84), before
+    /// a pattern exists at all. A single quit produces no pattern and therefore no
+    /// condition. Requiring a
     /// *further* sustained duration on top would be counting the same evidence
     /// twice and would delay a finding whose evidence already spans minutes, so the
     /// sustained duration for this condition is deliberately zero.

@@ -25,14 +25,14 @@ private func startTime(_ date: Date) -> UInt64 {
 private func launched(_ command: String, pid: pid_t, started: TimeInterval) -> LifecycleEvent {
     .launched(
         identity: ProcessIdentity(pid: pid, startTime: startTime(at(started))),
-        command: command, at: at(started))
+        command: command, isApplication: true, at: at(started))
 }
 
 private func exited(_ command: String, pid: pid_t, started: TimeInterval,
                     noticed: TimeInterval) -> LifecycleEvent {
     .exited(
         identity: ProcessIdentity(pid: pid, startTime: startTime(at(started))),
-        command: command, at: at(noticed))
+        command: command, isApplication: true, at: at(noticed))
 }
 
 /// Three sessions that ended and one still open: 2841 → 2896 → 3014 → 3120.
@@ -103,7 +103,7 @@ private func assertClaimsNoHang(_ text: String, _ comment: Comment) {
     #expect(built.exits.count == 3)
     #expect(built.sessions.filter(\.isOpen).count == 1)
     #expect(built.sessions.last?.pid == 3120)
-    #expect(built.headline.contains("Final Cut Pro quit unexpectedly three times"))
+    #expect(built.headline.contains("Final Cut Pro quit three times"))
     assertClaimsNoHang(built.headline, "the headline")
     assertClaimsNoHang(built.opening, "the opening paragraph")
 }

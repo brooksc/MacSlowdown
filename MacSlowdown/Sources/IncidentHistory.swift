@@ -122,7 +122,7 @@ enum IncidentHistory {
     struct Entry: Identifiable {
         enum Kind {
             case resource(Incident)
-            /// Repeated unexpected quits (FR-046 as narrowed: exits and restarts
+            /// Repeated quits (FR-046 as narrowed: exits and restarts
             /// are observable, hangs are not).
             case repeatedQuits(RelaunchPattern)
         }
@@ -172,7 +172,8 @@ enum IncidentHistory {
         /// wrong once by asking a simpler question: it read
         /// `incident.attribution?.leadingApplication`, the largest *CPU*
         /// contributor, for every row. Observed on screen 2026-08-09, the list said
-        /// "Repeated unexpected quits — Xcode" while the detail for that same row
+        /// "Repeated unexpected quits — Xcode" (the wording of the day) while the
+        /// detail for that same row
         /// said `yes` had quit thirty times. Both were reporting a real
         /// measurement; only one of them was about the incident.
         ///

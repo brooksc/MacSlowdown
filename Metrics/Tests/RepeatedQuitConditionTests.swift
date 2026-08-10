@@ -67,12 +67,12 @@ struct RepeatedQuitConditionTests {
     /// FR-006. `LifecycleTracker.minimumExits` is the threshold, and it is upstream:
     /// one exit never becomes a `RelaunchPattern`, so the detector is never offered
     /// one and no incident can open.
-    @Test("A single unexpected quit is not an incident")
+    @Test("A single quit is not an incident")
     func oneQuitIsNotAnIncident() {
         let tracker = LifecycleTracker()
         let identity = ProcessIdentity(pid: 501, startTime: 1)
         let single: [LifecycleEvent] = [
-            .exited(identity: identity, command: "Photocopier", at: at(10))
+            .exited(identity: identity, command: "Photocopier", isApplication: true, at: at(10))
         ]
         let patterns = tracker.relaunchPatterns(in: single, now: at(60))
         #expect(patterns.isEmpty, "one exit became a pattern")
@@ -92,7 +92,7 @@ struct RepeatedQuitConditionTests {
             (0..<count).map {
                 .exited(
                     identity: ProcessIdentity(pid: pid_t(500 + $0), startTime: UInt64($0 + 1)),
-                    command: "Photocopier", at: at(Double($0) * 10))
+                    command: "Photocopier", isApplication: true, at: at(Double($0) * 10))
             }
         }
         #expect(tracker.relaunchPatterns(in: exits(2), now: at(60)).isEmpty)

@@ -86,6 +86,24 @@ public final class ProcessIdentityResolver: Sendable {
         return resolved
     }
 
+    /// What we already know about a process, or nil — **never resolves** (TASK-84).
+    ///
+    /// Two callers need an answer for a process that is about to stop existing, and
+    /// for them `identity(for:)` is the wrong door. Resolution reads `proc_pidpath`
+    /// and the code signature, which for a dead PID returns nothing at best and at
+    /// worst answers about whoever inherits the number next; and it would put ~1 ms
+    /// of syscalls per exiting process on the sampling path, which CLAUDE.md's
+    /// "resolve once per process lifetime, never per sweep" rule exists to keep off.
+    ///
+    /// This is cheap and correct because the sweep's grouping pass has already asked
+    /// `identity(for:)` about every process in the snapshot, so a process that was
+    /// alive a moment ago is a cache hit. A miss means we genuinely never saw it
+    /// resolved, and the caller must treat that as "not known to be an application"
+    /// rather than resolving it here.
+    public func cachedIdentity(for identity: ProcessIdentity) -> ResolvedIdentity? {
+        state.withLock { $0.cache[identity] }
+    }
+
     /// Drops cache entries for processes that no longer exist.
     ///
     /// Without this the cache grows without bound on a machine that churns through

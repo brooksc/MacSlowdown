@@ -161,7 +161,7 @@ struct IncidentBannerHeadlineTests {
                 leader: "Xcode", leaderPercent: 380, total: 500),
             lifecycle: [quitPattern("BackgroundShortc", exits: 4)])
         let headline = NowPresentation.bannerHeadline(
-            incident: incident, conditionHeadline: "Repeated unexpected quits for 3 minutes")
+            incident: incident, conditionHeadline: "Repeated quits for 3 minutes")
         #expect(headline.text.hasPrefix("BackgroundShortc"))
         #expect(!headline.text.contains("Xcode"))
         #expect(headline.text.contains("keeps quitting and reopening"))
@@ -176,7 +176,7 @@ struct IncidentBannerHeadlineTests {
             conditions: [.repeatedApplicationQuits],
             lifecycle: [quitPattern("BackgroundShortc", exits: 3)])
         let headline = NowPresentation.bannerHeadline(
-            incident: incident, conditionHeadline: "Repeated unexpected quits")
+            incident: incident, conditionHeadline: "Repeated quits")
         #expect(headline.text.contains("…"))
     }
 

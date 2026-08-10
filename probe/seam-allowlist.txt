@@ -10,6 +10,7 @@
 # rather than staged again.
 
 isSustained     LowStorageDetector's own duration check duplicates IncidentPolicy.requiredDuration(.lowStorage) = 60 s, which the running detector already applies (Metrics/Sources/Incident.swift:77). Redundant, not missing. Delete when someone is in the file.
+verify            ActionVerifier.verify, FR-050's post-action before/after comparison. **Staged by product-owner decision on 2026-08-09 (TASK-78), not forgotten.** Every action this build offers is observational — activate, reveal in Finder, open Activity Monitor, copy diagnostics — because FR-020–024 (suspend, quit, limit, renice) are deferred and escalated and FR-037 forbids a dormant path for them. There is no outcome to measure, so wiring it would manufacture a before/after around an action that could not have moved the number, which is the false causal claim FR-050 exists to prevent. Connected by the task that lifts the FR-020–024 deferral; until such a task exists TASK-78 holds the decision. The reason is also stated at Metrics/Sources/ActionOutcome.swift's ActionVerifier and in CLAUDE.md.
 isDestructive     Returns a literal false. It is the FR-037 statement that no action in the set changes how a process runs, kept so the claim is checkable rather than a comment. Nothing calls it because nothing may.
 
 # TASK-81 judgements. Everything else on that task's list was deleted; these

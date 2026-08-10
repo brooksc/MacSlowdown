@@ -367,6 +367,15 @@ Settled, and not to be re-opened:
   FR-005 metric sample series is deliberately **not** persisted. Never say the
   store is encrypted — say "in MacSlowdown's own container, which no other app
   can read". See the settled-decision subsection under FR-029 and TASK-72.
+- **FR-050 post-action verification is staged, not wired** (product owner,
+  2026-08-09, TASK-78). `ActionVerifier.verify` has no caller on purpose: every
+  action this build offers is observational — activate, reveal, open Activity
+  Monitor, copy diagnostics — because FR-020–024 are deferred, so there is no
+  outcome to measure and a before/after around one of them would be the false
+  causal claim FR-050 exists to prevent. It is connected by whatever task lifts
+  that deferral, and nothing sooner. Reason recorded in
+  `probe/seam-allowlist.txt` and at `ActionVerifier` in
+  `Metrics/Sources/ActionOutcome.swift`.
 - Build system is **Tuist**; manifests are the source of truth. Test framework is
   **Swift Testing**. No CI yet.
 - Raw temperature is **not** exposed. Public thermal state only.

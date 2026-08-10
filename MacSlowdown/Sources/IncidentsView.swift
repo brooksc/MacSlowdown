@@ -297,9 +297,13 @@ struct IncidentRow: View {
             if let subject { return "\(conditions) — \(subject.text)" }
             return conditions
         case .repeatedQuits:
-            // Sentence form, because this is a sentence: "yes quit unexpectedly,
-            // repeatedly" reads as the English word (TASK-82).
-            return "\(subject?.sentenceTextAtStart ?? "A process") quit unexpectedly, repeatedly"
+            // Sentence form, because this is a sentence: a bare "yes quit
+            // repeatedly" reads as the English word (TASK-82). The verb comes from
+            // `RepeatedQuitWording`, which is also where "unexpectedly" was removed
+            // from — we cannot read an exit status, so we never claimed one
+            // (TASK-84, FR-002).
+            return RepeatedQuitWording.repeatedly(
+                subject: subject?.sentenceTextAtStart ?? "A process")
         }
     }
 
