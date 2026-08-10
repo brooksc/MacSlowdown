@@ -3,9 +3,10 @@ id: TASK-84
 title: >-
   The repeated-quit condition fires on ordinary process churn — 28 subjects
   qualify in one 15-minute window
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 23:56'
+updated_date: '2026-08-10 01:34'
 labels:
   - core
   - decision

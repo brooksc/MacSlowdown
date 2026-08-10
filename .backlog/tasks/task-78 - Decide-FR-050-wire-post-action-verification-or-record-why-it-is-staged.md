@@ -1,10 +1,10 @@
 ---
 id: TASK-78
 title: 'Decide FR-050: wire post-action verification, or record why it is staged'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 18:52'
-updated_date: '2026-08-09 21:32'
+updated_date: '2026-08-10 01:34'
 labels:
   - core
   - decision
