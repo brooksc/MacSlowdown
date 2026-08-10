@@ -54,6 +54,40 @@ public enum ProcessNaming {
     /// the two cannot drift.
     public static let truncationNote = "name shortened by the system"
 
+    /// The subject of a sentence about a process (TASK-82).
+    ///
+    /// A command is not a noun phrase. Observed on screen 2026-08-09: "yes quit
+    /// unexpectedly 30 times in 1 minute", which reads as the English word and
+    /// makes the sentence nonsense before the reader reaches the verb. `sh`, `du`,
+    /// `find`, `open`, `who`, `top` and `make` all fail the same way, so this is a
+    /// rule about command-named subjects rather than a special case for one
+    /// command.
+    ///
+    /// Where a real application name is known it is used bare — "Xcode quit
+    /// unexpectedly" needs no scaffolding, and wrapping it would be noise. Where
+    /// only the kernel's command is known the command is quoted and introduced, so
+    /// what is on screen is the process's *command*, which is all we ever measured,
+    /// and never a claim about what the application is called (FR-002).
+    ///
+    /// - Parameter capitalized: whether this begins a sentence. Not `.capitalized`
+    ///   on the result, which would also recase the command inside the quotes.
+    public static func sentenceSubject(
+        command: String, applicationName: String? = nil, capitalized: Bool = false
+    ) -> String {
+        if let applicationName, !applicationName.isEmpty { return applicationName }
+        let article = capitalized ? "The" : "the"
+        return "\(article) process “\(labelled(command: command))”"
+    }
+
+    /// Spoken form of `sentenceSubject`, with the ellipsis said aloud (FR-034).
+    public static func sentenceSubjectAccessibilityLabel(
+        command: String, applicationName: String? = nil, capitalized: Bool = false
+    ) -> String {
+        if let applicationName, !applicationName.isEmpty { return applicationName }
+        let article = capitalized ? "The" : "the"
+        return "\(article) process \(accessibilityLabel(command: command))"
+    }
+
     /// Spoken form, since an ellipsis conveys nothing to VoiceOver (FR-034).
     public static func accessibilityLabel(command: String) -> String {
         let suffix = isTruncated(command) ? ", \(truncationNote)" : ""

@@ -51,7 +51,12 @@ struct IncidentDetailView: View {
         // resource condition was ever breached (TASK-71). The share can look high
         // simply because the machine was idle, so this is guarded on the conditions
         // rather than on the numbers.
-        guard incident.conditions.contains(where: \.isResourceCondition) else { return nil }
+        //
+        // The rule itself now lives on the incident (TASK-82). This screen used to
+        // own it privately while `IncidentSummarizer` — which this same view renders
+        // through `summary` below — narrated the same episode as a CPU problem.
+        // Both were locally correct and the screen contradicted itself.
+        guard incident.narrative.narratesResourceAttribution else { return nil }
         return UnattributedIncidentReport.build(
             incident: incident,
             liveAttribution: store.attribution,
@@ -109,9 +114,24 @@ struct IncidentDetailView: View {
         IncidentSummarizer.summarize(incident: incident, attribution: store.attribution)
     }
 
+    /// The guided walk-through, with the same rule applied at its input (TASK-82).
+    ///
+    /// `InvestigationBuilder` narrates whatever attribution it is handed: an
+    /// unattributable-share caveat, and a "treat Xcode's load as expected" action
+    /// naming the busiest command. For a lifecycle episode that offers the user a
+    /// policy about the wrong application. It is withheld here rather than inside
+    /// the builder because the builder serves resource incidents too, and the rule
+    /// about which is which belongs on the incident.
+    ///
+    /// The relaunch findings are handed over in its place, so the "who contributed"
+    /// stage says what was actually observed instead of nothing.
     private var investigation: GuidedInvestigation {
-        InvestigationBuilder.build(
-            incident: incident, summary: summary, attribution: store.attribution)
+        let narratesResources = incident.narrative.narratesResourceAttribution
+        return InvestigationBuilder.build(
+            incident: incident,
+            summary: summary,
+            attribution: narratesResources ? store.attribution : nil,
+            relaunchPatterns: narratesResources ? [] : repeatedQuitPatterns)
     }
 
     private var duration: String {
@@ -253,8 +273,14 @@ struct IncidentDetailView: View {
     // MARK: - Confidence legend (FR-038, stated up front)
 
     private var legend: some View {
+        // The legend describes what is on *this* screen. A lifecycle episode shows
+        // no contributor share and no unattributed remainder, so advertising them
+        // would be a claim about how much we know that the screen does not support
+        // (TASK-82). Same rule, applied at the input.
         let entries = EvidenceLegend.entries(
-            for: summary, incident: incident, attribution: store.attribution)
+            for: summary, incident: incident,
+            attribution: incident.narrative.narratesResourceAttribution
+                ? store.attribution : nil)
         return VStack(alignment: .leading, spacing: 6) {
             ForEach(entries) { entry in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -977,7 +1003,11 @@ struct SessionBar: View {
         let sessions = report.sessions.count
         let exits = report.exits.map { IncidentVerdict.time($0.noticedAt) }
             .joined(separator: ", ")
-        return "\(sessions) sessions of \(report.displayName) between "
+        // Spoken form, so a shortened command is said to be shortened rather than
+        // trailing an ellipsis VoiceOver does not read (FR-002, FR-034).
+        let spokenSubject = ProcessNaming.sentenceSubjectAccessibilityLabel(
+            command: report.command, applicationName: report.applicationName)
+        return "\(sessions) sessions of \(spokenSubject) between "
             + "\(IncidentVerdict.time(report.window.start)) and "
             + "\(IncidentVerdict.time(report.window.end)). Exits noticed at \(exits)."
     }
