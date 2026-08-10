@@ -204,15 +204,20 @@ enum NowPresentation {
         return BannerHeadline(text: conditionHeadline, qualifier: nil)
     }
 
-    /// The repeated-quit pattern the banner is about: the command that exited most,
-    /// with the most recent episode winning a tie.
+    /// The repeated-quit pattern the banner is about.
     ///
-    /// Nil on a resource incident, which is the ordinary case.
+    /// Defers to `Incident.lifecycleSubject`, and must keep doing so. This was
+    /// briefly a second implementation — written here at the same time as the
+    /// framework's, by a different pair of hands, with a different tie-break
+    /// (most-recent rather than earliest-then-command). Equal exit counts would
+    /// then have made the banner and the incidents list name **different
+    /// processes for the same incident**.
+    ///
+    /// Which is precisely the defect TASK-82 exists to fix — the list and the
+    /// detail naming different applications — reappearing inside the fix for it,
+    /// in the gap between two briefs. One rule, one place.
     static func leadingRelaunchPattern(_ incident: Incident) -> RelaunchPattern? {
-        incident.lifecycleFindings.max { first, second in
-            (first.exits, first.lastAt.timeIntervalSince1970, second.command)
-                < (second.exits, second.lastAt.timeIntervalSince1970, first.command)
-        }
+        incident.lifecycleSubject
     }
 
     /// The live process a repeated-quit banner's action should act on.
