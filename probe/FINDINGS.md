@@ -1199,3 +1199,181 @@ The script kills the load generators by pattern as well as by pid: an orphaned
 404s while appearing to have run under load. That happened once, and the
 sandboxed pass under-reported by three orders of magnitude before the load check
 was added.
+
+# Crash vs. normal exit (`exit-status-probe.swift`) — FR-046
+
+**Verdict: no.** A sandboxed Mac App Store build cannot tell a process that
+crashed from one that exited normally, for any process it did not itself fork.
+The exit *event* is available and is better than what we do today; the exit
+*status* is not.
+
+This is the question behind TASK-84 — `yes`, `swift-frontend` and
+`mdworker_shared` disappearing is ordinary churn, and `LifecycleTracker` infers
+those exits from a `(pid, start time)` vanishing between two
+`sysctl KERN_PROC_ALL` snapshots, which carries no status at all.
+
+Measured on macOS 27.0 (26A5388g) / M2, unsandboxed and in a signed sandboxed
+`.app` launched with `open`. Four 60 s runs, ~765 processes per run. Every
+terminated process was one the harness created; nothing else was signalled.
+
+## kqueue `EVFILT_PROC` — the primary candidate
+
+Two kqueues were registered over the whole process table each run: one asking
+for `NOTE_EXIT | NOTE_EXITSTATUS | NOTE_EXIT_DETAIL | NOTE_SIGNAL`, one asking
+for bare `NOTE_EXIT`. The status-bearing mask is refused at *attach* time with
+`EACCES`; it does not fail silently at delivery.
+
+| registration | unsandboxed | sandboxed |
+|---|---|---|
+| status mask, own-uid | **520/526** attached | **3/527** attached |
+| status mask, other-uid | 0/238 (`EACCES`) | 0/236 (`EACCES`) |
+| bare `NOTE_EXIT`, own-uid | 526/526 | 527/527 |
+| bare `NOTE_EXIT`, other-uid | 238/238 | 236/236 |
+
+The sandboxed 3 are **exactly the three children the probe forked itself**.
+Own-uid processes the probe did not fork — including `sleep` and `bash`
+processes the harness had just spawned from the same shell, same uid, same
+session — are refused identically to `WindowServer`. So:
+
+- **The sandbox is the binding limit here, and parentage is the residual.** This
+  is the opposite of the usual pattern: per-process CPU/memory is denied by uid
+  equally sandboxed and unsandboxed, so the sandbox costs nothing. Here the
+  sandbox costs 517 of 520 processes.
+- Unsandboxed, the 6 own-uid refusals are hardened/protected apps, not a random
+  tail: `com.apple.Safari`, `loginwindow`, `ScreenTimeAgent`, `XprotectService`,
+  `UsageTrackingAgent`, `dmd`.
+
+Delivery matched attach exactly. Over the four runs, **every** `NOTE_EXIT`
+delivered on the status mask carried `NOTE_EXITSTATUS` (unsandboxed 15/15 and
+27/27; sandboxed 3/3, all three our own children), and sandboxed we observed
+**0 statuses from 0 strangers** while the bare kqueue saw 16–23 stranger exits
+in the same windows. Decoding, where it is available, is complete and correct —
+`data` is a wait(2) status, verified against `waitpid` ground truth for all
+three children in every run:
+
+```
+SIGSEGV -> data 11    WIFSIGNALED, SIGSEGV   -> CRASH
+exit 7  -> data 1792  WIFEXITED, code 7      -> normal exit, nonzero code
+SIGTERM -> data 15    WIFSIGNALED, SIGTERM   -> terminated by signal, not a crash
+```
+
+Note the middle row: **"nonzero" is not "crashed"**. A compiler exiting 1 on a
+syntax error is a normal exit. Only a fatal signal is evidence of a crash, and
+only some of those — `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGABRT`, `SIGTRAP`,
+`SIGFPE`, `SIGSYS`. `SIGTERM`, `SIGINT`, `SIGHUP` and `SIGKILL` are ordinary
+terminations; `SIGKILL` in particular is how a great deal of macOS shutdown
+works and must never be reported as a crash.
+
+`NOTE_EXIT_DETAIL` was set on every status-bearing event but `NOTE_EXIT_MEMORY`
+(jetsam) never fired in these runs, so the jetsam distinction is **unmeasured**,
+not unavailable.
+
+## `NOTE_SIGNAL` is not a back door
+
+`NOTE_SIGNAL` attaches only as part of the same refused mask, so sandboxed it is
+available for our own children only. It is useless even where it works: 185
+events in one unsandboxed run, **every one with `data = 0` and no signal number
+anywhere in `fflags`**. It tells you a signal was delivered, never which. It
+also fires constantly for healthy processes (`SWBBuildService` produced ten
+events in half a second), so its rate is not a crash signal either.
+
+## kqueue `NOTE_EXIT` *is* worth having anyway
+
+Bare `NOTE_EXIT` attaches for **every** process, sandboxed, including other-uid
+— 236/236 — and we observed other-uid exits delivered (1 unsandboxed, 2
+sandboxed in separate runs). That is a rare exception to "measurability is
+decided by uid, exactly": we can watch `WindowServer` exit even though we can
+never read its CPU.
+
+It is also cheap: **0.4 ms to register 763 pids** (0.0005 ms/pid), one file
+descriptor for the whole set, event-driven with no polling, and the knote
+auto-deletes when it fires. The status mask costs 4.5 ms for the same set
+because 524 of the calls are round-tripping to an `EACCES`.
+
+Compared with what `LifecycleTracker` does today, this is exact rather than
+inferred: a process that starts and exits between two sweeps is invisible to
+snapshot diffing and is not invisible to a kqueue. It changes no claim we are
+allowed to make about *why* a process exited.
+
+## The process table already carries `p_xstat`, and it is still not enough
+
+`extern_proc.p_xstat` in the `sysctl KERN_PROC_ALL` row holds the uncollected
+exit status of a zombie, and it is readable **sandboxed, for strangers**, at no
+new API cost — the product already makes this call. Decoded values were correct
+every time (a stranger `caffeinate` read `p_xstat=9`, SIGKILL; a stranger CLI
+tool read 0, a clean exit).
+
+The catch rate is what kills it. Polling the whole table at **4 Hz** — 8–20×
+faster than the product's 2–5 s cadence — caught **2 of 23** stranger exits in
+the final sandboxed run, and 1 of 11 in another. At the moment `NOTE_EXIT`
+fired, **0 of 9** strangers were still listed in `sysctl` at all: their parents
+reap them immediately. Zombies survive long enough to be seen only when the
+parent is slow, which is a property of the parent, not of how the child died.
+
+So `p_xstat` is a real signal with a biased, single-digit-percent catch rate. It
+can corroborate a crash we already suspect. It cannot be the basis for saying an
+application crashed, and a detector built on it would silently under-report
+exactly the well-behaved parents that reap fastest.
+
+## The cheap ones, each a dead end
+
+- **`proc_pidinfo` / `PROC_PIDT_SHORTBSDINFO`**: nothing survives the exit.
+  `ESRCH` for our own child while it was still an unreaped zombie (the most
+  favourable case that can exist), `ESRCH` after reaping, `ESRCH` for a pid that
+  never existed. The zombie was simultaneously visible in `sysctl` with
+  `p_stat=5` and the correct `p_xstat`, so this is `proc_pidinfo` declining, not
+  the kernel having forgotten.
+- **`NSRunningApplication`**: its entire property surface is 14 properties —
+  `activationPolicy, active, bundleIdentifier, bundleURL,
+  executableArchitecture, executableURL, finishedLaunching, hidden, icon,
+  launchDate, localizedName, ownsMenuBar, processIdentifier, terminated`. There
+  is no exit status, no exit code, no termination reason. `terminated` is a
+  `Bool`. This is decisive on its own and matches the existing finding that a
+  beachballing app is reported identically to a healthy one.
+- **`NSWorkspace.didTerminateApplicationNotification`**: the notification hands
+  you an `NSRunningApplication` and nothing else, so by the point above it
+  cannot distinguish a crash from a quit *even when it arrives*. Whether it
+  arrives is **not established**: across four configurations (unbundled tool
+  with a plain run loop; unbundled with `NSApplication.run()`; bundled sandboxed
+  with `finishLaunching`; bundled sandboxed with a real `NSApplication` event
+  loop and the kqueue watch moved to a worker thread) we saw zero terminations
+  *and* zero launches, with a victim `.app` demonstrably launching and quitting
+  inside the window and demonstrably present in
+  `NSWorkspace.shared.runningApplications` (policy `.accessory`). Zero launches
+  means the plumbing control failed, so zero terminations proves nothing about
+  delivery. The most likely explanation is that `LSUIElement` accessory apps do
+  not generate these notifications, and confirming that would require launching
+  and quitting a regular Dock app — which puts something on screen and was not
+  done. It does not change the answer.
+
+## Rules that come out of this
+
+- **Never say "quit unexpectedly" from a disappearance.** The only thing an
+  absent `(pid, start time)` supports is "no longer running". FR-046's
+  repeated-relaunch framing is the honest one and this probe does not widen it.
+- **Nonzero exit is not a crash.** If a status ever does become available, only
+  fatal signals from the crash set may be called a crash, and `SIGKILL` and
+  `SIGTERM` are not in it.
+- **Never signal a process you did not create**, including to learn something
+  about it. FR-037. The probe crashes only its own children and the harness only
+  its own.
+- The one strand worth acting on independently: `LifecycleTracker` could take
+  its exit *events* from a bare `NOTE_EXIT` kqueue instead of snapshot diffing,
+  which is cheaper, catches short-lived processes, and works across the uid
+  boundary. That is an accuracy change to *when* we notice, not a change to
+  *what we may claim*.
+
+## Reproducing
+
+```sh
+probe/run-exit-status-probe.sh 60
+```
+
+Builds both binaries, spawns its own victims (a `SIGSEGV`, a `SIGTERM`, an
+`exit 0`, an `exit 3`, plus an `LSUIElement` app that is `SIGKILL`ed and a
+second that quits cleanly), runs the unsandboxed control and then the sandboxed
+`.app` via `open`, and prints the diff. The `.app` is `SIGKILL`ed rather than
+`SIGSEGV`ed on purpose: CrashReporter's default `DialogType` would put a "quit
+unexpectedly" alert on screen for a segfaulting application. The sandboxed
+report is written to
+`~/Library/Containers/com.brooksc.MacSlowdown.Probe.exit-status-probe/Data/exit-status-result.txt`.
