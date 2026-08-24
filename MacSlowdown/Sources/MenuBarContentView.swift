@@ -291,6 +291,10 @@ struct MenuBarContentView: View {
 
     private func incidentHeadline(_ incident: Incident) -> some View {
         let headline = PopoverPresentation.incidentHeadline(incident, now: Date())
+        // Present exactly when the headline names an application, so the name and
+        // the confidence in it are never separated (FR-038, TASK-87).
+        let qualifier = PopoverPresentation.incidentHeadlineQualifier(incident)
+        let severityLine = "\(incident.severity.label) slowdown, happening now"
         // Symbol, headline and severity word together — severity is never carried
         // by colour alone (FR-034).
         return HStack(alignment: .top, spacing: 9) {
@@ -301,9 +305,14 @@ struct MenuBarContentView: View {
                 Text(headline)
                     .font(.headline)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("\(incident.severity.label) slowdown, happening now")
+                Text(severityLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let qualifier {
+                    Text(qualifier)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if case .stale(let age) = store.freshness {
                     Text("Last complete reading, \(Int(age.totalSeconds))s ago")
                         .font(.caption)
@@ -312,7 +321,8 @@ struct MenuBarContentView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(headline). \(incident.severity.label) slowdown, happening now.")
+        .accessibilityLabel(
+            "\(headline). \(severityLine)." + (qualifier.map { " \($0)." } ?? ""))
     }
 
     /// The one causal claim on the screen, and the only one in the popover.
@@ -477,33 +487,26 @@ struct MenuBarContentView: View {
     /// there is no code path here that could (FR-037).
     private var incidentActions: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Button("See the evidence") {
-                    openWindow(id: MainWindow.id)
-                    ActivationPolicy.mainWindowOpened()
+            // Design 1b puts all three on one row, and they fit there because its
+            // Show button says "Show Xcode". "Show Google Drive" does not fit, and
+            // the row's response was to truncate the two flexible labels while the
+            // fixed-size Mute menu kept its full width — "See the evide…" and
+            // "Show Google D…" (TASK-88). `ViewThatFits` keeps the design's row
+            // whenever it is honestly available and wraps when it is not, so a long
+            // application name costs a line rather than its own name.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    evidenceButton
+                    showButton
+                    muteMenu
                 }
-                .keyboardShortcut("o")
-                .buttonStyle(.borderedProminent)
-
-                if let target = showTarget {
-                    Button(PopoverPresentation.showActionTitle(for: target.name)) {
-                        show(target)
+                VStack(alignment: .leading, spacing: 8) {
+                    evidenceButton
+                    HStack(spacing: 8) {
+                        showButton
+                        muteMenu
                     }
                 }
-
-                Menu("Mute") {
-                    ForEach(PopoverPresentation.muteChoices, id: \.self) { minutes in
-                        Button(PopoverPresentation.muteChoiceTitle(minutes: minutes)) {
-                            store.mute(forMinutes: minutes)
-                        }
-                    }
-                    if PopoverPresentation.muteStatus(store.mute, now: Date()) != nil {
-                        Divider()
-                        Button("Unmute") { store.clearMute() }
-                    }
-                }
-                .menuStyle(.button)
-                .fixedSize()
             }
 
             if let status = PopoverPresentation.muteStatus(store.mute, now: Date()) {
@@ -528,6 +531,44 @@ struct MenuBarContentView: View {
                 .buttonStyle(.link)
                 .font(.caption)
         }
+    }
+
+    private var evidenceButton: some View {
+        Button("See the evidence") {
+            openWindow(id: MainWindow.id)
+            ActivationPolicy.mainWindowOpened()
+        }
+        .keyboardShortcut("o")
+        .buttonStyle(.borderedProminent)
+        // Without this, `ViewThatFits` can be offered a first layout that "fits"
+        // only because the label agreed to truncate — which is the defect, not a fit.
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var showButton: some View {
+        if let target = showTarget {
+            Button(PopoverPresentation.showActionTitle(for: target.name)) {
+                show(target)
+            }
+            .fixedSize()
+        }
+    }
+
+    private var muteMenu: some View {
+        Menu("Mute") {
+            ForEach(PopoverPresentation.muteChoices, id: \.self) { minutes in
+                Button(PopoverPresentation.muteChoiceTitle(minutes: minutes)) {
+                    store.mute(forMinutes: minutes)
+                }
+            }
+            if PopoverPresentation.muteStatus(store.mute, now: Date()) != nil {
+                Divider()
+                Button("Unmute") { store.clearMute() }
+            }
+        }
+        .menuStyle(.button)
+        .fixedSize()
     }
 
     /// The member of the leading family that "Show …" would bring forward, if the

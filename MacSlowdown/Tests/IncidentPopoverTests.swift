@@ -309,3 +309,61 @@ struct IncidentFooterTests {
         #expect(!title.contains("240 minutes"))
     }
 }
+
+/// TASK-87. The popover said "An application has been quitting and reopening"
+/// while the Now banner, looking at the same incident, said "Xcode keeps quitting
+/// and reopening". TASK-82's finding was that surfaces describing one incident must
+/// not disagree; this is the same defect one surface further out.
+@Suite("The popover names the application it is about")
+struct PopoverRepeatedQuitSubjectTests {
+    private let began = Date(timeIntervalSince1970: 2_000_000)
+
+    private func incident(
+        command: String?, confidence: Confidence = .moderate
+    ) -> Incident {
+        var incident = episode(conditions: [.repeatedApplicationQuits], beganAt: began)
+        incident.lifecycleFindings = command.map {
+            [RelaunchPattern(command: $0, exits: 4, firstAt: began,
+                             lastAt: began.addingTimeInterval(120),
+                             confidence: confidence)]
+        } ?? []
+        return incident
+    }
+
+    @Test("The subject is named, not described as 'an application'")
+    func headlineNamesTheSubject() {
+        let text = PopoverPresentation.incidentHeadline(
+            incident(command: "Final Cut Pro"), now: Date())
+        #expect(text.contains("Final Cut Pro"))
+        #expect(!text.contains("An application"))
+    }
+
+    @Test("A name never travels without its confidence label")
+    func namedHeadlineCarriesAQualifier() throws {
+        let named = incident(command: "Final Cut Pro")
+        let qualifier = try #require(PopoverPresentation.incidentHeadlineQualifier(named))
+        #expect(qualifier == NowPresentation.heuristicQualifier(.moderate))
+        // And it is the framework's own label, not a second wording of it.
+        #expect(qualifier.contains(Evidence.heuristic.label))
+    }
+
+    @Test("With no recorded subject the condition-only wording is unchanged")
+    func anonymousFallbackSurvives() {
+        let anonymous = incident(command: nil)
+        #expect(PopoverPresentation.incidentHeadline(anonymous, now: Date())
+            .contains("An application has been quitting and reopening"))
+        #expect(PopoverPresentation.incidentHeadlineQualifier(anonymous) == nil)
+    }
+
+    @Test("The popover and the Now banner name the same application")
+    func surfacesAgree() throws {
+        let subject = incident(command: "Final Cut Pro")
+        let banner = NowPresentation.bannerHeadline(
+            incident: subject,
+            conditionHeadline: PopoverPresentation.incidentHeadline(subject, now: Date()))
+        #expect(banner.text.contains("Final Cut Pro"))
+        #expect(PopoverPresentation.incidentHeadline(subject, now: Date())
+            .contains("Final Cut Pro"))
+        #expect(PopoverPresentation.incidentHeadlineQualifier(subject) == banner.qualifier)
+    }
+}

@@ -138,6 +138,14 @@ enum IncidentVerdict {
         // A statement of what the process table showed, with no claim about why.
         // "Crashed", "froze" and "stopped responding" are all unavailable to us
         // (FR-046) and none of them appears here.
+        //
+        // **Deliberately anonymous, unlike the popover** (TASK-87). This headline's
+        // contract, stated above, is that it makes no causal claim and therefore
+        // needs no confidence label. Naming the application would break that: the
+        // association between exits sharing a truncated command *is* a heuristic,
+        // and a name here would be the one unlabelled heuristic claim on the screen
+        // (FR-038). The detail screen names the subject where the label can travel
+        // with it — the bring-forward action and the lifecycle evidence.
         case .repeatedApplicationQuits: "An application quit and started again, repeatedly"
         }
     }

@@ -1,9 +1,10 @@
 ---
 id: TASK-87
 title: The popover headline says "An application" where the Now banner names it
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-24 04:03'
+updated_date: '2026-08-24 04:25'
 labels:
   - ui
 milestone: m-2
@@ -30,9 +31,21 @@ The naming must carry the same confidence qualifier the banner uses — a name w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The popover headline names the subject application for a repeated-quit incident, using the same wording and confidence qualifier as the Now banner
-- [ ] #2 Where no subject is known the condition-only wording is used unchanged, and a test covers that path
-- [ ] #3 A test asserts the popover and the Now banner produce the same subject for the same incident
-- [ ] #4 IncidentEvidence's wording is checked for the same gap and either fixed or recorded as deliberately anonymous
+- [x] #1 The popover headline names the subject application for a repeated-quit incident, using the same wording and confidence qualifier as the Now banner
+- [x] #2 Where no subject is known the condition-only wording is used unchanged, and a test covers that path
+- [x] #3 A test asserts the popover and the Now banner produce the same subject for the same incident
+- [x] #4 IncidentEvidence's wording is checked for the same gap and either fixed or recorded as deliberately anonymous
 - [ ] #5 Verified on screen in the popover during a real repeated-quit incident
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`PopoverPresentation.incidentHeadline` now resolves the subject through `NowPresentation.leadingRelaunchPattern` — the same single rule the banner uses, which its own doc comment insists on ("One rule, one place") — and passes it to `conditionPhrase(_:subject:)`. New `incidentHeadlineQualifier` returns the heuristic label, present exactly when the headline names an application, and the popover renders it as its own caption line and includes it in the accessibility label.
+
+**`IncidentEvidence.phrase` is deliberately left anonymous** (AC #4). Its headline's stated contract is that it makes no causal claim and therefore carries no confidence label. Naming the application would break that: the association between exits sharing a truncated 16-byte command *is* a heuristic, so a name there would be the one unlabelled heuristic claim on the screen (FR-038). The reason is now written at the case itself. The detail screen names the subject where the label can travel with it.
+
+Four tests in `PopoverRepeatedQuitSubjectTests`: the subject is named; a name never appears without its qualifier, and the qualifier is the framework's own label rather than a second wording of it; the anonymous fallback survives with no qualifier; and the popover and the banner name the same application and carry the same qualifier for one incident.
+
+`-only-testing:MacSlowdownTests`: one failure, the pre-existing TASK-91 container-isolation issue. AC #5 needs the screen and is unchecked.
+<!-- SECTION:NOTES:END -->

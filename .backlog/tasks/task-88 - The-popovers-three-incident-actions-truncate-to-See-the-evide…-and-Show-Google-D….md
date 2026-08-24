@@ -3,9 +3,10 @@ id: TASK-88
 title: >-
   The popover's three incident actions truncate to "See the evide…" and "Show
   Google D…"
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-24 04:03'
+updated_date: '2026-08-24 04:25'
 labels:
   - ui
 milestone: m-3
@@ -30,6 +31,18 @@ Design 1b is the reference for what the row should look like. Options include wr
 <!-- AC:BEGIN -->
 - [ ] #1 At the popover's real width, no action button label is truncated in the default case
 - [ ] #2 Where an application name is long enough that something must give, the application name remains identifiable and the fixed vocabulary gives way first
-- [ ] #3 The row is checked against design 1b
+- [x] #3 The row is checked against design 1b
 - [ ] #4 Verified on screen at the popover's real width with a long application name and a short one
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The three controls are extracted to `evidenceButton`, `showButton` and `muteMenu`, and the row is wrapped in `ViewThatFits(in: .horizontal)` offering design 1b's single row first and a two-row fallback second — the prominent action on its own line, then Show and Mute beside each other.
+
+**All three now carry `.fixedSize()`, which is the part that makes it work.** Previously only Mute did, so the other two were willing to truncate and a layout that "fits" only because a label agreed to shrink is not a fit — `ViewThatFits` would have chosen the single row every time and reproduced the defect. With every child at its intrinsic width the first layout genuinely does not fit, and the fallback is taken.
+
+Design 1b's row is preserved wherever it is honestly available: it shows "Show Xcode", which fits. "Show Google Drive" is what did not, and it now costs a line rather than its own name — satisfying AC #2 by never truncating the name at all rather than by choosing a truncation mode.
+
+**Not verified on screen (AC #1, #2, #4).** `ViewThatFits` decides at layout time and no test can see which layout it chose; this needs the popover open at its real width with a long application name and a short one. The mechanism is sound but the result is exactly the class of claim CLAUDE.md forbids inferring from a green test.
+<!-- SECTION:NOTES:END -->

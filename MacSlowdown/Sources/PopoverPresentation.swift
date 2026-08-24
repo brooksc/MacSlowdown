@@ -316,7 +316,10 @@ enum PopoverPresentation {
     /// asking "how long has this been going on" means the slowdown, not the moment
     /// our sustained-duration threshold elapsed.
     static func incidentHeadline(_ incident: Incident, now: Date) -> String {
-        let phrases = orderedConditions(incident.conditions).map(conditionPhrase)
+        let subject = NowPresentation.leadingRelaunchPattern(incident)
+            .map { ProcessNaming.labelled(command: $0.command) }
+        let phrases = orderedConditions(incident.conditions)
+            .map { conditionPhrase($0, subject: subject) }
         let joined: String
         switch phrases.count {
         case 0: joined = "Your Mac has been under strain"
@@ -335,7 +338,11 @@ enum PopoverPresentation {
         IncidentCondition.allCases.filter(conditions.contains)
     }
 
-    static func conditionPhrase(_ condition: IncidentCondition) -> String {
+    /// - Parameter subject: the application a repeated-quit episode is about, when
+    ///   the incident records one. Anonymity was never a deliberate choice here:
+    ///   TASK-82 gave the Now banner a name and this map, which had no access to the
+    ///   incident, kept saying "An application" beside it (TASK-87).
+    static func conditionPhrase(_ condition: IncidentCondition, subject: String? = nil) -> String {
         switch condition {
         case .cpuSaturation: "CPU has been maxed"
         case .memoryPressure: "Memory has been under pressure"
@@ -343,9 +350,25 @@ enum PopoverPresentation {
         case .lowStorage: "Storage has been low"
         // What we saw, and only what we saw. Not "keeps crashing", not "keeps
         // freezing" — we observe a PID going and another taking its place, never
-        // the reason (FR-046).
-        case .repeatedApplicationQuits: "An application has been quitting and reopening"
+        // the reason (FR-046). Naming the application says which one that happened
+        // to; it does not make the claim any stronger, which is why the confidence
+        // label in `incidentHeadlineQualifier` travels with it.
+        case .repeatedApplicationQuits:
+            subject.map { "\($0) has been quitting and reopening" }
+                ?? "An application has been quitting and reopening"
         }
+    }
+
+    /// The evidence class and confidence for a headline that names an application,
+    /// and nil for one that states only what was measured.
+    ///
+    /// The same qualifier the Now banner shows, from the same rule, because TASK-82's
+    /// finding was that two surfaces describing one incident must not disagree — and
+    /// a name shown here without the label the banner carries would be the stronger
+    /// claim of the two (FR-038).
+    static func incidentHeadlineQualifier(_ incident: Incident) -> String? {
+        NowPresentation.leadingRelaunchPattern(incident)
+            .map { NowPresentation.heuristicQualifier($0.confidence) }
     }
 
     /// Coarse on purpose: the popover is read at a glance, and a second-resolution
