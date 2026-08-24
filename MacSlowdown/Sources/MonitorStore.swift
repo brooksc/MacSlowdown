@@ -992,8 +992,13 @@ final class MonitorStore {
     ///
     /// A cache miss reads as `false`, i.e. not known to be an application, which
     /// withholds an incident rather than opening one on a guess.
+    ///
+    /// The predicate is `isApplicationMainExecutable`, not `!isStandalone`. The
+    /// latter asks which family a process is grouped into, and answers yes for every
+    /// binary Xcode ships inside its own bundle — which is how a build opened a
+    /// repeated-quit incident for `git` (TASK-86).
     func isApplication(_ identity: ProcessIdentity) -> Bool {
-        resolver.cachedIdentity(for: identity).map { !$0.isStandalone } ?? false
+        resolver.cachedIdentity(for: identity)?.isApplicationMainExecutable ?? false
     }
 
     func recordLifecycle(from earlier: ProcessSnapshot, to later: ProcessSnapshot) {

@@ -142,3 +142,80 @@ struct AppBundleTests {
         #expect(parent == "/Applications/Xcode.app")
     }
 }
+
+/// TASK-86. The predicate that decides whether a repeated-exit subject is an
+/// *application*, as opposed to something that merely lives inside one.
+///
+/// The distinction is not academic: on the machine this was found on, one build
+/// recorded 419 exits of `swift-frontend`, 141 of `clang` and 21 of `git`, and all
+/// three satisfied the old `!isStandalone` test because Xcode ships them inside its
+/// own bundle. See `AppBundleTests.helperAndParentShareFamily`, which asserts that
+/// same grouping and is still correct — grouping and subject are different questions.
+@Suite("Application main executable")
+struct ApplicationMainExecutableTests {
+    private func identity(_ path: String?) -> ResolvedIdentity {
+        ResolvedIdentity(
+            executablePath: path,
+            appBundlePath: path.flatMap(ProcessIdentityResolver.outermostAppBundle),
+            bundleID: nil, teamID: nil)
+    }
+
+    @Test("An application's own executable is an application")
+    func mainExecutableQualifies() {
+        #expect(identity("/Applications/Xcode.app/Contents/MacOS/Xcode")
+            .isApplicationMainExecutable)
+        #expect(identity("/System/Applications/Mail.app/Contents/MacOS/Mail")
+            .isApplicationMainExecutable)
+    }
+
+    @Test("A toolchain binary shipped inside a bundle is not")
+    func toolchainBinariesAreExcluded() {
+        let toolchain = [
+            "/Applications/Xcode.app/Contents/Developer/usr/bin/swift-frontend",
+            "/Applications/Xcode.app/Contents/Developer/usr/bin/clang",
+            "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+            "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild",
+            "/Applications/Xcode.app/Contents/Developer/Toolchains/"
+                + "XcodeDefault.xctoolchain/usr/bin/ld",
+        ]
+        for path in toolchain {
+            // Grouped into Xcode, which is right, and not an application, which is
+            // the whole of TASK-86.
+            #expect(identity(path).appBundlePath == "/Applications/Xcode.app")
+            #expect(!identity(path).isApplicationMainExecutable, "\(path)")
+        }
+    }
+
+    @Test("A bundled helper application still counts, because it is one")
+    func helperApplicationsQualify() {
+        #expect(identity("/Applications/Google Chrome.app/Contents/Frameworks/"
+            + "Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper")
+            .isApplicationMainExecutable)
+    }
+
+    @Test("An app extension is not an application")
+    func extensionsAreExcluded() {
+        #expect(!identity("/Applications/Notes.app/Contents/PlugIns/"
+            + "NotesShare.appex/Contents/MacOS/NotesShare")
+            .isApplicationMainExecutable)
+    }
+
+    @Test("Daemons, command-line tools and an unknown path are not applications")
+    func nonBundledProcessesAreExcluded() {
+        #expect(!identity("/usr/sbin/mds_stores").isApplicationMainExecutable)
+        #expect(!identity("/bin/zsh").isApplicationMainExecutable)
+        #expect(!identity("/usr/bin/git").isApplicationMainExecutable)
+        // No path at all: 21 of 1063 processes, and the answer must be "no" so an
+        // incident is withheld rather than opened on a guess.
+        #expect(!identity(nil).isApplicationMainExecutable)
+    }
+
+    @Test("A resource nested below Contents/MacOS is not the application")
+    func nestedResourcesAreExcluded() {
+        #expect(!identity("/Applications/Thing.app/Contents/MacOS/support/helper")
+            .isApplicationMainExecutable)
+        // A directory path rather than a binary.
+        #expect(!identity("/Applications/Thing.app/Contents/MacOS/")
+            .isApplicationMainExecutable)
+    }
+}

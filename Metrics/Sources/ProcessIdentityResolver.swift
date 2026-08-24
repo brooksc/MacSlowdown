@@ -42,6 +42,41 @@ public struct ResolvedIdentity: Sendable, Equatable {
     /// process table — daemons and command-line tools. These are standalone
     /// processes in their own right, not families of one.
     public var isStandalone: Bool { appBundlePath == nil }
+
+    /// Whether this process **is an application**, rather than merely living inside
+    /// one (TASK-86).
+    ///
+    /// `isStandalone` answers a grouping question — which family does this row
+    /// belong to — and it is the wrong predicate for FR-046's subject. Xcode ships
+    /// its entire toolchain at `Xcode.app/Contents/Developer/usr/bin/`, so `clang`,
+    /// `git`, `ld` and `swift-frontend` all have a non-nil `appBundlePath`. Under
+    /// `!isStandalone` a single build produced 419 recorded "exits of an
+    /// application" for `swift-frontend` alone, and opened incidents for `git`.
+    ///
+    /// The rule here is instead: the executable is the **main executable of a
+    /// bundle**, i.e. it sits directly in some `Foo.app/Contents/MacOS/`. That
+    /// admits bundled helper applications — `Google Chrome Helper.app` inside
+    /// `Google Chrome.app` is a real application whose repeated exits a user would
+    /// want to know about — while excluding tools that merely ship inside a bundle.
+    ///
+    /// `.appex` is excluded by construction: an app extension's directory ends in
+    /// `.appex`, which is not `.app`, and an extension is not an application.
+    public var isApplicationMainExecutable: Bool {
+        guard let executablePath else { return false }
+        return Self.isMainExecutableOfABundle(executablePath)
+    }
+
+    /// Pure, so the rule is testable against a path without a live process.
+    ///
+    /// Requires the binary to sit *directly* in `Contents/MacOS`: a nested path
+    /// under it is a resource the application carries, not the application.
+    static func isMainExecutableOfABundle(_ path: String) -> Bool {
+        let marker = "/Contents/MacOS/"
+        guard let range = path.range(of: marker, options: .backwards) else { return false }
+        let bundle = String(path[path.startIndex..<range.lowerBound])
+        let remainder = path[range.upperBound...]
+        return bundle.hasSuffix(".app") && !remainder.isEmpty && !remainder.contains("/")
+    }
 }
 
 /// Resolves and caches process identity.

@@ -280,3 +280,61 @@ struct LifecycleCopyTests {
         #expect(text.contains("exactly as it reports a healthy one"))
     }
 }
+
+/// TASK-86. The suite above injects `isApplication` directly, which is why it
+/// passed while the shipping app opened incidents for `git`: the seam TASK-84 built
+/// was sound and the caller filled it with the wrong predicate. These tests replay
+/// the subjects actually recorded in `incidents.json` on 2026-08-23, through the
+/// real path-based rule, so the two halves are tested joined rather than apart.
+@Suite("Repeated quits, decided by the real path rule")
+struct RepeatedQuitSubjectTests {
+    private func isApplication(_ path: String) -> Bool {
+        ResolvedIdentity(
+            executablePath: path,
+            appBundlePath: ProcessIdentityResolver.outermostAppBundle(path),
+            bundleID: nil, teamID: nil
+        ).isApplicationMainExecutable
+    }
+
+    private func exits(
+        _ command: String, path: String, count: Int, spacing: TimeInterval = 5
+    ) -> [LifecycleEvent] {
+        (0..<count).map { index in
+            .exited(
+                identity: ProcessIdentity(pid: Int32(2000 + index), startTime: UInt64(index)),
+                command: command, isApplication: isApplication(path),
+                at: at(Double(index) * spacing))
+        }
+    }
+
+    /// The exact subjects and counts from the two spurious incidents, produced by
+    /// one `./run-menubar.sh`.
+    @Test("A build opens no incident")
+    func recordedBuildChurnYieldsNothing() {
+        let developer = "/Applications/Xcode.app/Contents/Developer/usr/bin/"
+        let recorded = [
+            ("swift-frontend", 419), ("clang", 141), ("swift-plugin-ser", 118),
+            ("git", 21), ("swift-driver", 16), ("swift-package", 11),
+            ("xcodebuild", 8), ("xctest", 7), ("ld", 9),
+        ]
+        let events = recorded.flatMap { command, count in
+            exits(command, path: developer + command, count: min(count, 60), spacing: 5)
+        }
+
+        let tracker = LifecycleTracker(minimumExits: 3, window: .seconds(900))
+        #expect(tracker.relaunchPatterns(in: events, now: at(300)).isEmpty,
+                "a compiler is not an application, however many times a build respawns it")
+    }
+
+    /// And the case FR-046 exists for still survives the narrowing.
+    @Test("A real application quitting repeatedly still opens one")
+    func applicationsStillQualify() throws {
+        let events = exits("Final Cut Pro",
+                           path: "/Applications/Final Cut Pro.app/Contents/MacOS/Final Cut Pro",
+                           count: 4, spacing: 120)
+        let patterns = LifecycleTracker(minimumExits: 3, window: .seconds(900))
+            .relaunchPatterns(in: events, now: at(500))
+        #expect(patterns.map(\.command) == ["Final Cut Pro"])
+        #expect(try #require(patterns.first).exits == 4)
+    }
+}

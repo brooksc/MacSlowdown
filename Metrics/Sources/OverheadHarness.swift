@@ -165,7 +165,7 @@ public enum OverheadHarness {
                 // resolution. Measured here rather than stubbed, because a harness
                 // that skips the app's path reports a budget nobody is held to.
                 _ = lifecycle.events(from: previous, to: snapshot) {
-                    resolver.cachedIdentity(for: $0).map { !$0.isStandalone } ?? false
+                    resolver.cachedIdentity(for: $0)?.isApplicationMainExecutable ?? false
                 }
             }
 
