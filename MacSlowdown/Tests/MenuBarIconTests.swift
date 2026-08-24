@@ -39,7 +39,9 @@ struct MenuBarIconStateTests {
     @Test func mutedIsNeverIdenticalToNormal() {
         #expect(MenuBarIconState.muted.filledBars != MenuBarIconState.normal.filledBars)
         #expect(MenuBarIconState.muted.isSlashed != MenuBarIconState.normal.isSlashed)
-        #expect(MenuBarIconState.muted.tint != MenuBarIconState.normal.tint)
+        // Colour is deliberately not a third difference any more (TASK-89): both are
+        // uncoloured, and the two shape differences above are what the design's
+        // requirement actually rests on.
     }
 
     @Test func quietMachineIsNormal() {
@@ -91,7 +93,7 @@ struct MenuBarIconPolicyCapTests {
     @Test func expectedWorkloadCapsAtElevated() {
         let presentation = MenuBarIcon.presentation(for: incidentInputs(policy: .expected))
         #expect(presentation.state == .elevated)
-        #expect(presentation.state.tint == .yellow)
+        #expect(presentation.tint == .none)
         #expect(presentation.cappedByExpectedWorkload)
         // The incident is still recorded and still badged; only the escalation is
         // withheld (FR-016: suppressing an alert never suppresses the record).
@@ -217,7 +219,7 @@ struct MenuBarIconRateLimiterTests {
     private func presentation(_ state: MenuBarIconState) -> MenuBarIconPresentation {
         MenuBarIconPresentation(
             state: state, showsBadge: false, cappedByExpectedWorkload: false,
-            accessibilityLabel: state.rawValue)
+            tint: .none, accessibilityLabel: state.rawValue)
     }
 
     @Test func theFirstChangeIsNeverHeld() {
@@ -245,10 +247,10 @@ struct MenuBarIconRateLimiterTests {
     @Test func onlyTheStateIsRateLimited() {
         let shown = MenuBarIconPresentation(
             state: .incident, showsBadge: true, cappedByExpectedWorkload: false,
-            accessibilityLabel: "MacSlowdown, severe, memory, 10 minutes")
+            tint: .none, accessibilityLabel: "MacSlowdown, severe, memory, 10 minutes")
         let updated = MenuBarIconPresentation(
             state: .incident, showsBadge: true, cappedByExpectedWorkload: false,
-            accessibilityLabel: "MacSlowdown, severe, memory, 11 minutes")
+            tint: .none, accessibilityLabel: "MacSlowdown, severe, memory, 11 minutes")
         #expect(MenuBarIconRateLimiter.decide(
             displayed: shown, desired: updated,
             lastChangeAt: start, now: start + .milliseconds(100)) == .apply)
@@ -438,5 +440,57 @@ struct MenuBarIconStoreTests {
         _ = MenuBarIconLabel(store: store)
         #expect(!store.isRunning)
         #expect(AppDelegate.isHostingTests)
+    }
+}
+
+/// TASK-89. Product owner, 2026-08-23: "red should be a rare event e.g. something
+/// is really wrong on the machine." Design 2d tinted all four states; in a real
+/// menu bar that meant a permanent green light beside a strip of template icons,
+/// and a red that arrived for any open incident — which on a working Mac is not
+/// rare, and an alarm that is on most of the time is not an alarm.
+@Suite("Colour is rare, and shape is not")
+struct MenuBarIconTintTests {
+    @Test("A severe incident is the only thing that earns red")
+    func onlySevereIsRed() {
+        #expect(MenuBarIcon.presentation(for: incidentInputs(severity: .severe)).tint == .red)
+        #expect(MenuBarIcon.presentation(for: incidentInputs(severity: .high)).tint == .none)
+        #expect(MenuBarIcon.presentation(for: incidentInputs(severity: .moderate)).tint == .none)
+    }
+
+    @Test("A quiet machine and an elevated one use no colour at all")
+    func ordinaryStatesAreTemplates() {
+        #expect(MenuBarIcon.presentation(for: MenuBarIconInputs()).tint == .none)
+        #expect(MenuBarIcon.presentation(
+            for: MenuBarIconInputs(severity: .elevated)).tint == .none)
+        #expect(MenuBarIconPresentation.normal.tint == .none)
+    }
+
+    @Test("Muting a severe incident takes the colour with it")
+    func mutedIsNeverRed() {
+        var inputs = incidentInputs(severity: .severe)
+        inputs.isMuted = true
+        let presentation = MenuBarIcon.presentation(for: inputs)
+        #expect(presentation.state == .muted)
+        #expect(presentation.tint == .none)
+        // Still recorded, still badged — muting suppresses interruption, never the
+        // record (FR-015).
+        #expect(presentation.showsBadge)
+    }
+
+    /// The property the whole change rests on: with colour gone, nothing is lost.
+    @Test("All four states remain distinguishable with no colour whatsoever")
+    func shapeAloneSeparatesEveryState() {
+        let shapes = MenuBarIconState.allCases.map { ($0.filledBars, $0.isSlashed) }
+        #expect(Set(shapes.map { "\($0.0)-\($0.1)" }).count == MenuBarIconState.allCases.count)
+    }
+
+    /// An open incident below the severe line still has to be visible as one, and
+    /// the badge is what does it.
+    @Test("An uncoloured incident is still badged")
+    func badgeCarriesTheIncidentWithoutColour() {
+        let presentation = MenuBarIcon.presentation(for: incidentInputs(severity: .high))
+        #expect(presentation.state == .incident)
+        #expect(presentation.tint == .none)
+        #expect(presentation.showsBadge)
     }
 }

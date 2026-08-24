@@ -44,12 +44,15 @@ struct MenuBarIconTreatment: Equatable, Sendable {
 }
 
 extension MenuBarIconTint {
-    var color: Color {
+    /// Nil means "no colour" — the glyph is drawn in the menu bar's own foreground
+    /// colour as a template image, like every other icon in the strip.
+    var color: Color? {
         switch self {
-        case .green: .green
-        case .yellow: .yellow
+        case .none: nil
+        // Deliberately the system red rather than design 2d's muted tone. It is now
+        // reserved for a severe incident, and a colour that rare has to be worth
+        // looking at when it does appear (TASK-89).
         case .red: .red
-        case .grey: .secondary
         }
     }
 }
@@ -64,6 +67,9 @@ struct MenuBarIconGlyph: View {
     let state: MenuBarIconState
     let showsBadge: Bool
     let treatment: MenuBarIconTreatment
+    /// Which colour, if any, this presentation is allowed. Most of the time none —
+    /// see `MenuBarIcon.tint`.
+    var iconTint: MenuBarIconTint = .none
 
     /// Menu bar content is nominally 16 pt tall; 14 leaves the breathing room the
     /// strip expects on either side.
@@ -86,7 +92,11 @@ struct MenuBarIconGlyph: View {
         .animation(.easeInOut(duration: MenuBarIcon.crossFadeSeconds), value: showsBadge)
     }
 
-    private var tint: Color { treatment.usesTint ? state.tint.color : .primary }
+    /// The colour actually used. Two independent reasons to have none: this state
+    /// is not severe enough to earn one, or the user asked for increased contrast.
+    private var colour: Color? { treatment.usesTint ? iconTint.color : nil }
+
+    private var tint: Color { colour ?? .primary }
 
     @ViewBuilder
     private func bar(filled: Bool, height: CGFloat) -> some View {
@@ -113,7 +123,7 @@ struct MenuBarIconGlyph: View {
     private var slash: some View {
         if state.isSlashed {
             MenuBarSlash()
-                .stroke(treatment.usesTint ? Color.secondary : Color.primary,
+                .stroke(Color.primary,
                         style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
                 .frame(width: Self.side, height: Self.side)
         }
@@ -124,8 +134,12 @@ struct MenuBarIconGlyph: View {
     @ViewBuilder
     private var badge: some View {
         if showsBadge {
+            // The badge is the thing that says "an episode is being recorded", and
+            // it appears for every open incident — including the ones that are not
+            // severe enough for colour. It therefore has to be legible in a template
+            // image, so it takes the foreground colour unless the glyph is tinted.
             Circle()
-                .strokeBorder(treatment.usesTint ? Color.red : Color.primary, lineWidth: 1.4)
+                .strokeBorder(colour ?? Color.primary, lineWidth: 1.4)
                 .frame(width: 5.5, height: 5.5)
                 .offset(x: 2, y: -1)
         }
@@ -192,18 +206,21 @@ struct MenuBarSparkline: View {
 @MainActor
 enum MenuBarGlyphRenderer {
     static func image(state: MenuBarIconState, showsBadge: Bool,
-                      treatment: MenuBarIconTreatment) -> NSImage? {
+                      treatment: MenuBarIconTreatment,
+                      tint: MenuBarIconTint = .none) -> NSImage? {
         let renderer = ImageRenderer(
             content: MenuBarIconGlyph(
-                state: state, showsBadge: showsBadge, treatment: treatment))
+                state: state, showsBadge: showsBadge,
+                treatment: treatment, iconTint: tint))
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
         guard let image = renderer.nsImage else { return nil }
-        // Template only when the treatment has already given up colour. Under
-        // Increase Contrast the design asks for a pure black/white outline, which
-        // is precisely what a template image is — macOS draws it in the strip's own
-        // foreground colour, so it cannot come out dark on dark. When colour is in
-        // use it must not be a template, or the tint would be thrown away.
-        image.isTemplate = !treatment.usesTint
+        // Template whenever no colour is actually in use — which since TASK-89 is
+        // every state but a severe incident, and every state at all under Increase
+        // Contrast. A template image is drawn by macOS in the strip's own
+        // foreground colour, so it can never come out dark on dark and it sits with
+        // the rest of the menu bar. Only a genuinely tinted glyph opts out, because
+        // a template would throw the tint away.
+        image.isTemplate = !(treatment.usesTint && tint != .none)
         return image
     }
 }
@@ -255,7 +272,8 @@ struct MenuBarIconLabel: View {
     @ViewBuilder
     private func glyph(_ shown: MenuBarIconPresentation) -> some View {
         if let image = MenuBarGlyphRenderer.image(
-            state: shown.state, showsBadge: shown.showsBadge, treatment: treatment) {
+            state: shown.state, showsBadge: shown.showsBadge,
+            treatment: treatment, tint: shown.tint) {
             Image(nsImage: image)
         } else {
             // An SF Symbol rather than nothing. An invisible status item is worse
@@ -291,7 +309,7 @@ struct MenuBarIconLabel: View {
             if MenuBarIcon.canDrawSparkline(points) {
                 MenuBarSparkline(
                     points: points,
-                    tint: treatment.usesTint ? model.displayed.state.tint.color : .primary)
+                    tint: (treatment.usesTint ? model.displayed.tint.color : nil) ?? .primary)
             }
         }
     }

@@ -405,7 +405,7 @@ struct NowFreshnessTests {
         let start = ContinuousClock.now
         let severe = MenuBarIconPresentation(
             state: .incident, showsBadge: true, cappedByExpectedWorkload: false,
-            accessibilityLabel: "incident")
+            tint: .none, accessibilityLabel: "incident")
         let decision = MenuBarIconRateLimiter.decide(
             displayed: .normal, desired: severe,
             lastChangeAt: start, now: start.advanced(by: .milliseconds(500)),

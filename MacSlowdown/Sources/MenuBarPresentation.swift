@@ -36,20 +36,17 @@ enum MenuBarIconState: String, CaseIterable, Equatable, Sendable {
     /// The diagonal stroke across the bars. Muted only.
     var isSlashed: Bool { self == .muted }
 
-    /// Reinforcement, never the carrier. `tint` is a name rather than a `Color` so
-    /// this type stays free of SwiftUI and testable without a view.
-    var tint: MenuBarIconTint {
-        switch self {
-        case .normal: .green
-        case .elevated: .yellow
-        case .incident: .red
-        case .muted: .grey
-        }
-    }
 }
 
+/// Reinforcement, never the carrier. A name rather than a `Color` so this stays
+/// free of SwiftUI and testable without a view.
+///
+/// **`none` is the usual answer** (TASK-89). It is not "no state" — the state is
+/// already fully carried by the bar count, the badge and the slash — it is "draw
+/// this as a template image and let the menu bar colour it", which is what every
+/// other icon in the strip does.
 enum MenuBarIconTint: String, Equatable, Sendable {
-    case green, yellow, red, grey
+    case none, red
 }
 
 /// Everything the icon is derived from, gathered in one value so the derivation is
@@ -106,11 +103,13 @@ struct MenuBarIconPresentation: Equatable, Sendable {
     /// would have produced. Carried so the reason is available rather than
     /// inferred, and so a test can assert on the cap directly.
     let cappedByExpectedWorkload: Bool
+    /// Whether colour is used at all, and which. See `MenuBarIcon.tint`.
+    let tint: MenuBarIconTint
     let accessibilityLabel: String
 
     static let normal = MenuBarIconPresentation(
         state: .normal, showsBadge: false, cappedByExpectedWorkload: false,
-        accessibilityLabel: MenuBarIcon.name + ", normal")
+        tint: .none, accessibilityLabel: MenuBarIcon.name + ", normal")
 }
 
 /// The rules behind the menu bar icon, kept out of the view so that every one of
@@ -159,7 +158,30 @@ enum MenuBarIcon {
             state: state,
             showsBadge: inputs.incidentIsOpen,
             cappedByExpectedWorkload: capped,
+            tint: tint(state: state, inputs: inputs),
             accessibilityLabel: accessibilityLabel(state: state, inputs: inputs))
+    }
+
+    /// When the icon is allowed to use colour (TASK-89, product owner 2026-08-23:
+    /// "red should be a rare event e.g. something is really wrong on the machine").
+    ///
+    /// Design 2d gave every state a hue — green normal, yellow elevated, red
+    /// incident, grey muted. Two things were wrong with that in a real menu bar.
+    /// The state a user sees essentially always is *normal*, so the rule amounted
+    /// to a permanent green light beside a strip of template icons; and red arrived
+    /// for any open incident, which on a working Mac is not rare and therefore
+    /// stops meaning anything. An alarm that is on most of the time is not an alarm.
+    ///
+    /// So colour is withheld everywhere except `.severe`, which the detector
+    /// already reserves for critical memory pressure, critical thermal state, or
+    /// three conditions breaching at once — the machine genuinely in trouble rather
+    /// than the machine working hard. Everything below that is a template image and
+    /// says what it has to say by shape: bar count, ring badge, slash.
+    ///
+    /// The existing expected-workload cap composes with this and is unchanged: a
+    /// capped incident is `.elevated`, so it was never going to be red anyway.
+    static func tint(state: MenuBarIconState, inputs: MenuBarIconInputs) -> MenuBarIconTint {
+        state == .incident && inputs.incidentSeverity == .severe ? .red : .none
     }
 
     // MARK: - Saying it out loud (FR-034)
