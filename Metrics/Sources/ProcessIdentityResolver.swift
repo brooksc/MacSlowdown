@@ -53,29 +53,41 @@ public struct ResolvedIdentity: Sendable, Equatable {
     /// `!isStandalone` a single build produced 419 recorded "exits of an
     /// application" for `swift-frontend` alone, and opened incidents for `git`.
     ///
-    /// The rule here is instead: the executable is the **main executable of a
-    /// bundle**, i.e. it sits directly in some `Foo.app/Contents/MacOS/`. That
-    /// admits bundled helper applications — `Google Chrome Helper.app` inside
-    /// `Google Chrome.app` is a real application whose repeated exits a user would
-    /// want to know about — while excluding tools that merely ship inside a bundle.
+    /// The rule is: the executable is the main executable of the **outermost**
+    /// bundle — `Foo.app/Contents/MacOS/Foo`, where `Foo.app` is `appBundlePath`.
+    ///
+    /// This was briefly wider, admitting the main executable of *any* nested
+    /// bundle, on the reasoning that a helper application crash-looping is exactly
+    /// what FR-046 is about. The product owner's machine refuted that within the
+    /// hour: "LM Studio Helper" — an Electron renderer inside `LM Studio.app` —
+    /// opened an incident for recycling normally. Chromium-derived applications
+    /// spawn and retire helpers as a matter of routine, so that is the same class
+    /// of noise as the compiler churn, wearing a `.app` suffix.
+    ///
+    /// So the subject of a repeated-quit finding is the application itself. "LM
+    /// Studio quit and reopened four times" is a finding; "its renderer recycled"
+    /// is not. Helper exits are still recorded as lifecycle events and still
+    /// visible in the process inspector — only the incident is withheld.
     ///
     /// `.appex` is excluded by construction: an app extension's directory ends in
     /// `.appex`, which is not `.app`, and an extension is not an application.
     public var isApplicationMainExecutable: Bool {
-        guard let executablePath else { return false }
-        return Self.isMainExecutableOfABundle(executablePath)
+        guard let executablePath, let appBundlePath else { return false }
+        return Self.isMainExecutable(executablePath, of: appBundlePath)
     }
 
     /// Pure, so the rule is testable against a path without a live process.
     ///
-    /// Requires the binary to sit *directly* in `Contents/MacOS`: a nested path
-    /// under it is a resource the application carries, not the application.
-    static func isMainExecutableOfABundle(_ path: String) -> Bool {
-        let marker = "/Contents/MacOS/"
-        guard let range = path.range(of: marker, options: .backwards) else { return false }
-        let bundle = String(path[path.startIndex..<range.lowerBound])
-        let remainder = path[range.upperBound...]
-        return bundle.hasSuffix(".app") && !remainder.isEmpty && !remainder.contains("/")
+    /// Requires the binary to sit *directly* in the given bundle's `Contents/MacOS`:
+    /// a nested path under it is a resource the application carries, and a
+    /// `Contents/MacOS` belonging to some inner bundle is a helper rather than the
+    /// application.
+    static func isMainExecutable(_ path: String, of bundlePath: String) -> Bool {
+        guard bundlePath.hasSuffix(".app") else { return false }
+        let prefix = bundlePath + "/Contents/MacOS/"
+        guard path.hasPrefix(prefix) else { return false }
+        let remainder = path.dropFirst(prefix.count)
+        return !remainder.isEmpty && !remainder.contains("/")
     }
 }
 

@@ -205,7 +205,7 @@ struct MenuBarContentView: View {
                 .monospacedDigit()
         }
         .font(.callout)
-        .foregroundStyle(row.kind == .application ? .primary : .secondary)
+        .foregroundStyle(row.kind == .other ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(PopoverPresentation.accessibilityLabel(for: row))
         .accessibilityHint(hint(for: row, explanation: explanation) ?? "")
@@ -442,7 +442,7 @@ struct MenuBarContentView: View {
                 .progressViewStyle(.linear)
                 .accessibilityHidden(true)
         }
-        .foregroundStyle(row.kind == .application ? .primary : .secondary)
+        .foregroundStyle(row.kind == .other ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(shareAccessibilityLabel(row))
         .accessibilityHint(row.kind == .unattributed ? explanation : "")
@@ -578,12 +578,17 @@ struct MenuBarContentView: View {
     /// process simply has no "Show" button, matching `SafetyPolicy`'s own rule.
     private var showTarget: (name: String, member: FamilyMember)? {
         guard let leader = leadingFamily else { return nil }
-        let bundleExecutablePrefix = leader.family.bundlePath.map { $0 + "/Contents/MacOS/" }
+        // No bundle, no button. `.activate` goes through `NSRunningApplication`,
+        // which exists only for bundled applications, so offering it for a daemon
+        // produces a control that can only fail — the exact thing the note above
+        // says not to do. Observed on screen: "Show fileproviderd" (TASK-94).
+        guard let bundleExecutablePrefix =
+                leader.family.bundlePath.map({ $0 + "/Contents/MacOS/" })
+        else { return nil }
         let member = leader.family.members.first {
-            guard let prefix = bundleExecutablePrefix,
-                  let path = $0.resolved.executablePath else { return false }
-            return path.hasPrefix(prefix)
-        } ?? leader.family.members.first
+            guard let path = $0.resolved.executablePath else { return false }
+            return path.hasPrefix(bundleExecutablePrefix)
+        }
         guard let member,
               SafetyPolicy().availability(of: .activate, for: member.record).isAvailable
         else { return nil }

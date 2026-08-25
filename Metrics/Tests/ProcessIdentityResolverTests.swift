@@ -186,10 +186,24 @@ struct ApplicationMainExecutableTests {
         }
     }
 
-    @Test("A bundled helper application still counts, because it is one")
-    func helperApplicationsQualify() {
-        #expect(identity("/Applications/Google Chrome.app/Contents/Frameworks/"
-            + "Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper")
+    /// Reversed on 2026-08-25 by the product owner's machine rather than by
+    /// argument: "LM Studio Helper" — an Electron renderer inside `LM Studio.app` —
+    /// opened a repeated-quit incident for recycling normally, within an hour of the
+    /// wider rule shipping. Chromium-derived applications retire helpers as routine
+    /// work, so admitting them is the compiler-churn defect in a `.app` suffix.
+    @Test("A bundled helper application is not the application")
+    func helperApplicationsAreExcluded() {
+        let helper = "/Applications/Google Chrome.app/Contents/Frameworks/"
+            + "Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"
+        // Still grouped into Chrome — the family is right, the subject is not.
+        #expect(identity(helper).appBundlePath == "/Applications/Google Chrome.app")
+        #expect(!identity(helper).isApplicationMainExecutable)
+
+        #expect(!identity("/Applications/LM Studio.app/Contents/Frameworks/"
+            + "LM Studio Helper.app/Contents/MacOS/LM Studio Helper")
+            .isApplicationMainExecutable)
+        // The application itself still does.
+        #expect(identity("/Applications/LM Studio.app/Contents/MacOS/LM Studio")
             .isApplicationMainExecutable)
     }
 

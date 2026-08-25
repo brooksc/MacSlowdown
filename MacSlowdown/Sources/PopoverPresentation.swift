@@ -253,14 +253,24 @@ enum PopoverPresentation {
                 executablePath: row.family.members.first?.resolved.executablePath)
         }
 
+        rows.sort { $0.percentOfOneCore > $1.percentOfOneCore }
+
+        // Pinned below the ranked applications rather than sorted among them
+        // (TASK-93). It is an aggregate, not a contributor, and "Other
+        // applications" below has always been pinned for exactly that reason — the
+        // two aggregates now sit together at the foot of the list instead of one
+        // wandering up and down the ranking as the machine breathes.
+        //
+        // FR-055 permits the position and forbids the demotion: this row keeps its
+        // full value, its full-width bar and its explanation, and the list still
+        // visibly sums. It is drawn at full weight rather than dimmed, which is the
+        // half of the requirement a stable position makes it easy to forget.
         rows.append(ContributorRow(
             id: "unattributed", kind: .unattributed,
             name: "Unattributed system activity",
             processCount: 0, isPartial: false,
             percentOfOneCore: unattributedPercentOfOneCore,
             executablePath: nil))
-
-        rows.sort { $0.percentOfOneCore > $1.percentOfOneCore }
 
         // Everything measured but not shown individually. Without it the visible
         // rows would not sum to the total — the same failure the unattributed row
@@ -486,22 +496,29 @@ enum PopoverPresentation {
                 fractionOfBusy: row.percentOfOneCore / total,
                 executablePath: row.family.members.first?.resolved.executablePath)
         }
-        // Always present, never a footnote: it is routinely the largest single
-        // entry, and demoting it would let the list look like it accounts for the
-        // machine when it does not.
+        // A family that rounds to nothing is folded into the residual rather than
+        // dropped, so the visible integers still add to 100.
+        var otherPercent = percents[leading.count + 1]
+        let (kept, vanished) = rows.stablePartition { $0.percentOfBusy > 0 }
+        otherPercent += vanished.reduce(0) { $0 + $1.percentOfBusy }
+        rows = kept.sorted { $0.percentOfBusy > $1.percentOfBusy }
+
+        // Pinned below the ranked applications, not sorted among them (TASK-93).
+        // It is an aggregate rather than a contributor, and "Other applications"
+        // below has always been pinned for that reason; sorting one of the two by
+        // value made it wander up and down the list as the machine breathed, which
+        // is what the product owner saw.
+        //
+        // Always present, never a footnote. FR-055 permits the position and forbids
+        // the demotion, so it keeps its full value, its full-width bar and its
+        // explanation, and it is drawn at full weight rather than dimmed — the half
+        // of the requirement that a stable position makes it easy to forget.
         rows.append(ShareRow(
             id: "unattributed", kind: .unattributed,
             name: "Unattributed system activity", processCount: 0, isPartial: false,
             percentOfBusy: percents[leading.count],
             fractionOfBusy: attribution.unattributedPercentOfOneCore / total,
             executablePath: nil))
-
-        // A family that rounds to nothing is folded into the residual rather than
-        // dropped, so the visible integers still add to 100.
-        var otherPercent = percents[leading.count + 1]
-        let (kept, vanished) = rows.stablePartition { $0.percentOfBusy > 0 || $0.kind == .unattributed }
-        otherPercent += vanished.reduce(0) { $0 + $1.percentOfBusy }
-        rows = kept.sorted { $0.percentOfBusy > $1.percentOfBusy }
 
         if otherPercent > 0 {
             rows.append(ShareRow(

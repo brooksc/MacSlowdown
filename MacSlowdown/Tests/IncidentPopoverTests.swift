@@ -217,6 +217,31 @@ struct ShareOfBusyTimeTests {
         #expect(unattributed?.percentOfBusy == 56)
     }
 
+    /// TASK-93. This is the list the product owner watched wander on 2026-08-25:
+    /// at 20% it sat third, and it moved as the machine breathed. It is now pinned
+    /// below the ranked applications, beside the other aggregate, and keeps its
+    /// value and its place in the sum.
+    @Test("Unattributed is pinned below the applications and above the residual")
+    func unattributedIsPinnedBelowApplications() throws {
+        let families = (1...3).map {
+            familyRow("App \($0)", percent: Double(100 * $0),
+                      members: [record(pid_t($0), command: "a")])
+        }
+        let rows = shares(families, total: 900, attributed: 600)
+
+        let lastApplication = try #require(rows.lastIndex { $0.kind == .application })
+        let unattributed = try #require(rows.firstIndex { $0.kind == .unattributed })
+        #expect(lastApplication < unattributed)
+        if let other = rows.firstIndex(where: { $0.kind == .other }) {
+            #expect(unattributed < other, "the two aggregates keep a fixed order")
+        }
+        // The applications above it are still ranked among themselves.
+        let applicationShares = rows.filter { $0.kind == .application }.map(\.percentOfBusy)
+        #expect(applicationShares == applicationShares.sorted(by: >))
+        // And the promise on the section header still holds.
+        #expect(rows.reduce(0) { $0 + $1.percentOfBusy } == 100)
+    }
+
     /// Present even at zero: an absent row would read as "everything is accounted
     /// for", which is a different claim from "nothing was unattributable".
     @Test("Unattributed is listed even when it is zero")

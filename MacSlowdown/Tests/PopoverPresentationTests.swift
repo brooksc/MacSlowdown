@@ -219,15 +219,44 @@ struct PopoverContributorTests {
         #expect(row.executablePath?.contains("Safari.app") == true)
     }
 
-    /// Criterion #4: a peer row, not a footnote. It is routinely one of the
-    /// largest entries and must rank with the rest.
-    @Test("Unattributed system activity ranks among the applications")
-    func unattributedIsAPeer() {
+    /// Criterion #4: a peer row, not a footnote — restated (TASK-93).
+    ///
+    /// It used to be sorted by value among the applications, which put it first
+    /// here. On a real machine that made it climb and fall through the list every
+    /// few seconds, which the product owner found distracting on 2026-08-25. It is
+    /// an aggregate rather than a contributor, and "Other applications" has always
+    /// been pinned below the ranking for exactly that reason; both aggregates now
+    /// sit together at the foot.
+    ///
+    /// "Not a footnote" is now carried by weight rather than by position: full
+    /// value, full-width bar, full text weight, and never omitted. FR-055 permits
+    /// the position and forbids the demotion.
+    @Test("Unattributed system activity is pinned below the applications, never dropped")
+    func unattributedIsPinnedBelowApplications() throws {
         let list = rows(
             [familyRow("Photos", percent: 12, members: [record(1, command: "Photos")])],
             unattributed: 42)
-        #expect(list.first?.kind == .unattributed)
-        #expect(list.contains { $0.kind == .application })
+
+        let unattributed = try #require(list.firstIndex { $0.kind == .unattributed })
+        let application = try #require(list.firstIndex { $0.kind == .application })
+        #expect(application < unattributed,
+                "it is pinned below the ranked applications, not sorted among them")
+        // …and it keeps its real value, which is the half of FR-055 that a stable
+        // position makes it easy to quietly lose.
+        #expect(list[unattributed].percentOfOneCore == 42)
+    }
+
+    /// The position must not depend on the value, or it starts wandering again.
+    @Test("It stays pinned whether it is the largest entry or the smallest")
+    func pinningDoesNotDependOnValue() throws {
+        for unattributedPercent in [1.0, 42.0, 500.0] {
+            let list = rows(
+                [familyRow("Photos", percent: 12, members: [record(1, command: "Photos")])],
+                unattributed: unattributedPercent)
+            let unattributed = try #require(list.firstIndex { $0.kind == .unattributed })
+            let application = try #require(list.firstIndex { $0.kind == .application })
+            #expect(application < unattributed, "at \(unattributedPercent)%")
+        }
     }
 
     @Test("Unattributed activity is present even when it is zero")
