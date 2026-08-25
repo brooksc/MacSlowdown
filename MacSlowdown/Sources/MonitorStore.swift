@@ -367,6 +367,20 @@ final class MonitorStore {
     private let sampler = ProcessSampler()
     private let resolver = ProcessIdentityResolver()
     private let history: MetricsHistory
+    /// Per-family history (FR-005, FR-043).
+    ///
+    /// **Moved here from `ProcessInventoryView` on 2026-08-25 (TASK-95).** It was a
+    /// `@State` inside that view, so it only recorded while Apps & Processes was on
+    /// screen and its series died with the view. That made it useless to every other
+    /// surface — which is why the Now table said "Not retained" against every
+    /// application row while an inspector two screens away was drawing curves from
+    /// the same data. Owned by the store, it records on the sampling pass and every
+    /// surface reads one series.
+    let familyHistory = FamilyHistory()
+    /// The family the inventory has selected, if any. Held here only so
+    /// `FamilyHistory` can keep tracking it when it falls out of the busiest few;
+    /// nothing else reads it.
+    var selectedFamilyID: String?
     private let baseCadence: Duration
     private var task: Task<Void, Never>?
 
@@ -779,11 +793,21 @@ final class MonitorStore {
                 // a dictionary lookup per contributor, not filesystem work.
                 naming: { [resolver] in resolver.identity(for: $0).friendlyName })
             let grouped = regroup(from: snapshot)
+            // One wall-clock instant for this pass. `now` is a monotonic
+            // `ContinuousClock.Instant` used for scheduling; retained history is
+            // read back against dates a user sees, so it needs this one.
+            let sampledAt = Date()
 
             attribution = result
             contributionIndex = Dictionary(
                 result.contributors.map { ($0.identity, $0.percentOfOneCore) },
                 uniquingKeysWith: { first, _ in first })
+            // On the sampling pass, so history accrues whether or not a window is
+            // open. The aggregates come from `inventory`, which is built from this
+            // same grouping pass, so this is bookkeeping rather than a measurement.
+            familyHistory.record(
+                rows: inventory, families: grouped,
+                selected: selectedFamilyID, at: sampledAt)
             // We are in our own snapshot, so measuring ourselves costs nothing extra.
             let ownIdentity = snapshot.records.values.first { $0.identity.pid == getpid() }
             if let metrics = ownIdentity?.measurements {

@@ -448,3 +448,85 @@ struct InspectorMetadataTests {
         #expect(subtitle == "/Applications")
     }
 }
+
+/// TASK-95. The product owner watched a per-application figure twitch at sampling
+/// cadence on 2026-08-25 and asked for a trailing mean instead. The data to compute
+/// one already existed here; nothing had ever asked it for an average.
+@Suite("A trailing figure over per-family history")
+@MainActor
+struct TrailingFamilyFigureTests {
+    private let start = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func history(_ values: [Double], from origin: Date) -> FamilyHistory {
+        let history = FamilyHistory()
+        let families = [family("App", bundlePath: "/App.app", members: [
+            member(record(10, command: "App", residentBytes: 100), bundlePath: "/App.app"),
+        ])]
+        for (index, value) in values.enumerated() {
+            history.record(
+                rows: [appRow("/App.app", cpu: value, memory: 1_000_000)],
+                families: families, selected: nil,
+                at: origin.addingTimeInterval(Double(index)))
+        }
+        return history
+    }
+
+    @Test("Nothing retained reads as nil, never as zero")
+    func nothingIsNil() {
+        #expect(FamilyHistory().trailing(for: "/App.app", now: start) == nil)
+        // Retained, but entirely outside the window asked about.
+        #expect(history([50], from: start)
+            .trailing(for: "/App.app", window: .seconds(10),
+                      now: start.addingTimeInterval(600)) == nil)
+    }
+
+    @Test("The mean is the mean of what is in the window, and the peak survives")
+    func meanAndPeak() throws {
+        let trailing = try #require(
+            history([0, 10, 20, 30, 40, 50], from: start)
+                .trailing(for: "/App.app", window: .seconds(60),
+                          now: start.addingTimeInterval(5)))
+        #expect(trailing.sampleCount == 6)
+        #expect(trailing.meanPercentOfOneCore == 25)
+        #expect(trailing.peakPercentOfOneCore == 50)
+        #expect(trailing.span == .seconds(5))
+    }
+
+    /// The property that was actually asked for: a mean is steadier than the
+    /// instant it replaces, while the spike is still recorded rather than lost.
+    @Test("A one-second spike barely moves the minute")
+    func theMeanIsSteadierThanTheInstant() throws {
+        let values = Array(repeating: 20.0, count: 59) + [400]
+        let trailing = try #require(
+            history(values, from: start)
+                .trailing(for: "/App.app", window: .seconds(60),
+                          now: start.addingTimeInterval(59)))
+        #expect(trailing.meanPercentOfOneCore < 30, "the instant reads 400")
+        #expect(trailing.peakPercentOfOneCore == 400, "and the spike is still there")
+    }
+
+    @Test("The two default windows agree")
+    func defaultsAgree() {
+        #expect(FamilyHistory.defaultTrailingWindow == TrailingPresentation.defaultWindow)
+    }
+
+    @Test("A full window is named as the window")
+    func fullWindowIsNamed() {
+        let trailing = FamilyHistory.Trailing(
+            meanPercentOfOneCore: 29, peakPercentOfOneCore: 100,
+            sampleCount: 59, span: .seconds(59))
+        #expect(TrailingPresentation.caption(trailing) == "average over the last minute")
+    }
+
+    /// FR-002: a mean over eight seconds must not call itself a minute.
+    @Test("A short span says how short it is")
+    func shortSpanIsStated() {
+        let trailing = FamilyHistory.Trailing(
+            meanPercentOfOneCore: 29, peakPercentOfOneCore: 100,
+            sampleCount: 8, span: .seconds(8))
+        let caption = TrailingPresentation.caption(trailing)
+        #expect(caption.contains("8s"))
+        #expect(caption.contains("all we have"))
+        #expect(!caption.contains("minute"))
+    }
+}

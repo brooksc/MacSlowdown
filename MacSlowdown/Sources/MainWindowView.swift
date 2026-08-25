@@ -925,47 +925,79 @@ struct ContributorRow: View {
 
     /// The retained history cell.
     ///
-    /// Exactly one kind of row has a series behind it. "System processes" carries
-    /// `unattributedPercentOfOneCore` (see `InventoryRow`), and every retained
-    /// sample records that figure — so its curve has the same coverage as the
-    /// machine total. Application rows do not: `MetricsHistory` keeps a bounded
-    /// set of leading *processes*, so a per-app curve would be assembled from
-    /// readings we only sometimes recorded. It says "not retained" instead, which
-    /// is a statement about our records, not about the application.
+    /// Every kind of row that stands for something we sample now has a series
+    /// (TASK-95). "System processes" carries `unattributedPercentOfOneCore`, which
+    /// every sample records; application and standalone rows come from
+    /// `FamilyHistory`, which records each family's sum on every sampling pass.
+    ///
+    /// Until 2026-08-25 this said "Not retained" against every row but the first,
+    /// because `MetricsHistory` keeps only a bounded set of leading *processes* and
+    /// a per-family curve assembled from those would have had holes we could not
+    /// account for. That was honest, and it was also the app declining to answer
+    /// the question it exists to answer. The fix was to retain the family sums,
+    /// not to draw the old ones more bravely.
+    ///
+    /// Member rows still have none: `FamilyHistory` is keyed on family identity,
+    /// because a family outlives the processes inside it and pids are recycled.
     @ViewBuilder
     private var history: some View {
-        if row.kind == .systemProcesses {
-            let points = SparklinePresentation.unattributedSeries(retained)
-            switch SparklinePresentation.readiness(points) {
-            case .tooFew(let sentence):
-                Text("Too few readings")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .help(sentence)
-            case .ready:
-                HistorySparkline(
-                    points: points,
-                    gapThreshold: SparklinePresentation.gapThreshold(cadence: cadence),
-                    height: 20,
-                    summary: historyAccessibility)
-            }
-        } else {
+        switch row.kind {
+        case .systemProcesses:
+            sparkline(SparklinePresentation.unattributedSeries(retained))
+        case .application:
+            sparkline(familyPoints)
+        case .member:
             Text("Not retained")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .help(SparklinePresentation.perFamilyHistoryExplanation)
+                .help(SparklinePresentation.perProcessHistoryExplanation)
         }
     }
 
-    private var historyAccessibility: String {
-        guard row.kind == .systemProcesses else {
-            return "No retained history. " + SparklinePresentation.perFamilyHistoryExplanation
+    @ViewBuilder
+    private func sparkline(_ points: [SparklinePoint]) -> some View {
+        switch SparklinePresentation.readiness(points) {
+        case .tooFew(let sentence):
+            // Not a flat line: too little history reads as a quiet machine when the
+            // truth is that we have not been watching long enough (FR-002).
+            Text("Too few readings")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .help(sentence)
+        case .ready:
+            HistorySparkline(
+                points: points,
+                gapThreshold: SparklinePresentation.gapThreshold(cadence: cadence),
+                height: 20,
+                summary: historyAccessibility)
         }
-        return SparklinePresentation.accessibilitySummary(
-            title: "Unattributed system activity",
-            points: SparklinePresentation.unattributedSeries(retained),
-            window: MetricsHistory.defaultRetention,
-            gapThreshold: SparklinePresentation.gapThreshold(cadence: cadence))
+    }
+
+    /// This family's retained series, as sparkline points. A sample the family was
+    /// absent from is simply not here, so the sparkline's own gap rule draws it as
+    /// a break rather than a fall to zero.
+    private var familyPoints: [SparklinePoint] {
+        store.familyHistory.points(for: row.id)
+            .map { SparklinePoint(at: $0.at, value: $0.percentOfOneCore) }
+    }
+
+    private var historyAccessibility: String {
+        switch row.kind {
+        case .member:
+            return "No retained history. " + SparklinePresentation.perProcessHistoryExplanation
+        case .systemProcesses:
+            return SparklinePresentation.accessibilitySummary(
+                title: "Unattributed system activity",
+                points: SparklinePresentation.unattributedSeries(retained),
+                window: MetricsHistory.defaultRetention,
+                gapThreshold: SparklinePresentation.gapThreshold(cadence: cadence))
+        case .application:
+            return SparklinePresentation.accessibilitySummary(
+                title: row.name,
+                points: familyPoints,
+                window: MetricsHistory.defaultRetention,
+                gapThreshold: SparklinePresentation.gapThreshold(cadence: cadence))
+        }
     }
 
     /// FR-002: a value we were refused reads as unavailable, never as zero.

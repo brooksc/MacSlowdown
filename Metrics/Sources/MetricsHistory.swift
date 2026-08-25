@@ -76,7 +76,10 @@ public enum HistoryPersistence: Sendable, Equatable {
 /// enforced elsewhere.
 public final class MetricsHistory: Sendable {
     public static let defaultRetention: Duration = .seconds(15 * 60)
-    public static let defaultCadence: Duration = .seconds(2)
+    /// 1 s since the FR-031 amendment of 2026-08-25. This is the divisor for ring
+    /// capacity, so it has to follow `CadenceController.normalInterval` or the
+    /// buffer spans less than the retention window it claims.
+    public static let defaultCadence: Duration = .seconds(1)
     public static let defaultTopContributorCount = 5
 
     /// How often persisted history is rewritten.

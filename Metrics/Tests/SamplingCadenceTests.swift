@@ -16,7 +16,9 @@ struct SamplingCadenceTests {
             at: at(0), incidentOpen: false, conditionBreaching: false, state: &state)
 
         #expect(cadence.mode == .normal)
-        #expect(cadence.interval == .seconds(2))
+        // 1 s since the FR-031 amendment of 2026-08-25: per-application history is
+        // retained per second, and retaining per second requires sampling per second.
+        #expect(cadence.interval == .seconds(1))
     }
 
     /// FR-031: resolution rises on a *suspected* incident, not only a confirmed
@@ -29,7 +31,10 @@ struct SamplingCadenceTests {
             at: at(0), incidentOpen: false, conditionBreaching: true, state: &state)
 
         #expect(cadence.mode == .investigation)
-        #expect(cadence.interval == .seconds(1))
+        // 0.5 s since the same amendment. Investigation had to tighten in step or
+        // FR-031's actual requirement — that resolution *rises* while something
+        // looks wrong — would have collapsed into a single rate.
+        #expect(cadence.interval == .milliseconds(500))
     }
 
     @Test("An open incident keeps resolution raised")
@@ -109,13 +114,13 @@ struct SamplingCadenceTests {
 
         let normal = controller.cadence(at: at(0), incidentOpen: false,
                                         conditionBreaching: false, state: &state)
-        #expect(normal.description.contains("every 2 s"))
+        #expect(normal.description.contains("every 1 s"))
         #expect(normal.description.contains("normal"))
         #expect(!normal.reason.isEmpty)
 
         let elevated = controller.cadence(at: at(10), incidentOpen: true,
                                           conditionBreaching: false, state: &state)
-        #expect(elevated.description.contains("every 1 s"))
+        #expect(elevated.description.contains("every 500 ms"))
         #expect(elevated.reason.contains("incident is open"))
     }
 

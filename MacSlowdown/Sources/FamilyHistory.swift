@@ -11,6 +11,45 @@ struct FamilyHistoryPoint: Equatable, Identifiable {
     var id: Date { at }
 }
 
+/// How a trailing figure describes itself on screen (FR-038, FR-002).
+enum TrailingPresentation {
+    /// "average over the last minute". The statistic and the window are both named,
+    /// because a bare percentage beside an application's name reads as "right now"
+    /// and that is a different claim.
+    /// The window is a parameter with its own default rather than
+    /// `FamilyHistory.defaultTrailingWindow`, which is main-actor isolated and so
+    /// cannot be a default value here.
+    static let defaultWindow: Duration = .seconds(60)
+
+    static func caption(
+        _ trailing: FamilyHistory.Trailing,
+        requestedWindow: Duration = TrailingPresentation.defaultWindow
+    ) -> String {
+        "average over \(windowPhrase(trailing, requested: requestedWindow))"
+    }
+
+    /// Says the short span out loud when we have not been watching long enough to
+    /// fill the window, rather than rounding up to the window we meant to use.
+    static func windowPhrase(
+        _ trailing: FamilyHistory.Trailing, requested: Duration
+    ) -> String {
+        // A tolerance rather than equality: samples land on a cadence, so a full
+        // minute of coverage is almost never exactly sixty seconds of span.
+        let shortfall = requested.totalSeconds - trailing.span.totalSeconds
+        guard shortfall > requested.totalSeconds * 0.2 else { return phrase(requested) }
+        return "the last \(Int(trailing.span.totalSeconds.rounded()))s — all we have"
+    }
+
+    private static func phrase(_ duration: Duration) -> String {
+        let seconds = duration.totalSeconds
+        if seconds >= 60, seconds.truncatingRemainder(dividingBy: 60) == 0 {
+            let minutes = Int(seconds / 60)
+            return minutes == 1 ? "the last minute" : "the last \(minutes) min"
+        }
+        return "the last \(Int(seconds.rounded()))s"
+    }
+}
+
 /// A change in memory over the window we actually observed (FR-044).
 ///
 /// The span travels with the figure because "+1.9 GB" means very different things
@@ -105,6 +144,47 @@ final class FamilyHistory {
     }
 
     func points(for id: String) -> [FamilyHistoryPoint] { series[id] ?? [] }
+
+    /// The trailing window every surface averages over unless it says otherwise.
+    /// Mirrored by `TrailingPresentation.defaultWindow`, which the copy layer needs
+    /// outside this type's actor isolation; a test holds the two equal.
+    static let defaultTrailingWindow: Duration = .seconds(60)
+
+    /// A trailing statistic, carried with the evidence it was computed from.
+    ///
+    /// The window and the sample count travel with the number because FR-038
+    /// requires a derived value to say what it derives from: "29%" and "29% on
+    /// average over the last minute, from 47 readings" are different claims, and
+    /// only the second is true of a mean.
+    struct Trailing: Equatable {
+        let meanPercentOfOneCore: Double
+        let peakPercentOfOneCore: Double
+        let sampleCount: Int
+        /// The span actually covered — at most the window asked for, and less
+        /// whenever we have not been watching that long.
+        let span: Duration
+    }
+
+    /// Trailing statistics for one family, or nil when nothing was retained in the
+    /// window.
+    ///
+    /// Nil rather than zero, always: "we have no readings" and "it used no CPU" are
+    /// different statements and only one is a measurement (FR-002).
+    func trailing(
+        for id: String,
+        window: Duration = FamilyHistory.defaultTrailingWindow,
+        now: Date = Date()
+    ) -> Trailing? {
+        let cutoff = now.addingTimeInterval(-window.totalSeconds)
+        let points = points(for: id).filter { $0.at >= cutoff }
+        guard let first = points.first, let last = points.last else { return nil }
+        let total = points.reduce(0) { $0 + $1.percentOfOneCore }
+        return Trailing(
+            meanPercentOfOneCore: total / Double(points.count),
+            peakPercentOfOneCore: points.map(\.percentOfOneCore).max() ?? 0,
+            sampleCount: points.count,
+            span: .seconds(last.at.timeIntervalSince(first.at)))
+    }
 
     /// The span actually covered, which is never longer than the app has been open.
     func observedSpan(for id: String) -> Duration {

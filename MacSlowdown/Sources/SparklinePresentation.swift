@@ -62,28 +62,29 @@ enum SparklinePresentation {
 
     /// Whether the retained history can support a curve for one application family.
     ///
-    /// It cannot, and this constant exists so the answer is stated in one place and
-    /// can be asserted by a test rather than remembered.
+    /// **It can, since 2026-08-25 (TASK-95).** It could not before, and the reason
+    /// is worth keeping because it is what the fix had to answer:
+    /// `HistorySample.topContributors` holds a bounded set of leading *processes*
+    /// keyed by `(pid, start time)`, which left three holes — a family outside the
+    /// leading few is absent from most samples; a family of many small processes
+    /// can rank highly while no single member ever enters the list; and a member
+    /// that has since exited cannot be matched back to its family, so its past
+    /// readings would vanish and the curve would dip for a reason that never
+    /// happened.
     ///
-    /// `HistorySample.topContributors` holds at most
-    /// `MetricsHistory.defaultTopContributorCount` entries, keyed by
-    /// `(pid, start time)` and recorded per *process*. Three separate holes follow:
-    /// a family outside the leading few is absent from most samples; a family made
-    /// of many small processes can rank highly as a family while no single member
-    /// ever enters the list; and a member that has since exited cannot be matched
-    /// back to the family it belonged to, so its past samples would silently vanish
-    /// and the curve would dip for a reason that never happened.
-    ///
-    /// Drawing that with the gaps stroked out would still imply we watched the app
-    /// throughout and it did nothing in between. So per-family history is not drawn
-    /// at all, and `perFamilyHistoryExplanation` is shown in its place.
-    static let perFamilyHistoryIsRetained = false
+    /// The answer was not to draw that more bravely. `FamilyHistory` records each
+    /// family's **sum** on every sampling pass, keyed on family identity, so the
+    /// coverage now matches the machine total's: a point per sample, and a genuine
+    /// gap only where the family was not running.
+    static let perFamilyHistoryIsRetained = true
 
-    static let perFamilyHistoryExplanation =
-        "History is retained for the machine total and for whatever cannot be "
-        + "attributed, not for each application. A per-app curve here would be "
-        + "drawn from readings we only sometimes recorded, so it is left out "
-        + "rather than drawn with holes in it."
+    /// Member rows, on the other hand, still have none — and for the reason above:
+    /// history is keyed on the family, because a family outlives the processes in
+    /// it and pids are recycled.
+    static let perProcessHistoryExplanation =
+        "History is retained for each application, not for each of its processes. "
+        + "Processes come and go — and macOS reuses their identifiers — so a curve "
+        + "for one of them would break every time the application replaced it."
 
     // MARK: - Enough to draw?
 

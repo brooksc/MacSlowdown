@@ -52,9 +52,21 @@ public struct CadenceController: Sendable {
     /// normal the instant things improve.
     public var investigationLinger: Duration
 
+    /// Defaults amended 2026-08-25 (FR-031, product owner): normal 2 s → **1 s**,
+    /// investigation 1 s → **0.5 s**.
+    ///
+    /// The product explains sustained behaviour, and every per-application figure
+    /// it showed was one sample — visibly twitching, and unaverageable because no
+    /// per-application history was kept. A trailing mean and a per-application
+    /// curve both need per-second retention, which needs per-second sampling.
+    ///
+    /// Investigation tightens in step so that FR-031's actual requirement —
+    /// resolution *rises* while something looks wrong — survives; at equal rates it
+    /// would not. The escalation is now 2× rather than up to 5×, which is also
+    /// gentler on a machine already in trouble (FR-032).
     public init(
-        normalInterval: Duration = .seconds(2),
-        investigationInterval: Duration = .seconds(1),
+        normalInterval: Duration = .seconds(1),
+        investigationInterval: Duration = .milliseconds(500),
         investigationLinger: Duration = .seconds(60)
     ) {
         self.normalInterval = normalInterval

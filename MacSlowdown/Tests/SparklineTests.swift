@@ -54,16 +54,17 @@ struct SparklineSeriesTests {
                 == [20, 21, 22, 23])
     }
 
-    /// The rule the brief is built around: retained history is the aggregate plus a
-    /// bounded set of leading *processes*, so an application family's curve would be
-    /// assembled from readings we only sometimes recorded. It is not drawn.
-    @Test("Per-family history is not claimed to be retained")
-    func perFamilyHistoryIsNotRetained() {
-        #expect(SparklinePresentation.perFamilyHistoryIsRetained == false)
-        #expect(SparklinePresentation.perFamilyHistoryExplanation
-            .contains("not for each application"))
-        // The reason must be about our records, never about the application.
-        #expect(!SparklinePresentation.perFamilyHistoryExplanation.contains("idle"))
+    /// Reversed on 2026-08-25 (TASK-95). `FamilyHistory` records each family's sum
+    /// on every sampling pass, so a family's curve now has the same coverage as the
+    /// machine total's. The limitation moved down a level rather than disappearing:
+    /// a *process* still has no series, because history is keyed on the family.
+    @Test("Per-family history is retained; per-process history is not")
+    func perFamilyHistoryIsRetained() {
+        #expect(SparklinePresentation.perFamilyHistoryIsRetained)
+        #expect(SparklinePresentation.perProcessHistoryExplanation
+            .contains("not for each of its processes"))
+        // The reason must be about our records, never about the process.
+        #expect(!SparklinePresentation.perProcessHistoryExplanation.contains("idle"))
     }
 
     /// Two samples is the number of samples we have, not a flat quarter-hour.

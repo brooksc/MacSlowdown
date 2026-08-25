@@ -17,7 +17,10 @@ struct ProcessInventoryView: View {
     @State private var expanded: Set<InventoryRow.ID> = []
     @State private var sortOrder = Presentation.defaultInventorySort
     @State private var scope: Scope = .apps
-    @State private var history = FamilyHistory()
+    /// The store's history, not this view's. It used to be `@State` here, which
+    /// meant an application's series began when this screen opened and died when it
+    /// closed — invisible to every other surface (TASK-95).
+    private var history: FamilyHistory { store.familyHistory }
     /// Keeps the displayed order steady between samples (TASK-74). Positions only —
     /// the rows themselves are replaced every sample, so the numbers stay live.
     @State private var order = StableOrder<InventoryRow>()
@@ -125,19 +128,19 @@ struct ProcessInventoryView: View {
         .onAppear { refreshRows(userAsked: true) }
         .onChange(of: store.lastUpdate) { _, _ in
             // Every sample: new numbers, settled order.
+            // Recording happens on the sampling pass in `MonitorStore`; this only
+            // re-ranks what is on screen.
             refreshRows()
-            history.record(rows: store.inventory, families: store.families,
-                           selected: selection)
         }
         // User intent re-ranks at once. A person who clicks "CPU" or types a search
         // term is asking to see the list rearranged, and making them wait would be
         // damping the wrong thing.
         .onChange(of: sortOrder) { _, _ in refreshRows(userAsked: true) }
         .onChange(of: query) { _, _ in refreshRows(userAsked: true) }
-        .onChange(of: selection) { _, _ in
-            history.record(rows: store.inventory, families: store.families,
-                           selected: selection)
-        }
+        // Tell the store what is selected so its history keeps tracking that family
+        // even once it drops out of the busiest few.
+        .onChange(of: selection) { _, _ in store.selectedFamilyID = selection }
+        .onAppear { store.selectedFamilyID = selection }
     }
 
     private var scopeControl: some View {
