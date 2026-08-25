@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-25 18:07'
-updated_date: '2026-08-25 18:07'
+updated_date: '2026-08-25 18:16'
 labels:
   - core
   - ui
@@ -41,7 +41,7 @@ Scope:
 - [x] #3 Copy names the window and the statistic, and says the span out loud when it is shorter than the window asked for
 - [x] #4 The inventory's history column draws a real curve for application rows; member rows explain why they have none
 - [x] #5 Cadence defaults follow the FR-031 amendment and the tests assert the amended values
-- [ ] #6 FR-030 overhead is re-measured against the app and the figure recorded in the amendment, replacing the estimate
+- [x] #6 FR-030 overhead is re-measured against the app and the figure recorded in the amendment, replacing the estimate
 - [ ] #7 Verified on screen: an application row shows a curve, and a per-application figure no longer twitches at sampling cadence
 <!-- AC:END -->
 
@@ -75,4 +75,23 @@ Full suite: `MetricsTests` clean; `MacSlowdownTests` one failure, the pre-existi
 ## AC #6 and #7 outstanding
 
 The overhead re-measurement is running; the amendment still carries an estimate rather than a measurement until it lands. Nothing has been seen on screen.
+
+## AC #6 — measured, and over the reference
+
+`probe/overhead/run.sh 300`, M2 MacBook Air, 2026-08-25, 283 sweeps over 300.9 s at the amended cadence:
+
+```
+cpu:    1.760% of one core steady state (budget 1.0%) OVER
+memory: 23.3 MB resident, +15.3 MB growth (budget 100 MB) OK
+disk:   0.00 MB/hour projected (budget 10 MB/hour) OK
+sweep:  6.22 ms median
+```
+
+**My pre-amendment estimate of 0.6% was wrong by about 3×.** The sweep figure was right — I predicted ~6 ms and the median is 6.22 ms — but I costed only the sweep and not the rest of the sampling loop around it. The sweep alone accounts for roughly 0.58% of the measured 1.76%; history, detection and the per-family recording make up the remainder.
+
+Against the pre-amendment comparable of 0.830%, the cost scaled with the cadence almost exactly: twice the samples, 2.1× the CPU. Nothing anomalous happened — the change did what doubling a sampling rate does.
+
+The figure is recorded in the FR-031 amendment. It is over the reference and knowingly so: the numeric budget is deferred and does not gate work, and 1.76% of one core is ~0.22% of this 8-core machine. The harness is headless, so the shipping app's figure is higher again and should be measured separately before release.
+
+If it later needs to come down, the lever is decoupling grouping cadence from metrics cadence rather than reverting the amendment — grouping is the larger half of the 6.22 ms and the per-second requirement is about per-process CPU, not about regrouping the table sixty times a minute.
 <!-- SECTION:NOTES:END -->
