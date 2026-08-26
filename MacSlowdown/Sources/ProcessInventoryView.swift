@@ -257,12 +257,30 @@ struct InventoryTable: View {
                 nameCell(row)
             }
             .width(min: 220, ideal: 420)
-            TableColumn("CPU", value: \.cpuSortKey) { row in
+            TableColumn("Now", value: \.cpuSortKey) { row in
                 measurement(row) {
                     CPUPresentation.percentOfOneCore(row.percentOfOneCore)
                 }
             }
             .width(min: 64, ideal: 76, max: 96)
+            // The column the table is **sorted by** by default, which until now was
+            // not on screen at all (TASK-96 finding 13): the list opened ordered by
+            // the trailing minute under a "CPU" header showing the instant, with no
+            // sort indicator anywhere and a footer explaining a different cause —
+            // the 10 s order hold. The Now screen already solved this with two
+            // labelled columns; this is the same pair.
+            TableColumn("Last minute", value: \.trendSortKey) { row in
+                if let trailing = row.trailing {
+                    Text(CPUPresentation.percentOfOneCore(trailing.meanPercentOfOneCore))
+                        .monospacedDigit()
+                        .help(TrailingPresentation.caption(trailing)
+                            + ", from \(trailing.sampleCount) readings")
+                } else {
+                    // Nothing retained is not a reading of zero (FR-002).
+                    Text("—").foregroundStyle(.secondary)
+                }
+            }
+            .width(min: 84, ideal: 96, max: 120)
             TableColumn("Memory", value: \.memorySortKey) { row in
                 measurement(row) {
                     row.residentBytes == 0

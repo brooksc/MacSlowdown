@@ -205,9 +205,31 @@ struct NowView: View {
     /// background for a screen nobody is looking at.
     private func tickAgeClock() async {
         while !Task.isCancelled {
-            now = Date()
+            // Only while a reading is actually late (TASK-96 finding 22).
+            //
+            // Writing `now` re-evaluates this view's `body`, which reads `rows` →
+            // `store.inventory` → the whole family tree of ~1000 processes, each
+            // application row annotated from its retained series and the lot then
+            // sorted. Doing that once a second to redraw a caption that only
+            // changes when a reading is late made the screen's cost proportional to
+            // the machine's size for no benefit — in an app whose one standing
+            // objective is not to become part of the slowdown.
+            //
+            // The ages this drives exist precisely for the stalled case, so while
+            // samples are arriving on time the store's own updates are what redraw
+            // the screen, and this loop simply watches for the moment they stop.
+            if store.freshness.isStale || isOverdue {
+                now = Date()
+            }
             try? await Task.sleep(for: .seconds(1))
         }
+    }
+
+    /// Whether the next sample is late enough that the age on screen would have
+    /// started moving. Cheap: two dates and the cadence, no inventory.
+    private var isOverdue: Bool {
+        guard let lastUpdate = store.lastUpdate else { return false }
+        return Date().timeIntervalSince(lastUpdate) > cadenceInterval.totalSeconds
     }
 
     // MARK: - Verdict
@@ -732,6 +754,8 @@ struct IncidentBanner: View {
         case .succeeded:
             outcome = "macOS brought \(name) forward. "
                 + "That changes what you are looking at, not what it is using."
+        case .handedOff(let request):
+            outcome = request
         case .failed(let reason), .withheld(let reason):
             outcome = reason
         }
@@ -859,6 +883,13 @@ struct ContributorHeader: View {
             // Named for what is retained rather than "Last 5 min": the span is
             // whatever we have kept, and the cell states it.
             Text("Retained history").frame(width: 110, alignment: .trailing)
+            // Matches the row's age cell, which appears only while readings are
+            // late (TASK-96 finding 14). Without it every numeric column slid 72 pt
+            // left of its heading at exactly the moment the table most needed to be
+            // readable — "Resident memory" sitting over the trailing means, and so
+            // on down the row. Reserved unconditionally rather than mirrored, so
+            // the header cannot fall out of step with the rows again.
+            Text("Age").frame(width: 64, alignment: .trailing)
         }
         .font(.caption).bold()
         .foregroundStyle(.secondary)
@@ -934,13 +965,14 @@ struct ContributorRow: View {
 
             history.frame(width: 110, alignment: .trailing)
 
-            if let age {
-                Text(age)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .frame(width: 64, alignment: .trailing)
-            }
+            // Always occupies its width, empty when readings are current, so the
+            // columns cannot shift out from under the header when a sample is late
+            // (TASK-96 finding 14).
+            Text(age ?? "")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: 64, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)

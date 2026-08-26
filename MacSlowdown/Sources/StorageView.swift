@@ -51,6 +51,20 @@ struct StorageView: View {
                 model.refresh()
             }
         }
+        // The freshness line's clock. `tick` had no caller at all (TASK-96 finding
+        // 25), so "Checked N s ago" only ever advanced when `refresh()` reset it —
+        // and therefore read "Checked 0 s ago" for the whole interval between
+        // reads. A freshness indicator that is always fresh is not one.
+        //
+        // Separate from the refresh loop above deliberately, and far cheaper: this
+        // moves a date, that re-reads every mounted volume (DR-03).
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+                model.tick()
+            }
+        }
     }
 
     /// Every other mounted volume, including the ones we cannot read and the ones

@@ -598,6 +598,8 @@ struct IncidentDetailView: View {
         switch SystemToolOpener().open(tool) {
         case .succeeded:
             toolResults[tool.id] = "Asked macOS to open it."
+        case .handedOff(let request):
+            toolResults[tool.id] = request
         case .failed(let reason), .withheld(let reason):
             toolResults[tool.id] = reason
         }

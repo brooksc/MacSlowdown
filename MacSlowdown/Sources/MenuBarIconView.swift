@@ -167,17 +167,25 @@ struct MenuBarSparkline: View {
     let points: [SparklinePoint]
     let tint: Color
 
+    /// Drawn from zero to at least one full core, exactly as `HistorySparkline`
+    /// is (TASK-96 finding 24).
+    ///
+    /// It used to normalise to the window's own min…max, so a machine idling
+    /// between 5% and 7% of one core drew the same full-height zig-zag as one
+    /// swinging between 0 and 700%. Two curves over the same minute, drawn to
+    /// different rules, on two surfaces a user reads together — and the menu bar's
+    /// version made a calm machine look frantic.
     var body: some View {
         GeometryReader { proxy in
             Path { path in
                 let values = points.map(\.value)
-                guard let lowest = values.min(), let highest = values.max(),
-                      points.count > 1 else { return }
-                let range = max(highest - lowest, 1)
+                guard points.count > 1, let peak = values.max() else { return }
+                // A shared floor of one core, so the height means the same thing
+                // every time it is drawn, with headroom above the peak.
+                let ceiling = max(peak * 1.15, 100)
                 let step = proxy.size.width / CGFloat(points.count - 1)
                 for (index, value) in values.enumerated() {
-                    let y = proxy.size.height
-                        * (1 - CGFloat((value - lowest) / range))
+                    let y = proxy.size.height * (1 - CGFloat(min(value / ceiling, 1)))
                     let point = CGPoint(x: CGFloat(index) * step, y: y)
                     if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
                 }

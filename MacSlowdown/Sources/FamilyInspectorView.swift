@@ -394,6 +394,9 @@ struct FamilyInspectorView: View {
                 relaunches: relaunches, machine: store.machine))
         actionReport = switch result {
         case .succeeded: "\(action.title): done."
+        // A request, reported as one. "Show in Finder: done." claimed an outcome
+        // nobody had looked at (TASK-96 finding 21).
+        case .handedOff(let request): request
         case .failed(let reason): "\(action.title) did not work. \(reason)"
         case .withheld(let reason): "\(action.title) is not available. \(reason)"
         }

@@ -651,6 +651,8 @@ struct MenuBarContentView: View {
         switch result {
         case .succeeded:
             showOutcome = "\(target.name) was brought to the front."
+        case .handedOff(let request):
+            showOutcome = request
         case .failed(let reason), .withheld(let reason):
             showOutcome = reason
         }

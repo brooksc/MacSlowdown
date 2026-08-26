@@ -4,7 +4,7 @@ title: 'Code review 2026-08-26: 27 findings, mostly surfaces contradicting each 
 status: In Progress
 assignee: []
 created_date: '2026-08-26 19:24'
-updated_date: '2026-08-26 19:49'
+updated_date: '2026-08-26 20:45'
 labels:
   - core
   - ui
@@ -45,9 +45,9 @@ The dominant shape is the one this project keeps producing: **two surfaces answe
 <!-- AC:BEGIN -->
 - [x] #1 Findings 1-5, 11 and 19 are fixed with regression tests
 - [x] #2 Findings 6-10 are fixed or explicitly deferred with a reason
-- [ ] #3 Medium findings are triaged: fixed, filed separately, or recorded as accepted
+- [x] #3 Medium findings are triaged: fixed, filed separately, or recorded as accepted
 - [ ] #4 Layout findings 14 and 15 are checked on screen rather than from geometry
-- [ ] #5 Anything deferred says so in the task rather than being silently dropped
+- [x] #5 Anything deferred says so in the task rather than being silently dropped
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -68,4 +68,36 @@ Seven new tests across three suites. 1113 passing, no failures — including bot
 ### One judgement call worth recording
 
 Finding 9's suggested fix was to match on `(command, executablePath)`. That is not available: `LifecycleEvent` carries the identity and the command but no path, and a process that has *exited* cannot be resolved for one. So the count is still by command, and the change is to say so plainly and attach the confidence rather than to pretend a scope we cannot compute. Narrowing it properly would mean recording each exiting process's path at exit time, which is a real change to the tracker and belongs in its own task if the caveat proves insufficient.
+
+## Mediums and lows, 2026-08-26
+
+**Budget references removed from the product** at the product owner's instruction ("remove all references to memory/cpu budget, we can look at optimizing later"). The sidebar warning and `isWithinMemoryBudget` are gone. Finding 12 was right twice over: the budget has been deferred and non-gating since 2026-08-08, *and* it was stated in resident size — the one statistic CLAUDE.md says never to state a memory budget in, since ours ranged 809–3323 MB over a single run with no behaviour change. FR-030's actual requirement, reporting our own cost, is untouched.
+
+**Scope of that removal, stated so it can be corrected:** user-facing claims only. `probe/overhead/run.sh` still measures against `FR030Budget` and prints pass/fail, because it is the measurement instrument and the stated reason for the removal was "we can look at optimizing later" — which needs the instrument intact. Code comments explaining *why* a cadence, a retention or a flush interval was chosen also stay: they are the rationale record, and deleting them would leave the values unexplained. Say the word and either goes.
+
+**13** — the Apps table gains a "Last minute" column beside "Now", so the key it sorts by is on screen and sortable. It was opening ordered by an invisible number under a header showing a different one, with the footer explaining the unrelated 10 s order hold — the shape of TASK-63, which cost an hour.
+
+**14** — the Now table's age cell now always occupies its 64 pt and the header reserves a matching one. It appeared only while readings were stale, so every numeric column slid left of its heading at exactly the moment the table most needed reading. Reserved rather than mirrored, so the two cannot fall out of step again.
+
+**16** — `DiskSignals.rates` returns nil when `deviceCount` changes. Mounting a drive added its entire lifetime byte count to an aggregate divided by one second.
+
+**17** — a family keeps its series through a two-minute grace period after falling out of the tracked 40, and is **not** appended to while untracked, so the gap stays a gap.
+
+**18** — `Severity.forBusyShareOfMachine` takes the threshold in force; the elevated band is a fraction of it, so it moves with the setting. `liveBreachingConditions` is now derived from `SystemObservation.breaches` rather than a second set of lines, which had drifted far enough to announce "elevated, thermal" for a `.fair` state the detector ignores.
+
+**20** — "None of your open apps accounts for it" becomes "Most of it was not your apps".
+
+**21** — new `ActionResult.handedOff(request:)`. Reveal-in-Finder and open-Activity-Monitor hand off to macOS and cannot see the result, so they say so instead of reporting success. `didRun` is false for it.
+
+**22** — the Now screen's age clock ticks only while a reading is actually late. It was rebuilding the whole family tree once a second to redraw a caption that only changes when sampling falls behind.
+
+**23** — the Alerts banner described a defect TASK-69 fixed; it now describes the state it is actually in (monitoring not yet started).
+
+**24** — the menu bar sparkline is drawn from zero to at least one core, like `HistorySparkline`. It normalised to its own min…max, so an idle machine drew the same full-height zig-zag as a saturated one.
+
+**25** — `StorageScreenModel.tick` has a caller. "Checked N s ago" only advanced when `refresh()` reset it, so it read "Checked 0 s ago" for the whole interval.
+
+**26** — the self-cost line names both statistics and reports no CPU figure until a rate exists.
+
+**Not done: 15 and 27.** 15 (the contributor row cannot fit the window's minimum width) is arithmetic off the code and I have now *added* a column to that table, so it needs the screen rather than another guess — it is AC #4. 27 (the Now contributor list does not visibly sum) is defensible under FR-055's presentation freedom and was flagged for consistency rather than as a violation; it needs a product decision about whether the Now table gets the popover's residual row, so it is not something to change unilaterally.
 <!-- SECTION:NOTES:END -->

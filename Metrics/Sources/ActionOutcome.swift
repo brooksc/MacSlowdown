@@ -3,12 +3,22 @@ import Foundation
 /// What happened when an action was requested (FR-017).
 public enum ActionResult: Sendable, Equatable, Codable {
     case succeeded
+    /// Handed to macOS, with no way to confirm what it did.
+    ///
+    /// `activateFileViewerSelecting` returns void and `openApplication` answers on
+    /// a completion handler this synchronous call cannot wait for, so "it worked"
+    /// was being inferred from the call returning — the exact thing FR-050 and
+    /// FR-017 exist to stop, in the file whose own header claims to honour them.
+    /// A request is a request; saying so costs nothing and claims nothing.
+    case handedOff(request: String)
     /// The action was offered but did not work. Reported rather than swallowed,
     /// because FR-017 requires results be reported rather than assumed.
     case failed(reason: String)
     /// The action was never available for this process.
     case withheld(reason: String)
 
+    /// True only where we have evidence it happened. A hand-off is deliberately
+    /// not "it ran": we asked, and that is all we know.
     public var didRun: Bool { self == .succeeded }
 }
 

@@ -141,9 +141,15 @@ private struct AlertsSettingsTab: View {
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Saved, but not yet in effect")
-                            Text("MacSlowdown keeps your choice, but the running monitor "
-                                 + "has not been wired to read it and is still using the "
-                                 + "built-in figures shown under Exact thresholds.")
+                            // TASK-69 wired the monitor to these settings, and
+                            // `isAppliedToMonitoring` flips on the first apply and
+                            // never returns to false — so this banner is now only
+                            // reachable before monitoring has started. It used to
+                            // describe a defect that no longer exists (TASK-96
+                            // finding 23); it now describes the state it is in.
+                            Text("MacSlowdown keeps your choice. Monitoring has not "
+                                 + "started yet, so nothing is being judged against "
+                                 + "it — it takes effect as soon as monitoring runs.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)

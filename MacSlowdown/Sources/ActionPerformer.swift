@@ -42,7 +42,9 @@ struct ActionPerformer {
             }
             let url = URL(fileURLWithPath: resolved?.appBundlePath ?? path)
             NSWorkspace.shared.activateFileViewerSelecting([url])
-            return .succeeded
+            // Void return: Finder may or may not have come forward, and we have no
+            // way to look.
+            return .handedOff(request: "Asked Finder to show \(record.command).")
 
         case .openActivityMonitor:
             let url = URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")
@@ -50,7 +52,10 @@ struct ActionPerformer {
                 return .failed(reason: "Activity Monitor was not found on this Mac.")
             }
             NSWorkspace.shared.openApplication(at: url, configuration: .init())
-            return .succeeded
+            // The completion handler answers after this function has returned, so
+            // the outcome genuinely is not knowable here. The existence check above
+            // is what we *can* verify, and it is a different claim from "it opened".
+            return .handedOff(request: "Asked macOS to open Activity Monitor.")
 
         case .copyDiagnostics:
             let text = diagnostics()

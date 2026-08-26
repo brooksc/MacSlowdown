@@ -422,3 +422,28 @@ struct SeverityTests {
                 "the age is part of the state, so it can be shown")
     }
 }
+
+/// TASK-96 finding 21. `ActionPerformer` returned `.succeeded` for two actions
+/// that hand off to macOS and never look back — an outcome claimed from a call
+/// returning, which is the rule FR-050 and FR-017 exist for and which that file's
+/// own header claims to honour.
+@Suite("A hand-off is reported as a hand-off")
+struct ActionHandOffTests {
+    @Test("Handing off is not the same as having run")
+    func handOffIsNotSuccess() {
+        let outcome = ActionResult.handedOff(request: "Asked Finder to show it.")
+        #expect(!outcome.didRun)
+        #expect(outcome != .succeeded)
+    }
+
+    @Test("Its wording asks rather than asserts")
+    func wordingIsARequest() {
+        let outcome = ActionResult.handedOff(request: "Asked macOS to open it.")
+        if case .handedOff(let request) = outcome {
+            #expect(request.hasPrefix("Asked"))
+            #expect(!request.contains("done"))
+        } else {
+            Issue.record("expected a hand-off")
+        }
+    }
+}
