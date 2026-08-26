@@ -655,15 +655,35 @@ struct IncidentBanner: View {
     private var bringForwardButton: some View {
         if let pattern = NowPresentation.leadingRelaunchPattern(incident) {
             if let member = NowPresentation.familyMember(
-                forCommand: pattern.command, in: store.families) {
+                forCommand: pattern.command, in: store.families),
+               canActivate(member) {
                 let name = member.resolved.displayName(command: member.record.command)
                 Button("Bring \(name) forward") { bringForward(member, named: name) }
             }
-        } else if let leader = store.attribution?.contributors.first {
+        } else if let leader = store.attribution?.contributors.first,
+                  canActivate(leader) {
             Button("Bring \(store.displayName(for: leader)) forward") {
                 bringForward(leader)
             }
         }
+    }
+
+    /// Whether there is anything to bring forward (TASK-94 #3).
+    ///
+    /// Activation goes through `NSRunningApplication`, which exists only for
+    /// bundled applications, so a daemon leading the contributors would have been
+    /// offered a button whose only possible outcome is an apology. The rule lives
+    /// in `SafetyPolicy` so the three sites that offer this action cannot drift.
+    private func canActivate(_ member: FamilyMember) -> Bool {
+        SafetyPolicy().availability(
+            of: .activate, for: member.record, resolved: member.resolved).isAvailable
+    }
+
+    private func canActivate(_ usage: ProcessCPUUsage) -> Bool {
+        guard let member = store.families.flatMap(\.members)
+            .first(where: { $0.record.identity == usage.identity })
+        else { return false }
+        return canActivate(member)
     }
 
     /// Design 1c's third action: mark this application's load as expected, at the

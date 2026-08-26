@@ -22,7 +22,7 @@ enum FamilyDiagnostics {
         row: InventoryRow,
         provenance: GroupingProvenance,
         growth: MemoryGrowth?,
-        relaunches: Int?,
+        relaunches: MonitorStore.RelaunchTally?,
         machine: MachineContext,
         at date: Date = Date()
     ) -> String {
@@ -57,9 +57,15 @@ enum FamilyDiagnostics {
         } else {
             lines.append("Growth        not enough history yet")
         }
-        lines.append(relaunches.map {
-            "Relaunches    \($0) observed while MacSlowdown has been running"
-        } ?? "Relaunches    not observed long enough to say")
+        if let relaunches {
+            let label: String = Evidence.heuristic.label
+            let confidence: String = relaunches.confidence.label
+            let counted: String = "counted by process name across the whole machine"
+            lines.append("Relaunches    \(relaunches.count) observed while MacSlowdown "
+                         + "has been running (\(label), \(confidence); \(counted))")
+        } else {
+            lines.append("Relaunches    not observed long enough to say")
+        }
         lines.append("Disk activity not available — per-app disk I/O is not readable "
             + "by an App Store app")
         lines.append("")
@@ -239,9 +245,34 @@ struct FamilyInspectorView: View {
     /// Nil until monitoring has run long enough for zero to mean something. The
     /// tracker watches the whole process table, so a family that has never been in
     /// the busiest few is covered too — which the per-family series above is not.
-    private var relaunches: Int? {
+    private var relaunches: MonitorStore.RelaunchTally? {
         guard store.hasObservedLongEnough(), let family else { return nil }
-        return store.relaunchCount(forCommands: Set(family.members.map(\.record.command)))
+        return store.relaunchTally(
+            forCommands: Set(family.members.map(\.record.command)), familyID: family.id)
+    }
+
+    /// What the relaunch figure is actually a count of.
+    ///
+    /// It is matched by command across the whole process table, so on a row that
+    /// stands for one application it can be counting more than that application —
+    /// the case the product owner hit with three processes named `claude`, all
+    /// showing the same 7. Saying so is cheaper than pretending otherwise, and the
+    /// association is a heuristic either way (FR-038, FR-045).
+    private var relaunchCaveat: String? {
+        guard let relaunches, let family else { return nil }
+        let names = Set(family.members.map(\.record.command)).sorted()
+            .map { "“\($0)”" }.joined(separator: ", ")
+        var text = "Counted by process name (\(names)) across every process on this Mac, "
+            + "not only this application's."
+        if relaunches.commandIsShared {
+            text += " Something outside this application currently answers to that "
+                + "name, so this count spans more than what you selected."
+        }
+        if family.members.contains(where: { $0.record.command.count >= 15 }) {
+            text += " macOS shortens process names to 16 characters, so different "
+                + "programs can share one."
+        }
+        return text
     }
 
     private var figures: some View {
@@ -263,7 +294,10 @@ struct FamilyInspectorView: View {
                 figure("Growth", "Not enough history yet")
             }
             if let relaunches {
-                figure("Relaunches while watching", "\(relaunches)")
+                figure("Relaunches, by name",
+                       "\(relaunches.count) · \(Evidence.heuristic.label) · "
+                       + relaunches.confidence.label,
+                       help: relaunchCaveat)
             } else {
                 figure("Relaunches", "Not watched long enough")
             }
@@ -274,13 +308,16 @@ struct FamilyInspectorView: View {
         }
     }
 
-    private func figure(_ label: String, _ value: String) -> some View {
+    private func figure(_ label: String, _ value: String, help: String? = nil) -> some View {
         GridRow {
             Text(label).foregroundStyle(.secondary)
             Text(value).monospacedDigit().gridColumnAlignment(.trailing)
         }
+        .help(help ?? "")
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label): \(value)")
+        // The caveat is spoken, not left to a tooltip a VoiceOver user never
+        // reaches (FR-034).
+        .accessibilityLabel("\(label): \(value)" + (help.map { ". \($0)" } ?? ""))
     }
 
     private var caveats: some View {
@@ -303,7 +340,8 @@ struct FamilyInspectorView: View {
             Text("SAFE ACTIONS").font(.caption).bold().foregroundStyle(.secondary)
 
             if let primary = primaryRecord {
-                ForEach(SafetyPolicy().availableActions(for: primary.record)) { action in
+                ForEach(SafetyPolicy().availableActions(
+                    for: primary.record, resolved: primary.resolved)) { action in
                     Button(title(for: action)) { run(action, primary) }
                         .frame(maxWidth: .infinity)
                 }

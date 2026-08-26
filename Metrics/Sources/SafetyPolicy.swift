@@ -1,6 +1,16 @@
 import Darwin
 import Foundation
 
+/// Why an action is withheld for something that is not an application.
+///
+/// Not a `ProtectionReason`: nothing is being protected here. There is simply
+/// nothing to bring forward, and saying so is more useful than a button that fails.
+extension SafetyPolicy {
+    static let notAnApplication =
+        "This runs in the background and has no window, so there is nothing to "
+        + "bring to the front."
+}
+
 /// Why a process is protected from user-directed action (FR-018).
 public enum ProtectionReason: String, Sendable, Equatable {
     case systemOwned
@@ -96,10 +106,22 @@ public struct SafetyPolicy: Sendable {
     /// those are the only actions that touch the process at all. Observation and
     /// hand-off remain available for everything — refusing to let a user copy
     /// diagnostics about WindowServer would be safety theatre, not safety.
+    /// - Parameter resolved: the process's identity, where the caller has it.
+    ///   Supplying it lets the policy withhold `activate` for a process that has no
+    ///   application to bring forward. Activation goes through
+    ///   `NSRunningApplication`, which exists only for bundled applications, so
+    ///   offering it for a daemon produces a control whose only possible outcome is
+    ///   an apology — "Bring to front did not work. node is not a foreground
+    ///   application." The rule lives here rather than in each view because it was
+    ///   fixed at one call site (TASK-94) and left standing at two others.
     public func availability(
         of action: ProcessAction,
-        for record: ProcessRecord
+        for record: ProcessRecord,
+        resolved: ResolvedIdentity? = nil
     ) -> ActionAvailability {
+        if action == .activate, let resolved, resolved.appBundlePath == nil {
+            return .unavailable(reason: Self.notAnApplication)
+        }
         guard let reason = protection(for: record) else { return .available }
 
         switch action {
@@ -113,8 +135,12 @@ public struct SafetyPolicy: Sendable {
     /// The actions to offer for a process. Withheld ones are excluded rather than
     /// shown disabled-but-tempting; the caller can still ask `availability` to
     /// explain the absence.
-    public func availableActions(for record: ProcessRecord) -> [ProcessAction] {
-        ProcessAction.allCases.filter { availability(of: $0, for: record).isAvailable }
+    public func availableActions(
+        for record: ProcessRecord, resolved: ResolvedIdentity? = nil
+    ) -> [ProcessAction] {
+        ProcessAction.allCases.filter {
+            availability(of: $0, for: record, resolved: resolved).isAvailable
+        }
     }
 
     /// What to tell a user who asks why an action is missing. Explains at the

@@ -1104,6 +1104,36 @@ final class MonitorStore {
     /// by construction. `p_comm` is truncated to 16 bytes, so two applications whose
     /// commands truncate to the same fragment are counted together — the
     /// low-confidence case `RelaunchPattern` already names.
+    /// The count, with what a reader needs to judge it (TASK-96 finding 9).
+    ///
+    /// The number alone was shown against one application's inspector under the
+    /// label "Relaunches while watching", while being a count for *every process on
+    /// the machine sharing that 16-byte command*. A user reading it about three
+    /// identically named processes had no way to know it was not about the one they
+    /// had selected.
+    struct RelaunchTally: Equatable {
+        let count: Int
+        /// Whether some process outside this family currently answers to one of
+        /// these commands — in which case the count certainly spans more than the
+        /// selected application.
+        let commandIsShared: Bool
+        /// `p_comm` is 16 bytes. A command at the limit could be several different
+        /// executables, which is an uncertain association (FR-045, FR-038).
+        let confidence: Confidence
+    }
+
+    func relaunchTally(forCommands commands: Set<String>, familyID: String) -> RelaunchTally {
+        let shared = families.contains { family in
+            family.id != familyID && family.members.contains { commands.contains($0.record.command) }
+        }
+        let truncated = commands.contains { $0.count >= 15 }
+        return RelaunchTally(
+            count: relaunchCount(forCommands: commands),
+            commandIsShared: shared,
+            // Shared or truncated, the association is weaker than the number looks.
+            confidence: shared || truncated ? .low : .moderate)
+    }
+
     func relaunchCount(forCommands commands: Set<String>) -> Int {
         var exits: [String: Int] = [:]
         var launches: [String: Int] = [:]

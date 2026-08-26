@@ -392,3 +392,118 @@ struct PopoverRepeatedQuitSubjectTests {
         #expect(PopoverPresentation.incidentHeadlineQualifier(subject) == banner.qualifier)
     }
 }
+
+/// TASK-96 findings 7 and 8. During one open incident the Now banner named the
+/// application the incident recorded while the popover, two inches away, named
+/// whatever had just spiked — and its action offered to bring that bystander
+/// forward even when the headline above it was about a different application
+/// entirely. `NowPresentation.bannerHeadline` states the rule the banner already
+/// followed: the recorded attribution, never the live one.
+@Suite("The popover's subject is the incident's, not the machine's")
+struct PopoverSubjectAgreementTests {
+    private let began = Date(timeIntervalSince1970: 3_000_000)
+
+    private func incident(recordedLeader: String) -> Incident {
+        var subject = episode(conditions: [.cpuSaturation], beganAt: began)
+        subject.attribution = IncidentAttribution(
+            sample: AttributionSample(
+                applications: [IncidentContributor(
+                    applicationID: "/Applications/\(recordedLeader).app",
+                    displayName: recordedLeader, peakPercentOfOneCore: 700)],
+                totalBusyPercentOfOneCore: 800,
+                attributedPercentOfOneCore: 700,
+                unattributedPercentOfOneCore: 100,
+                logicalCoreCount: 8),
+            at: began)
+        return subject
+    }
+
+    /// The popover's causal sentence and the Now banner must name one application.
+    @Test("Both surfaces name the recorded application, not the live leader")
+    func surfacesNameTheSameApplication() throws {
+        let subject = incident(recordedLeader: "Xcode")
+        let recorded = try #require(subject.attribution)
+        let leader = try #require(recorded.leadingApplication)
+
+        // What the popover now builds its sentence from.
+        let cause = PopoverPresentation.cause(
+            leaderName: leader.displayName,
+            leaderPercentOfOneCore: leader.peakPercentOfOneCore,
+            totalBusyPercentOfOneCore: recorded.peakTotalBusyPercentOfOneCore,
+            unattributedShare: recorded.unattributedShare,
+            confidence: .moderate)
+        #expect(cause.text.contains("Xcode"))
+
+        // And what the banner says about the same incident.
+        let banner = NowPresentation.bannerHeadline(
+            incident: subject,
+            conditionHeadline: PopoverPresentation.incidentHeadline(subject, now: Date()))
+        #expect(banner.text.contains("Xcode"))
+    }
+
+    /// A repeated-quit episode is about the process that kept exiting. Both the
+    /// headline and the action beneath it must be about that one.
+    @Test("A repeated-quit incident's subject is the quitting command, everywhere")
+    func lifecycleSubjectDrivesBothHeadlineAndAction() throws {
+        var subject = incident(recordedLeader: "Xcode")
+        subject.conditions = [.repeatedApplicationQuits]
+        subject.lifecycleFindings = [RelaunchPattern(
+            command: "Dropbox", exits: 4, firstAt: began,
+            lastAt: began.addingTimeInterval(120), confidence: .moderate)]
+
+        #expect(PopoverPresentation.incidentHeadline(subject, now: Date()).contains("Dropbox"))
+        // The action's target comes from the same rule the headline uses, so it
+        // cannot offer to bring the CPU leader forward instead.
+        let pattern = try #require(NowPresentation.leadingRelaunchPattern(subject))
+        #expect(pattern.command == "Dropbox")
+    }
+}
+
+/// TASK-96 finding 10, and TASK-94 #3: activation goes through
+/// `NSRunningApplication`, which exists only for bundled applications.
+@Suite("Activation is not offered where it cannot work")
+struct ActivationAvailabilityTests {
+    private func record(bundled: Bool) -> (ProcessRecord, ResolvedIdentity) {
+        let identity = ProcessIdentity(pid: 4242, startTime: 1)
+        let record = ProcessRecord(
+            identity: identity, command: bundled ? "Safari" : "fileproviderd",
+            uid: getuid(), ppid: 1,
+            metrics: .measured(ProcessMetrics(cpuTicks: 1, residentBytes: 1 << 20)))
+        let resolved = ResolvedIdentity(
+            executablePath: bundled
+                ? "/Applications/Safari.app/Contents/MacOS/Safari"
+                : "/usr/libexec/fileproviderd",
+            appBundlePath: bundled ? "/Applications/Safari.app" : nil,
+            bundleID: nil, teamID: nil)
+        return (record, resolved)
+    }
+
+    @Test("A daemon is offered no way to be brought to the front")
+    func daemonsCannotBeActivated() {
+        let (record, resolved) = record(bundled: false)
+        let availability = SafetyPolicy().availability(
+            of: .activate, for: record, resolved: resolved)
+        #expect(!availability.isAvailable)
+        #expect(!SafetyPolicy().availableActions(for: record, resolved: resolved)
+            .contains(.activate))
+        // The other observational actions are untouched — withholding them would be
+        // safety theatre, not safety.
+        #expect(SafetyPolicy().availableActions(for: record, resolved: resolved)
+            .contains(.copyDiagnostics))
+    }
+
+    @Test("An application still is")
+    func applicationsCanBeActivated() {
+        let (record, resolved) = record(bundled: true)
+        #expect(SafetyPolicy().availability(
+            of: .activate, for: record, resolved: resolved).isAvailable)
+    }
+
+    /// Callers that have no resolved identity to offer are unchanged, so this
+    /// cannot quietly withhold an action somewhere that never opted in.
+    @Test("Without a resolved identity the rule does not apply")
+    func unresolvedIsUnchanged() {
+        let (record, _) = record(bundled: false)
+        #expect(SafetyPolicy().availability(of: .activate, for: record).isAvailable)
+    }
+}

@@ -67,7 +67,7 @@ struct PopoverVerdictTests {
         let start = Date(timeIntervalSince1970: 1_000_000)
         let line = PopoverPresentation.monitoringLine(
             isRunning: true, watchingSince: start, now: start.addingTimeInterval(3600),
-            incidentCount: 0, timeText: { _ in "8:02 AM" })
+            incidentDates: [], timeText: { _ in "8:02 AM" })
         #expect(line.contains("No slowdowns"))
         #expect(line.contains("8:02 AM"))
     }
@@ -80,20 +80,20 @@ struct PopoverVerdictTests {
         let start = Date(timeIntervalSince1970: 1_000_000)
         let short = PopoverPresentation.monitoringLine(
             isRunning: true, watchingSince: start, now: start.addingTimeInterval(600),
-            incidentCount: 0, timeText: { _ in "8:02 AM" })
+            incidentDates: [], timeText: { _ in "8:02 AM" })
         #expect(!short.contains("24 hours"))
         #expect(short.contains("when monitoring started"))
 
         let long = PopoverPresentation.monitoringLine(
             isRunning: true, watchingSince: start, now: start.addingTimeInterval(25 * 3600),
-            incidentCount: 0, timeText: { _ in "8:02 AM" })
+            incidentDates: [], timeText: { _ in "8:02 AM" })
         #expect(long.contains("in the last 24 hours"))
     }
 
     @Test("Stopped monitoring is stated, not implied by an absence of incidents")
     func notRunningIsStated() {
         let line = PopoverPresentation.monitoringLine(
-            isRunning: false, watchingSince: Date(), now: Date(), incidentCount: 0)
+            isRunning: false, watchingSince: Date(), now: Date(), incidentDates: [])
         #expect(line.contains("not running"))
         #expect(!line.contains("No slowdowns"))
     }
@@ -317,5 +317,53 @@ struct PopoverContributorTests {
         #expect(label.contains("Safari"))
         #expect(label.contains("9 processes"))
         #expect(label.contains("of one core"))
+    }
+}
+
+/// TASK-96 finding 6. The count and the window it is stated in were decided in two
+/// different places: the caller passed `recentIncidents.count` — everything inside
+/// the user's retention setting, up to 90 days — and this line rendered it as
+/// "since 9:14 AM, when monitoring started". It became wrong when TASK-72 made
+/// incident history persist across restarts.
+@Suite("The reassurance line counts the window it names")
+struct MonitoringLineWindowTests {
+    private let start = Date(timeIntervalSince1970: 1_000_000)
+
+    @Test("Incidents from before this session are not counted against it")
+    func olderIncidentsAreExcluded() {
+        let line = PopoverPresentation.monitoringLine(
+            isRunning: true, watchingSince: start, now: start.addingTimeInterval(3600),
+            incidentDates: [
+                start.addingTimeInterval(-30 * 24 * 3600),  // last month
+                start.addingTimeInterval(-3600),            // before we started
+                start.addingTimeInterval(600),              // this session
+            ],
+            timeText: { _ in "8:02 AM" })
+        #expect(line.contains("1 slowdown since"))
+    }
+
+    @Test("The 24-hour claim counts 24 hours, not everything retained")
+    func theDayClaimCountsADay() {
+        let now = start.addingTimeInterval(40 * 24 * 3600)
+        let line = PopoverPresentation.monitoringLine(
+            isRunning: true, watchingSince: start, now: now,
+            incidentDates: [
+                now.addingTimeInterval(-20 * 24 * 3600),
+                now.addingTimeInterval(-2 * 24 * 3600),
+                now.addingTimeInterval(-3600),
+                now.addingTimeInterval(-600),
+            ],
+            timeText: { _ in "8:02 AM" })
+        #expect(line.contains("2 slowdowns in the last 24 hours"))
+    }
+
+    /// Without a start there is no window, so there is no honest count to give.
+    @Test("With no start time it claims no window at all")
+    func noStartMeansNoClaim() {
+        let line = PopoverPresentation.monitoringLine(
+            isRunning: true, watchingSince: nil, now: start,
+            incidentDates: [start, start, start])
+        #expect(!line.contains("slowdown"))
+        #expect(line.contains("running"))
     }
 }

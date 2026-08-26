@@ -62,25 +62,36 @@ enum PopoverPresentation {
     /// last 24 hours" once we have actually been watching that long. Before then
     /// the sentence names the start instead, because incidents are held in memory
     /// for this session only and a 24-hour claim would be unsupported (FR-038).
+    /// - Parameter incidentDates: when each known incident began. **Dates rather
+    ///   than a count**, so the window this sentence names and the window it counts
+    ///   are decided in one place. They used to be decided in two: the caller passed
+    ///   `recentIncidents.count`, which is everything inside the user's retention
+    ///   setting — up to 90 days — and this function rendered it as "since 9:14 AM,
+    ///   when monitoring started". Both windows were wrong, on the popover's
+    ///   load-bearing line. It became wrong when TASK-72 made history persist across
+    ///   restarts (FR-002).
     static func monitoringLine(
         isRunning: Bool,
         watchingSince: Date?,
         now: Date,
-        incidentCount: Int,
+        incidentDates: [Date],
         timeText: (Date) -> String = Self.shortTime
     ) -> String {
         guard isRunning else {
             return "Monitoring is not running, so nothing is being observed."
         }
-        let count = incidentPhrase(incidentCount)
         guard let watchingSince else {
-            // We know we are running but not since when. Say only what is known.
-            return "\(count) observed so far."
+            // We know we are running but not since when, so there is no window to
+            // count against. Say only what is known.
+            return "Monitoring is running."
         }
         let elapsed = now.timeIntervalSince(watchingSince)
         if elapsed >= 24 * 60 * 60 {
+            let cutoff = now.addingTimeInterval(-24 * 60 * 60)
+            let count = incidentPhrase(incidentDates.count { $0 >= cutoff })
             return "\(count) in the last 24 hours. Watching since \(timeText(watchingSince))."
         }
+        let count = incidentPhrase(incidentDates.count { $0 >= watchingSince })
         return "\(count) since \(timeText(watchingSince)), when monitoring started."
     }
 

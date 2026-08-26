@@ -91,9 +91,15 @@ struct MenuBarContentView: View {
     private var monitoringLine: String {
         PopoverPresentation.monitoringLine(
             isRunning: store.isRunning,
-            watchingSince: PopoverPresentation.launchedAt,
+            // The store's own record of when sampling began, not the process launch
+            // date. They are within a launch of each other, but this one is the
+            // thing the sentence actually claims.
+            watchingSince: store.monitoringStartedAt ?? PopoverPresentation.launchedAt,
             now: Date(),
-            incidentCount: store.recentIncidents.count + (store.openIncident == nil ? 0 : 1))
+            // Every incident we know of, with its start. The window is applied
+            // where the sentence names it, so the two cannot disagree.
+            incidentDates: store.recentIncidents.map(\.beganAt)
+                + (store.openIncident.map { [$0.beganAt] } ?? []))
     }
 
     // MARK: - Headline figures
@@ -245,7 +251,7 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             incidentHeadline(incident)
 
-            if let cause = causeConclusion(attribution) {
+            if let cause = causeConclusion(incident: incident, attribution: attribution) {
                 causeSentence(cause)
             }
 
@@ -326,12 +332,37 @@ struct MenuBarContentView: View {
     }
 
     /// The one causal claim on the screen, and the only one in the popover.
-    private func causeConclusion(_ attribution: CPUAttribution) -> Conclusion? {
-        guard let leader = leadingFamily,
-              // No hypothesis from the summariser means there is nothing we are
-              // confident enough to call a cause. Say nothing rather than invent it.
-              let confidence = store.currentSummary?.hypotheses.first?.confidence
+    ///
+    /// **The subject is the incident's own recording, never the live leader.** This
+    /// used to take `leadingFamily` — the machine's busiest process right now — so
+    /// during one open incident the Now banner could say "Xcode is using most of
+    /// the CPU" while this popover, two inches away, named whatever had just
+    /// spiked. `NowPresentation.bannerHeadline` states the rule the banner already
+    /// followed: "for the banner's subject to be the machine's current busiest
+    /// process would put a passer-by's name on an incident it had nothing to do
+    /// with". One incident, one subject, wherever it is narrated (TASK-82, FR-038).
+    ///
+    /// The live reading is used only when the incident has recorded nothing of its
+    /// own, which is a measurement of the thing being described rather than of a
+    /// bystander.
+    private func causeConclusion(
+        incident: Incident, attribution: CPUAttribution
+    ) -> Conclusion? {
+        // No hypothesis from the summariser means there is nothing we are confident
+        // enough to call a cause. Say nothing rather than invent it.
+        guard let confidence = store.currentSummary?.hypotheses.first?.confidence
         else { return nil }
+
+        if let recorded = incident.attribution, let leader = recorded.leadingApplication {
+            return PopoverPresentation.cause(
+                leaderName: leader.displayName,
+                leaderPercentOfOneCore: leader.peakPercentOfOneCore,
+                totalBusyPercentOfOneCore: recorded.peakTotalBusyPercentOfOneCore,
+                unattributedShare: recorded.unattributedShare,
+                confidence: confidence)
+        }
+
+        guard let leader = leadingFamily else { return nil }
         return PopoverPresentation.cause(
             leaderName: leader.family.displayName,
             leaderPercentOfOneCore: leader.percentOfOneCore,
@@ -577,6 +608,24 @@ struct MenuBarContentView: View {
     /// Withheld actions are absent rather than shown disabled — a protected
     /// process simply has no "Show" button, matching `SafetyPolicy`'s own rule.
     private var showTarget: (name: String, member: FamilyMember)? {
+        // A repeated-quit episode is about the application that kept exiting, not
+        // about whatever is busiest — the two are routinely different, and the
+        // headline directly above this button already names the right one. The Now
+        // screen's `bringForwardButton` has branched this way since TASK-82; the
+        // popover was given the fixed *headline* under TASK-87 and kept the old
+        // action, so it could say "Dropbox has been quitting and reopening" over a
+        // button reading "Show Xcode".
+        if let incident = store.openIncident,
+           let pattern = NowPresentation.leadingRelaunchPattern(incident) {
+            guard let member = NowPresentation.familyMember(
+                forCommand: pattern.command, in: store.families),
+                SafetyPolicy().availability(of: .activate, for: member.record).isAvailable,
+                // The same rule as below: no bundle, no button (TASK-94).
+                member.resolved.appBundlePath != nil
+            else { return nil }
+            return (ProcessNaming.labelled(command: pattern.command), member)
+        }
+
         guard let leader = leadingFamily else { return nil }
         // No bundle, no button. `.activate` goes through `NSRunningApplication`,
         // which exists only for bundled applications, so offering it for a daemon
@@ -590,7 +639,8 @@ struct MenuBarContentView: View {
             return path.hasPrefix(bundleExecutablePrefix)
         }
         guard let member,
-              SafetyPolicy().availability(of: .activate, for: member.record).isAvailable
+              SafetyPolicy().availability(
+                of: .activate, for: member.record, resolved: member.resolved).isAvailable
         else { return nil }
         return (leader.family.displayName, member)
     }

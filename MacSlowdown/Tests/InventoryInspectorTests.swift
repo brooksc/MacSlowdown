@@ -370,7 +370,11 @@ struct FamilyDiagnosticsTests {
     ) -> String {
         FamilyDiagnostics.text(
             row: row, provenance: GroupingProvenance(), growth: growth,
-            relaunches: relaunches, machine: MachineContext.current(),
+            relaunches: relaunches.map {
+                MonitorStore.RelaunchTally(
+                    count: $0, commandIsShared: false, confidence: .moderate)
+            },
+            machine: MachineContext.current(),
             at: Date(timeIntervalSince1970: 0))
     }
 

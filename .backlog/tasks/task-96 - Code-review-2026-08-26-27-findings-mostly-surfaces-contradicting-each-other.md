@@ -4,6 +4,7 @@ title: 'Code review 2026-08-26: 27 findings, mostly surfaces contradicting each 
 status: In Progress
 assignee: []
 created_date: '2026-08-26 19:24'
+updated_date: '2026-08-26 19:49'
 labels:
   - core
   - ui
@@ -42,9 +43,29 @@ The dominant shape is the one this project keeps producing: **two surfaces answe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Findings 1-5, 11 and 19 are fixed with regression tests
-- [ ] #2 Findings 6-10 are fixed or explicitly deferred with a reason
+- [x] #1 Findings 1-5, 11 and 19 are fixed with regression tests
+- [x] #2 Findings 6-10 are fixed or explicitly deferred with a reason
 - [ ] #3 Medium findings are triaged: fixed, filed separately, or recorded as accepted
 - [ ] #4 Layout findings 14 and 15 are checked on screen rather than from geometry
 - [ ] #5 Anything deferred says so in the task rather than being silently dropped
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Findings 1-11 and 19 fixed, 2026-08-26
+
+**The three that leave the Mac (3, 4, 5)** and **the four stale-copy contradictions (1, 2, 11, 19)** are in the first commit. **Findings 6-10** are in the second:
+
+- **6** — `monitoringLine` now takes `incidentDates` rather than a count, so the window it *names* and the window it *counts* are decided in one place. It also reads `store.monitoringStartedAt` rather than the process launch date, which is what the sentence actually claims. With no start time it no longer offers a count at all: there is no window to count against, and "Monitoring is running." is the honest sentence.
+- **7** — the popover's causal sentence takes its subject from `incident.attribution` while an incident is open, which is the rule `NowPresentation.bannerHeadline` already followed and stated in a comment. Live state is used only when the incident has recorded nothing of its own.
+- **8** — the popover's action branches on `leadingRelaunchPattern` exactly as `MainWindowView.bringForwardButton` does, so it can no longer say "Show Xcode" beneath a headline about Dropbox.
+- **9** — `relaunchCount` gains `relaunchTally`, which carries the count, whether the command is currently shared with another family, and a confidence. The inspector's label changes from "Relaunches while watching" to **"Relaunches, by name"**, shows the evidence class and confidence beside the number, and carries a caveat naming the commands counted — spoken as well as in a tooltip, so a VoiceOver user is not the only one who misses it. The clipboard diagnostics say the same.
+- **10** — the rule moves into `SafetyPolicy.availability(of:for:resolved:)`: no application bundle, no activation. It was fixed at one call site under TASK-94 and left standing at two others, which is exactly why it belongs in the policy. **This also closes TASK-94 #3.**
+
+Seven new tests across three suites. 1113 passing, no failures — including both load-sensitive end-to-end tests on this run.
+
+### One judgement call worth recording
+
+Finding 9's suggested fix was to match on `(command, executablePath)`. That is not available: `LifecycleEvent` carries the identity and the command but no path, and a process that has *exited* cannot be resolved for one. So the count is still by command, and the change is to say so plainly and attach the confidence rather than to pretend a scope we cannot compute. Narrowing it properly would mean recording each exiting process's path at exit time, which is a real change to the tracker and belongs in its own task if the caveat proves insufficient.
+<!-- SECTION:NOTES:END -->
