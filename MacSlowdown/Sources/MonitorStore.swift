@@ -43,12 +43,28 @@ enum Severity: Int, Comparable, CaseIterable {
         }
     }
 
-    /// Derived from the share of total machine capacity in use. Thresholds are
-    /// provisional; FR-006's configurable, hysteresis-backed detection is m-2 work.
-    static func forBusyShareOfMachine(_ share: Double) -> Severity {
+    /// Derived from the share of total machine capacity in use, against the
+    /// threshold the detector is actually judging by.
+    ///
+    /// `breachingAt` is the user's configured CPU line (FR-006). Above it the
+    /// machine is doing what the detector would call a breach, so the word is
+    /// `severe`; the `elevated` band sits below it, at three quarters of the way
+    /// there, because a state that only appears once a threshold is crossed cannot
+    /// warn that one is approaching.
+    ///
+    /// The defaults reproduce the previous fixed 0.6/0.85 lines for the default
+    /// 0.85 threshold, so nothing moves for a user who has changed nothing.
+    /// Where the elevated band begins, as a fraction of the breach threshold.
+    /// Chosen to sit close to the old fixed 0.6/0.85 pair while now moving with the
+    /// user's setting; the exact figure is not load-bearing.
+    static let elevatedFractionOfThreshold = 0.7
+
+    static func forBusyShareOfMachine(
+        _ share: Double, breachingAt threshold: Double = 0.85
+    ) -> Severity {
         switch share {
-        case ..<0.6: .normal
-        case ..<0.85: .elevated
+        case ..<(threshold * Self.elevatedFractionOfThreshold): .normal
+        case ..<threshold: .elevated
         default: .severe
         }
     }
@@ -136,13 +152,19 @@ final class MonitorStore {
     /// and could disagree about free space, which a user would reasonably read as
     /// one of them being wrong.
     var startupVolume: VolumeCapacity? { storage.startupVolume?.capacity }
-    /// Our own cost, measured the same way we measure anything else.
+    /// Our own cost, measured the same way we measure anything else (FR-030).
     ///
-    /// The headless OverheadHarness reports ~16 MB, but that runs no SwiftUI. The
-    /// real app measured 92 MB against FR-030's 100 MB budget, so the figure the
-    /// budget actually applies to has to come from the app itself.
+    /// Reported, never judged. The numeric budget is deferred (product owner,
+    /// 2026-08-08) and the app no longer holds itself to a figure on screen — the
+    /// objective it served, that the tool must not become part of the slowdown,
+    /// is pursued by measurement rather than by scolding the user.
+    ///
+    /// The headless `OverheadHarness` runs no SwiftUI and under-reads badly, so the
+    /// figure worth quoting has to come from the app itself.
     private(set) var ownResidentBytes: UInt64 = 0
-    private(set) var ownCPUPercentOfOneCore: Double = 0
+    /// Nil until a second sample gives us a rate. Not zero: a rate we have not
+    /// taken is not a rate of nothing (FR-002).
+    private(set) var ownCPUPercentOfOneCore: Double?
     private(set) var mute: MuteState = .notMuted
 
     /// FR-030 self-report, as the design's Now screen shows it.
@@ -150,8 +172,6 @@ final class MonitorStore {
         Presentation.selfCost(cpuPercentOfOneCore: ownCPUPercentOfOneCore,
                               residentBytes: ownResidentBytes)
     }
-
-    var isWithinMemoryBudget: Bool { ownResidentBytes <= FR030Budget.residentBytes }
 
     /// Aggregate disk throughput, with the per-application limitation stated
     /// alongside it rather than left as a silent omission (FR-009).
@@ -305,11 +325,21 @@ final class MonitorStore {
     private(set) var isRunning = false
     let machine = MachineContext.current()
 
+    /// The status word on the Now screen and behind the menu bar glyph.
+    ///
+    /// **Judged against the user's own threshold** (TASK-96 finding 18). It used
+    /// fixed 0.6/0.85 lines, so someone who chose Sensitive or Relaxed in Settings
+    /// changed what opened an incident and changed nothing about the headline, the
+    /// CPU card's state word, or the elevated glyph. The detector's threshold is
+    /// the line the product actually stands behind; anything describing the same
+    /// machine has to use it or the two disagree in front of the user.
     var severity: Severity {
         guard let attribution else { return .normal }
-        return .forBusyShareOfMachine(Presentation.busyShareOfMachine(
-            percentOfOneCore: attribution.totalBusyPercentOfOneCore,
-            logicalCores: machine.logicalCores))
+        return .forBusyShareOfMachine(
+            Presentation.busyShareOfMachine(
+                percentOfOneCore: attribution.totalBusyPercentOfOneCore,
+                logicalCores: machine.logicalCores),
+            breachingAt: incidentPolicyInForce.cpuBusyFractionThreshold)
     }
 
     /// One row of the inventory: a family with its aggregated usage.

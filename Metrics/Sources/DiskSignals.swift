@@ -11,7 +11,16 @@ public struct DiskCounters: Sendable, Equatable {
     public let bytesRead: UInt64
     public let bytesWritten: UInt64
     /// How many block storage drivers contributed. Zero means we could read none.
+    ///
+    /// Part of what makes two readings comparable: the counters are a sum across
+    /// devices, so a different set of devices is a different sum (see `rates`).
     public let deviceCount: Int
+
+    public init(bytesRead: UInt64, bytesWritten: UInt64, deviceCount: Int) {
+        self.bytesRead = bytesRead
+        self.bytesWritten = bytesWritten
+        self.deviceCount = deviceCount
+    }
 }
 
 public struct DiskRates: Sendable, Equatable {
@@ -75,6 +84,19 @@ public enum DiskSignals {
         seconds: Double
     ) -> DiskRates? {
         guard seconds > 0 else { return nil }
+
+        // A different set of devices means these two readings are not two readings
+        // of the same thing. Mount a drive between samples and the aggregate jumps
+        // by that drive's entire lifetime byte count, which divided by one second
+        // reads as hundreds of gigabytes per second — a fabricated measurement of
+        // the most alarming kind (FR-002). Unmounting one loses a device's history
+        // and looks like a counter reset.
+        //
+        // "No rate" is the honest answer across a topology change, and every
+        // surface already renders nil as unavailable. One sample is lost; nothing
+        // is invented. `deviceCount` was captured for exactly this and was never
+        // consulted.
+        guard later.deviceCount == earlier.deviceCount else { return nil }
 
         func rate(_ old: UInt64, _ new: UInt64) -> Double {
             guard new >= old else { return 0 }

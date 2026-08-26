@@ -36,19 +36,35 @@ private func family(
 
 @Suite("Self-cost and rate wording")
 struct PresentationWordingTests {
-    /// FR-030: the app reports its own cost in the same terms it reports anyone's.
-    @Test("Self-cost names the app, its CPU and its memory")
+    /// FR-030: the app reports its own cost in the same terms it reports anyone's
+    /// — which means naming the statistic, as every other column on the screen does.
+    @Test("Self-cost names the app, and says which statistic each figure is")
     func selfCostIsSpecific() {
         let text = Presentation.selfCost(cpuPercentOfOneCore: 2.34, residentBytes: 92 << 20)
         #expect(text.contains("MacSlowdown itself"))
-        #expect(text.contains("2.3% CPU"))
-        #expect(text.contains("MB"))
+        #expect(text.contains("2.3% of one core"))
+        #expect(text.contains("resident"))
+        // The app no longer grades its own cost on screen: the numeric budget is
+        // deferred and the warning line is gone.
+        #expect(!text.lowercased().contains("budget"))
     }
 
-    @Test("An idle app still reports a figure rather than nothing")
+    @Test("A genuinely idle app reports zero, which is a measurement")
     func selfCostAtZero() {
         let text = Presentation.selfCost(cpuPercentOfOneCore: 0, residentBytes: 0)
-        #expect(text.contains("0.0% CPU"))
+        #expect(text.contains("0.0% of one core"))
+    }
+
+    /// A rate needs two samples. Until then there is no figure, and printing
+    /// "0.0%" would be a measured-looking zero for a measurement not yet taken
+    /// (FR-002) — the same rule the disk tile and the trailing mean follow.
+    @Test("Before the first rate, the CPU figure is absent rather than zero")
+    func selfCostBeforeAnyRate() {
+        let text = Presentation.selfCost(cpuPercentOfOneCore: nil, residentBytes: 92 << 20)
+        #expect(text.contains("not measured yet"))
+        #expect(!text.contains("0.0%"))
+        // Memory needs only one reading, so it is still reported.
+        #expect(text.contains("MB"))
     }
 
     /// FR-009: disk is a rate over the measured interval, never a running total.
@@ -337,12 +353,44 @@ struct RetentionAndShareTests {
 
 @Suite("Severity and freshness")
 struct SeverityTests {
-    @Test("Thresholds sit where the boundaries say they do")
-    func thresholds() {
+    /// The severe boundary **is** the user's configured breach threshold, and the
+    /// elevated band sits below it (TASK-96 finding 18). It used to be a fixed
+    /// 0.6/0.85 pair, so choosing Sensitive or Relaxed in Settings changed what
+    /// opened an incident and changed nothing about the word on the screen.
+    @Test("Severe begins exactly where the detector would call it a breach")
+    func severeMatchesTheThreshold() {
+        for threshold in [0.75, 0.85, 0.92] {
+            #expect(Severity.forBusyShareOfMachine(threshold, breachingAt: threshold) == .severe)
+            #expect(Severity.forBusyShareOfMachine(threshold - 0.001,
+                                                  breachingAt: threshold) == .elevated)
+            #expect(Severity.forBusyShareOfMachine(1.5, breachingAt: threshold) == .severe)
+            #expect(Severity.forBusyShareOfMachine(0, breachingAt: threshold) == .normal)
+        }
+    }
+
+    /// A state that only appeared once the threshold was crossed could not warn
+    /// that one was approaching, which is the whole purpose of the elevated band.
+    @Test("The elevated band sits below the threshold and moves with it")
+    func elevatedBandFollowsTheThreshold() {
+        let sensitive = 0.75
+        let relaxed = 0.92
+        let boundary = { (t: Double) in t * Severity.elevatedFractionOfThreshold }
+
+        #expect(Severity.forBusyShareOfMachine(boundary(sensitive),
+                                               breachingAt: sensitive) == .elevated)
+        #expect(Severity.forBusyShareOfMachine(boundary(sensitive) - 0.001,
+                                               breachingAt: sensitive) == .normal)
+        // The same reading is judged differently under a relaxed threshold, which
+        // is the point of the setting.
+        #expect(Severity.forBusyShareOfMachine(0.8, breachingAt: sensitive) == .severe)
+        #expect(Severity.forBusyShareOfMachine(0.8, breachingAt: relaxed) == .elevated)
+    }
+
+    @Test("The default reproduces the previous fixed lines closely enough")
+    func defaultIsUnchangedInSpirit() {
         #expect(Severity.forBusyShareOfMachine(0) == .normal)
-        #expect(Severity.forBusyShareOfMachine(0.599) == .normal)
-        #expect(Severity.forBusyShareOfMachine(0.6) == .elevated)
-        #expect(Severity.forBusyShareOfMachine(0.849) == .elevated)
+        #expect(Severity.forBusyShareOfMachine(0.5) == .normal)
+        #expect(Severity.forBusyShareOfMachine(0.7) == .elevated)
         #expect(Severity.forBusyShareOfMachine(0.85) == .severe)
         #expect(Severity.forBusyShareOfMachine(1.5) == .severe)
     }

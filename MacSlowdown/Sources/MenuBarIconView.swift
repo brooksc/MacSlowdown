@@ -373,11 +373,31 @@ extension MonitorStore {
     /// is why elevated is derived from live signals while incident is derived from
     /// the detector.
     var liveBreachingConditions: [IncidentCondition] {
-        var conditions: Set<IncidentCondition> = []
-        if severity > .normal { conditions.insert(.cpuSaturation) }
-        if memoryPressure > .normal { conditions.insert(.memoryPressure) }
-        if thermalState != .nominal { conditions.insert(.thermalPressure) }
-        if isLowStorage { conditions.insert(.lowStorage) }
-        return MenuBarIcon.ordered(conditions)
+        // Built from `SystemObservation.breaches` against the policy actually in
+        // force, rather than from a second set of lines written here (TASK-96
+        // finding 18). The two had drifted: this reported thermal pressure for a
+        // `.fair` state the detector does not treat as breaching at all, and CPU
+        // from a fixed 0.6 rather than from the user's threshold. So VoiceOver
+        // could say "MacSlowdown, elevated, thermal" about a machine the detector
+        // considered entirely normal — and this property's own comment claimed it
+        // reported "in the same order the incident detector would report them".
+        let observation = SystemObservation(
+            at: lastUpdate ?? Date(),
+            cpuBusyFraction: attribution.map {
+                Presentation.busyShareOfMachine(
+                    percentOfOneCore: $0.totalBusyPercentOfOneCore,
+                    logicalCores: machine.logicalCores)
+            } ?? 0,
+            memoryPressure: memoryPressure,
+            thermalState: thermalState,
+            lowStorage: isLowStorage)
+        let policy = incidentPolicyInForce
+        // Lifecycle findings are deliberately not consulted: "elevated" is about a
+        // resource condition that has not lasted long enough to be an incident, and
+        // a repeated-quit pattern is judged over its own window rather than now.
+        return MenuBarIcon.ordered(Set(
+            IncidentCondition.allCases
+                .filter { $0 != .repeatedApplicationQuits }
+                .filter { observation.breaches($0, policy: policy) }))
     }
 }

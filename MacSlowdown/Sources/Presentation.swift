@@ -9,10 +9,23 @@ import Metrics
 /// cases that matter — zero, missing, saturated — rather than whatever the machine
 /// happened to be doing.
 enum Presentation {
-    /// FR-030 self-report.
-    static func selfCost(cpuPercentOfOneCore: Double, residentBytes: UInt64) -> String {
+    /// FR-030 self-report: what this app costs, in the same terms it reports
+    /// everything else.
+    ///
+    /// **Both statistics are named** (TASK-96 finding 26). "0.8% CPU, 92 MB" beside
+    /// an inventory whose footer carefully explains that its memory column is
+    /// resident size, and its CPU column a share of one core, left this one line
+    /// ambiguous about both.
+    ///
+    /// - Parameter cpuPercentOfOneCore: nil before a rate exists. A rate needs two
+    ///   samples, and printing "0.0% CPU" in the meantime is a measured-looking
+    ///   zero for a measurement not yet taken (FR-002).
+    static func selfCost(cpuPercentOfOneCore: Double?, residentBytes: UInt64) -> String {
         let memory = ByteCountFormatStyle().format(Int64(residentBytes))
-        return String(format: "MacSlowdown itself: %.1f%% CPU, %@",
+        guard let cpuPercentOfOneCore else {
+            return "MacSlowdown itself: CPU not measured yet, \(memory) resident"
+        }
+        return String(format: "MacSlowdown itself: %.1f%% of one core, %@ resident",
                       cpuPercentOfOneCore, memory as NSString)
     }
 

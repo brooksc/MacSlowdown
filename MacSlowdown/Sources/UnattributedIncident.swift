@@ -728,11 +728,18 @@ struct UnattributedIncidentReport {
     }
 
     /// The opening paragraph. Measured and calculated facts only; it names nothing.
+    ///
+    /// It says "most of it", not "none of your apps" (TASK-96 finding 20). The
+    /// report is built at a 50% unattributable share, so at 0.55 the other 45% *was*
+    /// attributed to the user's applications — and the CPU split immediately below
+    /// this paragraph lists them by name with their peaks. "None of your open apps
+    /// accounts for it" contradicted the table under it, and overstated a
+    /// calculated figure into an absolute (FR-038).
     var opening: String {
         let share = Int((unattributedShare * 100).rounded())
         var text = "Total CPU was raised from \(IncidentVerdict.time(window.start)) to "
         text += "\(IncidentVerdict.time(window.end)). "
-        text += "None of your open apps accounts for it — \(share)% of the load came from "
+        text += "Most of it was not your apps — \(share)% of the load came from "
         text += "system processes whose per-process usage macOS does not report to us. "
         text += "We can tell you which system processes were running at the time, and when "
         text += "they started and stopped — but not how much CPU any of them used."

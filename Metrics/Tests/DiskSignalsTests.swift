@@ -98,3 +98,36 @@ struct DiskCopyTests {
         }
     }
 }
+
+/// TASK-96 finding 16. The counters are a sum across every `IOBlockStorageDriver`,
+/// so the set of devices is part of what makes two readings comparable.
+@Suite("A change of devices is not a rate")
+struct DiskTopologyChangeTests {
+    private func counters(read: UInt64, written: UInt64, devices: Int) -> DiskCounters {
+        DiskCounters(bytesRead: read, bytesWritten: written, deviceCount: devices)
+    }
+
+    @Test("Mounting a disk reports no rate rather than its lifetime bytes")
+    func mountingReportsNothing() {
+        // The newly mounted drive brings 400 GB of lifetime writes with it.
+        let before = counters(read: 1_000, written: 1_000, devices: 1)
+        let after = counters(read: 1_000, written: 400_000_000_000, devices: 2)
+        #expect(DiskSignals.rates(from: before, to: after, seconds: 1) == nil)
+    }
+
+    @Test("Unmounting one reports no rate either")
+    func unmountingReportsNothing() {
+        let before = counters(read: 500_000, written: 500_000, devices: 2)
+        let after = counters(read: 400_000, written: 400_000, devices: 1)
+        #expect(DiskSignals.rates(from: before, to: after, seconds: 1) == nil)
+    }
+
+    @Test("A steady set of devices still yields a rate")
+    func unchangedTopologyStillMeasures() throws {
+        let before = counters(read: 0, written: 0, devices: 2)
+        let after = counters(read: 2_000, written: 4_000, devices: 2)
+        let rates = try #require(DiskSignals.rates(from: before, to: after, seconds: 2))
+        #expect(rates.readBytesPerSecond == 1_000)
+        #expect(rates.writeBytesPerSecond == 2_000)
+    }
+}

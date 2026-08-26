@@ -85,9 +85,6 @@ struct MainWindowView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(NowPresentation.cadenceLine(store.cadence))
             Text(store.selfCost)
-            if !store.isWithinMemoryBudget {
-                Text("Above our own \(FR030Budget.residentBytes / 1_048_576) MB budget.")
-            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)

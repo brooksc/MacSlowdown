@@ -133,6 +133,17 @@ final class FamilyHistory {
     private(set) var relaunches: [String: [Date]] = [:]
     /// Previous tick's members, per tracked family: command name to identities.
     private var previousMembers: [String: [String: Set<ProcessIdentity>]] = [:]
+    /// When a family was last inside the tracked set.
+    ///
+    /// A family that slips out of the busiest few keeps its series for a grace
+    /// period rather than losing it on the sample it fell (TASK-96 finding 17).
+    /// Before this, one sample of jitter around 40th place deleted an
+    /// application's whole history: its sparkline became "Too few readings" and
+    /// rebuilt from nothing, and because `trendSortKey` falls back to the instant
+    /// when there is no trailing mean, the row jumped in the ranking each time it
+    /// happened. The series is evidence; it should survive a tie.
+    private var lastTracked: [String: Date] = [:]
+    static let trackingGrace: Duration = .seconds(120)
 
     /// Records one sample.
     ///
@@ -168,13 +179,20 @@ final class FamilyHistory {
             relaunches[row.id] = relaunches[row.id]?.filter { $0 >= cutoff }
         }
 
-        // Anything no longer tracked stops costing memory. Its history is dropped
-        // rather than frozen: a stale series presented as current would be exactly
-        // the stale-reading-as-fresh problem FR-002 forbids.
-        for id in Array(series.keys) where !tracked.contains(id) {
+        for id in tracked { lastTracked[id] = now }
+
+        // Anything untracked for longer than the grace period stops costing memory.
+        // Its history is dropped rather than frozen: a stale series presented as
+        // current would be exactly the stale-reading-as-fresh problem FR-002
+        // forbids. Within the grace period the series is kept but **not appended
+        // to**, so it ages honestly — a gap, which the sparkline draws as one,
+        // rather than a flat line implying we watched and saw nothing.
+        let expiry = now.addingTimeInterval(-Self.trackingGrace.totalSeconds)
+        for id in Array(series.keys) where (lastTracked[id] ?? .distantPast) < expiry {
             series[id] = nil
             relaunches[id] = nil
             previousMembers[id] = nil
+            lastTracked[id] = nil
         }
     }
 

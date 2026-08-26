@@ -590,3 +590,57 @@ struct TrendSortTests {
         #expect(sorted.map(\.id) == ["Idle", "Denied"])
     }
 }
+
+/// TASK-96 finding 17. `tracked` takes the busiest 40 by the *instantaneous*
+/// reading, so a family sitting near that boundary crosses it constantly.
+@Suite("A family's series survives a moment outside the busiest few")
+@MainActor
+struct TrackingGraceTests {
+    private let start = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func rows(_ count: Int, plus extra: [String] = []) -> [InventoryRow] {
+        (0..<count).map { appRow("/Busy\($0).app", cpu: Double(1000 - $0), memory: 1_000_000) }
+            + extra.map { appRow($0, cpu: 1, memory: 1_000_000) }
+    }
+
+    @Test("Falling out of the tracked set for one sample does not erase its history")
+    func jitterDoesNotEraseTheSeries() {
+        let history = FamilyHistory()
+        // In the set, then crowded out by 40 busier families, then back.
+        history.record(rows: rows(0, plus: ["/Edge.app"]), families: [],
+                       selected: nil, at: start)
+        history.record(rows: rows(FamilyHistory.trackedLimit), families: [],
+                       selected: nil, at: start.addingTimeInterval(1))
+        #expect(!history.points(for: "/Edge.app").isEmpty,
+                "one sample of jitter is not a reason to discard the evidence")
+
+        history.record(rows: rows(0, plus: ["/Edge.app"]), families: [],
+                       selected: nil, at: start.addingTimeInterval(2))
+        #expect(history.points(for: "/Edge.app").count == 2)
+    }
+
+    /// The gap is real and is left as one: we did not watch it during those
+    /// samples, and a flat line would say we did (FR-002).
+    @Test("The kept series is not appended to while the family is untracked")
+    func untrackedSamplesAreNotInvented() {
+        let history = FamilyHistory()
+        history.record(rows: rows(0, plus: ["/Edge.app"]), families: [],
+                       selected: nil, at: start)
+        for second in 1...3 {
+            history.record(rows: rows(FamilyHistory.trackedLimit), families: [],
+                           selected: nil, at: start.addingTimeInterval(Double(second)))
+        }
+        #expect(history.points(for: "/Edge.app").map(\.at) == [start])
+    }
+
+    @Test("Gone for longer than the grace period, it is dropped")
+    func aTrulyGoneFamilyIsEvicted() {
+        let history = FamilyHistory()
+        history.record(rows: rows(0, plus: ["/Edge.app"]), families: [],
+                       selected: nil, at: start)
+        history.record(
+            rows: rows(FamilyHistory.trackedLimit), families: [], selected: nil,
+            at: start.addingTimeInterval(FamilyHistory.trackingGrace.totalSeconds + 10))
+        #expect(history.points(for: "/Edge.app").isEmpty)
+    }
+}

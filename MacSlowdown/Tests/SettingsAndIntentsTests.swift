@@ -154,15 +154,22 @@ struct MonitorStoreDefaultsTests {
         #expect(store.rankedFamilies.isEmpty)
     }
 
-    /// FR-030: the budget is a test, not an aspiration. A fresh store is trivially
-    /// inside it; the point here is that the comparison exists and is wired to the
-    /// same figure the Now screen shows.
-    @Test("The memory budget is evaluated against the app's own measurement")
-    func memoryBudgetWired() {
+    /// FR-030 still requires the app to report its own cost. What it no longer does
+    /// is judge that cost on screen: the numeric budget is deferred (product owner,
+    /// 2026-08-08) and the warning line is gone, so nothing in the interface holds
+    /// the user's attention against a figure the project has stopped enforcing.
+    @Test("The app reports its own cost, and no longer grades it")
+    func selfCostIsReportedNotGraded() {
         let store = MonitorStore()
-        #expect(store.isWithinMemoryBudget)
-        #expect(store.selfCost.contains("MacSlowdown itself"))
-        #expect(FR030Budget.residentBytes == 100 * 1024 * 1024)
+        let text = store.selfCost
+        #expect(text.contains("MacSlowdown itself"))
+        #expect(!text.lowercased().contains("budget"))
+        // Both statistics are named, so neither is left to be guessed at.
+        #expect(text.contains("resident"))
+        // Before a second sample there is no CPU rate, and a rate we have not taken
+        // is not a rate of nothing.
+        #expect(text.contains("not measured yet"))
+        #expect(!text.contains("0.0%"))
     }
 
     @Test("Freshness starts current and enumeration starts succeeded")
