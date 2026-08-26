@@ -153,7 +153,15 @@ public enum IncidentSummarizer {
             if let conclusion = recorded.conclusion {
                 conclusions.append(conclusion)
             }
-        } else if let attribution {
+        // The `isOpen` guard is what this function's own contract already promised
+        // and did not enforce: "for a closed incident the live reading describes a
+        // machine that has since recovered, and using it would put a currently-busy
+        // application's name on a slowdown it had nothing to do with". Without it,
+        // any incident that recorded no attribution of its own — an older file, or
+        // one that opened before an attribution was offered — was narrated from
+        // whatever happened to be busiest at the moment somebody opened the report
+        // (FR-002, FR-038).
+        } else if let attribution, incident.isOpen {
             let share = Int((attribution.unattributedShare * 100).rounded())
             if attribution.unattributedPercentOfOneCore > 0 {
                 conclusions.append(Conclusion(
@@ -187,12 +195,23 @@ public enum IncidentSummarizer {
             ruledOut.append(Conclusion(
                 "Not a memory problem — pressure stayed normal throughout.", evidence: .measured))
         }
-        if !incident.conditions.contains(.lowStorage) {
+        // Both of these are corroborated the way the memory clause above is, and
+        // for the same reason. `conditions` holds only what *sustained* past its
+        // duration threshold — 60 s for storage, 120 s for thermal — so on
+        // `conditions` alone a machine that sat at serious thermal for 110 s
+        // produced a report asserting, as a measured fact, that nothing thermal
+        // happened. A recorded peak is a measurement; the absence of a sustained
+        // condition is not (FR-002, FR-038).
+        //
+        // Nil means the incident predates the recording and the claim goes unsaid.
+        // Silence is the honest answer to a question nobody measured.
+        if !incident.conditions.contains(.lowStorage), incident.lowStorageObserved == false {
             ruledOut.append(Conclusion(
                 "Not a storage problem — free space stayed above the warning level.",
                 evidence: .measured))
         }
-        if !incident.conditions.contains(.thermalPressure) {
+        if !incident.conditions.contains(.thermalPressure),
+           let peak = incident.peakThermalState, peak < .serious {
             ruledOut.append(Conclusion(
                 "Not thermal throttling — macOS did not report serious thermal conditions.",
                 evidence: .measured))

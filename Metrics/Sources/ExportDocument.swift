@@ -287,8 +287,12 @@ public enum IncidentReport {
         options: RedactionOptions = .default,
         generatedAt: Date = Date()
     ) -> ExportDocument {
-        let redactor = Redactor(options: options, attribution: attribution,
-                                paths: contributorPaths)
+        let redactor = Redactor(
+            options: options, attribution: attribution, paths: contributorPaths,
+            // What the incident itself recorded, which is what the prose is built
+            // from for any incident that is not still running.
+            additionalNames: (incident.attribution?.applications.map(\.displayName) ?? [])
+                + incident.lifecycleFindings.map(\.command))
         var sections: [ReportSection] = []
 
         sections.append(ReportSection(title: nil, rows: [
@@ -336,6 +340,19 @@ public enum IncidentReport {
                               options: options, included: included)
     }
 
+    /// The incident's measurements.
+    ///
+    /// **The incident's own recording wins over live state**, which is the rule
+    /// `IncidentDetailView.evidenceFigures` already followed on screen and this
+    /// function did not. It consulted only the live attribution, so exporting a
+    /// closed incident produced a "Measurements" section listing whatever happened
+    /// to be busy at the moment the user pressed Export — under that incident's
+    /// heading, with per-contributor percentages and paths. The screen behind the
+    /// button and the file that left it stated different contributors for the same
+    /// incident, and the file was the wrong one (FR-002, FR-028).
+    ///
+    /// Live state is used only while the incident is still open and has recorded
+    /// nothing of its own.
     private static func measurementSection(
         incident: Incident, attribution: CPUAttribution?, redactor: Redactor
     ) -> ReportSection {
@@ -347,7 +364,11 @@ public enum IncidentReport {
                                .text(incident.peakMemoryPressure.label))),
         ]
 
-        guard let attribution else {
+        if let recorded = incident.attribution {
+            return recordedMeasurementSection(recorded, rows: rows, redactor: redactor)
+        }
+
+        guard let attribution, incident.isOpen else {
             rows.append(.prose("Per-process measurements were not retained for this incident."))
             return ReportSection(title: "Measurements", rows: rows)
         }
@@ -371,6 +392,46 @@ public enum IncidentReport {
         }
 
         rows.append(.prose(redactor.prose(attribution.explanation)))
+        return ReportSection(title: "Measurements", rows: rows)
+    }
+
+    /// The same section built from what the incident recorded at its busiest
+    /// moment, rather than from the machine as it is now.
+    private static func recordedMeasurementSection(
+        _ recorded: IncidentAttribution, rows: [ReportRow], redactor: Redactor
+    ) -> ReportSection {
+        var rows = rows
+        for figure in recorded.figures {
+            rows.append(.field(ReportField(
+                figure.label,
+                .text(String(format: "%.1f%% of one core (%@)",
+                             figure.percentOfOneCore, figure.evidence.rawValue)))))
+        }
+
+        for contributor in recorded.applications.prefix(5) {
+            rows.append(.field(ReportField(
+                "Contributor",
+                redactor.processName(contributor.displayName,
+                                     detail: String(format: "%.1f%% of one core at its peak",
+                                                    contributor.peakPercentOfOneCore)),
+                sensitive: true)))
+            // A recorded contributor carries no `(pid, start time)` — by design, so
+            // that a family survives PID replacement — so there is no per-process
+            // path to look up. `applicationID` is the bundle path where the
+            // application had one, and that is a path the user can be asked about;
+            // where it is a display name instead, say the path was not recorded
+            // rather than presenting a name as one.
+            rows.append(.field(ReportField(
+                "Path", redactor.recordedPath(contributor.applicationID), sensitive: true)))
+        }
+
+        // Said explicitly, because a reader comparing this against Activity Monitor
+        // needs to know these are peaks from an interval that has ended rather than
+        // a reading anyone can reproduce now.
+        rows.append(.prose(
+            "Recorded while this incident was happening, at its busiest moment, on "
+            + "\(recorded.logicalCoreCount) logical cores. These are not current "
+            + "readings."))
         return ReportSection(title: "Measurements", rows: rows)
     }
 
@@ -426,6 +487,18 @@ struct Redactor {
     let options: RedactionOptions
     let attribution: CPUAttribution?
     let paths: [ProcessIdentity: String]
+    /// Every other name that can reach prose in this document.
+    ///
+    /// The live attribution is not enough, and assuming it was is how "Hide app and
+    /// process names" shipped leaking the one name the report is about. The Summary
+    /// section is built from `IncidentSummary.conclusions`, which include
+    /// `IncidentAttribution.conclusion` — "Slack was the largest measurable
+    /// contributor while this was happening" — drawn from the *recorded*
+    /// contributor list, and `IncidentSummarizer`'s lifecycle sentence, which names
+    /// the command that kept exiting. Neither was ever shown to the redactor, so
+    /// the structured fields went to `[redacted]` while the paragraph above them
+    /// said the name out loud (FR-028, FR-029).
+    var additionalNames: [String] = []
 
     func userName() -> ReportValue {
         options.hideUserName ? .redacted : .text(NSUserName())
@@ -433,6 +506,16 @@ struct Redactor {
 
     func processName(_ name: String, detail: String) -> ReportValue {
         options.hideProcessNames ? .redacted : .text("\(name) — \(detail)")
+    }
+
+    /// A path recorded on the incident itself, which may not be a path at all —
+    /// `IncidentContributor.applicationID` is the bundle path where the application
+    /// had one and its display name where it did not.
+    func recordedPath(_ applicationID: String) -> ReportValue {
+        guard applicationID.hasPrefix("/") else {
+            return .unavailable("path not recorded")
+        }
+        return options.hideFilePaths ? .redacted : .text(applicationID)
     }
 
     func path(for identity: ProcessIdentity) -> ReportValue {
@@ -444,10 +527,15 @@ struct Redactor {
 
     func prose(_ text: String) -> String {
         var result = text
-        if options.hideProcessNames, let attribution {
-            for contributor in attribution.contributors {
+        if options.hideProcessNames {
+            // Longest first, so a name that contains another ("Google Chrome
+            // Helper" and "Google Chrome") cannot leave the longer one half-scrubbed.
+            let names = ((attribution?.contributors.map(\.label) ?? []) + additionalNames)
+                .filter { !$0.isEmpty }
+                .sorted { $0.count > $1.count }
+            for name in names {
                 result = result.replacingOccurrences(
-                    of: contributor.label, with: ExportDocument.redactedPlaceholder)
+                    of: name, with: ExportDocument.redactedPlaceholder)
             }
         }
         if options.hideFilePaths {

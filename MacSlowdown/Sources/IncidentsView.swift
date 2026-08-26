@@ -333,6 +333,16 @@ struct IncidentRow: View {
             guard incident.narrative.narratesResourceAttribution else {
                 return "We can see that it exited and started again, not why."
             }
+            // Tense follows the incident, not the reader's clock. The subject comes
+            // from `incident.attribution` — a figure recorded while the incident was
+            // running — so saying "right now" about a slowdown that ended last
+            // Tuesday claims a measurement of the present that we never took, and
+            // about an application that may not even be running (FR-002, FR-038).
+            // The past-tense wording matches `IncidentAttribution.conclusion`.
+            guard incident.isOpen else {
+                return "\(subject.text) was the largest measurable contributor while "
+                    + "this was happening — heuristic, not a cause."
+            }
             return "\(subject.text) is the largest contributor we can measure right "
                 + "now — heuristic, not a cause."
         case .repeatedQuits(let pattern):

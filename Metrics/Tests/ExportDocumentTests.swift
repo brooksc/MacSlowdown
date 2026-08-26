@@ -8,12 +8,27 @@ private let secretName = "SecretProject"
 private let secretPath = "/Users/someone/Private Work/SecretProject.app/Contents/MacOS/SecretProject"
 private let contributorIdentity = ProcessIdentity(pid: 4242, startTime: 99)
 
-private func incident(open: Bool = false) -> Incident {
-    Incident(
+/// A closed incident now reports what **it** recorded rather than what is busy at
+/// export time, so the fixture records an attribution — otherwise these tests would
+/// exercise a path the product no longer takes for a closed incident.
+private func incident(open: Bool = false, recorded: Bool = true) -> Incident {
+    var subject = Incident(
         id: UUID(), beganAt: origin, triggeredAt: origin.addingTimeInterval(180),
         recoveryStartedAt: nil, closedAt: open ? nil : origin.addingTimeInterval(600),
         conditions: [.cpuSaturation, .memoryPressure], severity: .high,
         peakCPUBusyFraction: 0.94, peakMemoryPressure: .critical)
+    guard recorded else { return subject }
+    subject.attribution = IncidentAttribution(
+        sample: AttributionSample(
+            applications: [IncidentContributor(
+                applicationID: secretPath, displayName: secretName,
+                peakPercentOfOneCore: 412)],
+            totalBusyPercentOfOneCore: 800,
+            attributedPercentOfOneCore: 700,
+            unattributedPercentOfOneCore: 100,
+            logicalCoreCount: 8),
+        at: origin)
+    return subject
 }
 
 private func attribution() -> CPUAttribution {
@@ -29,9 +44,10 @@ private func attribution() -> CPUAttribution {
 private func document(
     _ options: RedactionOptions = .default,
     sections: ReportSections = .all,
-    open: Bool = false
+    open: Bool = false,
+    recorded: Bool = true
 ) -> ExportDocument {
-    let subject = incident(open: open)
+    let subject = incident(open: open, recorded: recorded)
     return IncidentReport.document(
         incident: subject,
         machine: .current(),
@@ -108,7 +124,21 @@ struct ExportDocumentTests {
     /// hidden when no path was ever recorded would be a false assurance.
     @Test("Sensitive fields are counted from the report, not from a fixed list")
     func countIsDerivedFromTheDocument() {
-        let subject = incident()
+        // A standalone application has no bundle, so the recorded `applicationID`
+        // is its name rather than a path — "name:Xcode" is what the real store
+        // writes. There is then no path to hide, and the field must say so rather
+        // than present the name as one.
+        var subject = incident(recorded: false)
+        subject.attribution = IncidentAttribution(
+            sample: AttributionSample(
+                applications: [IncidentContributor(
+                    applicationID: "name:\(secretName)", displayName: secretName,
+                    peakPercentOfOneCore: 412)],
+                totalBusyPercentOfOneCore: 800,
+                attributedPercentOfOneCore: 700,
+                unattributedPercentOfOneCore: 100,
+                logicalCoreCount: 8),
+            at: origin)
         let noPaths = IncidentReport.document(
             incident: subject, machine: .current(),
             summary: IncidentSummarizer.summarize(incident: subject, attribution: attribution()),
@@ -222,5 +252,100 @@ struct ExportDocumentTests {
         let user = try #require(fields.first { $0["label"] as? String == "User" })
         #expect(user["redacted"] as? Bool == true)
         #expect(user["value"] == nil)
+    }
+}
+
+/// Findings from the 2026-08-26 review. All three put a false or leaking statement
+/// into a file the user sends to somebody else, which is the one thing FR-028
+/// exists to prevent.
+@Suite("A report describes the incident, not the machine at export time")
+struct ExportedReportFidelityTests {
+    private let livePath = "/Applications/Passer By.app/Contents/MacOS/Passer By"
+    private let liveIdentity = ProcessIdentity(pid: 999, startTime: 7)
+
+    /// A process that happens to be busy when Export is pressed, hours after the
+    /// incident ended.
+    private func liveAttribution() -> CPUAttribution {
+        CPUAttribution(
+            totalBusyPercentOfOneCore: 100, attributedPercentOfOneCore: 100,
+            unattributedPercentOfOneCore: 0,
+            contributors: [ProcessCPUUsage(
+                identity: liveIdentity, command: "Passer By",
+                percentOfOneCore: 100, residentBytes: 1 << 20)],
+            protectedProcesses: [], logicalCoreCount: 8)
+    }
+
+    private func report(_ subject: Incident, options: RedactionOptions = .default)
+        -> ExportDocument {
+        IncidentReport.document(
+            incident: subject, machine: .current(),
+            summary: IncidentSummarizer.summarize(
+                incident: subject, attribution: liveAttribution()),
+            attribution: liveAttribution(),
+            contributorPaths: [liveIdentity: livePath],
+            options: options, generatedAt: origin)
+    }
+
+    @Test("A closed incident reports what it recorded, not what is busy now")
+    func closedIncidentUsesItsOwnRecord() {
+        let text = report(incident()).plainText
+        #expect(text.contains(secretName), "the recorded contributor")
+        #expect(!text.contains("Passer By"),
+                "a process busy at export time has nothing to do with this incident")
+        #expect(text.contains("These are not current readings."))
+    }
+
+    /// The live reading is still right for an incident that has not recorded one
+    /// and is still running — that is a measurement of the thing being described.
+    @Test("An open incident with no record of its own may use the live reading")
+    func openIncidentMayUseLive() {
+        let text = report(incident(open: true, recorded: false)).plainText
+        #expect(text.contains("Passer By"))
+    }
+
+    @Test("A closed incident with no record of its own reports nothing rather than now")
+    func closedIncidentWithoutRecordSaysSo() {
+        let text = report(incident(open: false, recorded: false)).plainText
+        #expect(!text.contains("Passer By"))
+        #expect(text.contains("were not retained for this incident"))
+    }
+
+    /// The leak: the structured Contributor field went to `[redacted]` while the
+    /// Summary paragraph above it said the name out loud, because the redactor was
+    /// only ever shown the *live* contributor list.
+    @Test("Hiding process names hides the name the report is about")
+    func recordedNamesAreRedactedInProse() {
+        let hidden = report(incident(), options: RedactionOptions(
+            hideUserName: false, hideFilePaths: false, hideProcessNames: true))
+        // Prose specifically. With paths shown the name necessarily survives inside
+        // the bundle path — that is the user's own choice and the cost warning
+        // covers it — but the Summary paragraph must not say it in words while the
+        // structured field beside it reads "[redacted]".
+        let prose = hidden.sections.flatMap(\.rows).compactMap { row -> String? in
+            if case .prose(let text) = row { return text }
+            return nil
+        }
+        #expect(!prose.contains { $0.contains(secretName) })
+
+        // And with both hidden, it is gone from every rendering.
+        let all = report(incident(), options: RedactionOptions(
+            hideUserName: true, hideFilePaths: true, hideProcessNames: true))
+        #expect(!all.plainText.contains(secretName))
+        #expect(!all.json.contains(secretName))
+    }
+
+    /// The same hole, for a repeated-quit incident: the command that kept exiting
+    /// is emitted by the summariser and was never shown to the redactor either.
+    @Test("Hiding process names hides a lifecycle subject too")
+    func lifecycleSubjectsAreRedactedInProse() {
+        var subject = incident(recorded: false)
+        subject.conditions = [.repeatedApplicationQuits]
+        subject.lifecycleFindings = [RelaunchPattern(
+            command: secretName, exits: 4, firstAt: origin,
+            lastAt: origin.addingTimeInterval(120), confidence: .moderate)]
+
+        let hidden = report(subject, options: RedactionOptions(
+            hideUserName: false, hideFilePaths: false, hideProcessNames: true))
+        #expect(!hidden.plainText.contains(secretName))
     }
 }

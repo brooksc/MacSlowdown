@@ -10,8 +10,13 @@ import IOKit.ps
 /// undocumented SMC keys, which A-03 and FR-010 both rule out, and inventing a
 /// number would breach FR-036. macOS's own thermal state is a supported public
 /// signal and is what actually correlates with reduced performance.
-public enum ThermalState: Int, Sendable, CaseIterable {
+/// `Codable` so an incident can record the worst state it saw, and `Comparable` so
+/// "worst" is a comparison rather than a hand-written ladder. The raw values are
+/// ordered by severity and are part of the persisted format — do not renumber them.
+public enum ThermalState: Int, Sendable, CaseIterable, Codable, Comparable {
     case nominal, fair, serious, critical
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 
     public var label: String {
         switch self {

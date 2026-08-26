@@ -12,14 +12,34 @@ import Testing
 private let origin = Date(timeIntervalSince1970: 1_700_000_000)
 private let secretName = "SecretProject"
 private let secretPath = "/Users/someone/Private Work/SecretProject.app/Contents/MacOS/SecretProject"
+/// What a **closed** incident's report carries. A recorded contributor has no
+/// `(pid, start time)` — by design, so a family survives PID replacement — so there
+/// is no per-process executable path in the record, only the bundle. Both are
+/// sensitive and both must be redactable; the tests below check the one that is
+/// actually emitted, or they would pass by asserting the absence of a string the
+/// report never contained.
+private let secretBundlePath = "/Users/someone/Private Work/SecretProject.app"
 private let contributorIdentity = ProcessIdentity(pid: 4242, startTime: 99)
 
+/// Closed, and carrying what it recorded — which is what a closed incident's
+/// report is now built from, rather than from whatever is busy at export time.
 private func incident() -> Incident {
-    Incident(
+    var subject = Incident(
         id: UUID(), beganAt: origin, triggeredAt: origin.addingTimeInterval(180),
         recoveryStartedAt: nil, closedAt: origin.addingTimeInterval(600),
         conditions: [.cpuSaturation], severity: .high,
         peakCPUBusyFraction: 0.94, peakMemoryPressure: .warning)
+    subject.attribution = IncidentAttribution(
+        sample: AttributionSample(
+            applications: [IncidentContributor(
+                applicationID: "/Users/someone/Private Work/SecretProject.app",
+                displayName: secretName, peakPercentOfOneCore: 412)],
+            totalBusyPercentOfOneCore: 800,
+            attributedPercentOfOneCore: 700,
+            unattributedPercentOfOneCore: 100,
+            logicalCoreCount: 8),
+        at: origin)
+    return subject
 }
 
 private func attribution() -> CPUAttribution {
@@ -123,7 +143,8 @@ struct ExportPathParityTests {
                 let text = String(decoding: (try? Data(contentsOf: URL(fileURLWithPath: name)))
                     ?? data, as: UTF8.self)
                 #expect(!text.contains(secretName), "\(name) \(format) leaked the app name")
-                #expect(!text.contains(secretPath), "\(name) \(format) leaked the path")
+                #expect(!text.contains(secretBundlePath),
+                        "\(name) \(format) leaked the path")
                 #expect(!text.contains(NSUserName()), "\(name) \(format) leaked the user name")
             }
         }
@@ -141,7 +162,7 @@ struct ExportPathParityTests {
             for text in [String(decoding: sheetBytes(hideNothing, format), as: UTF8.self),
                          intentReport(hideNothing, format).text] {
                 #expect(text.contains(secretName))
-                #expect(text.contains(secretPath))
+                #expect(text.contains(secretBundlePath))
                 #expect(text.contains(NSUserName()))
             }
         }
@@ -185,7 +206,7 @@ struct ExportPathParityTests {
         // And the values really are in the text it hands over, so the warning is not
         // theoretical.
         #expect(weaker.text.contains(NSUserName()))
-        #expect(weaker.text.contains(secretPath))
+        #expect(weaker.text.contains(secretBundlePath))
     }
 
     /// Over-redaction is permitted on both paths, and costs the same thing on both.

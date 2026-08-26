@@ -568,11 +568,16 @@ enum NowPresentation {
         + "only the rate over the last interval."
 
     /// The footnote explaining the table's history column.
+    ///
+    /// Rewritten for TASK-95, which made applications keep their own series. The
+    /// old wording said applications had none and sat a few lines under a column
+    /// drawing their curves. The limitation moved down a level rather than
+    /// disappearing, so the note describes where it actually is now.
     static let historyColumnNote =
-        "Retained history covers the machine total and the activity we are not "
-        + "permitted to attribute. Applications are not kept as individual series, "
-        + "so those cells read “not retained” rather than showing a curve drawn "
-        + "from partial records."
+        "Retained history covers the machine total, the activity we are not "
+        + "permitted to attribute, and each application. Individual processes "
+        + "inside an application are not kept separately — they come and go, and "
+        + "macOS reuses their identifiers — so those rows read “not retained”."
 
     // MARK: - Footnotes
 

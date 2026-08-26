@@ -420,9 +420,19 @@ enum IncidentHistory {
             + "Mac unless you export a report."
     }
 
-    /// Why a closed row names no application. Stated once, on screen, rather than
-    /// leaving the reader to notice the inconsistency (FR-002, FR-038).
+    /// Why *some* closed rows name no application.
+    ///
+    /// This used to say that no closed incident records what it was attributed to,
+    /// which stopped being true when TASK-68 made `Incident.attribution` recorded
+    /// on every sample and frozen at close. The footer then contradicted the rows
+    /// immediately above it, which named applications — leaving a reader to decide
+    /// which of the two was lying (FR-038).
+    ///
+    /// The real gap is narrower and is a fact about the file rather than about
+    /// incidents: anything written before that field existed decodes with
+    /// `attribution == nil` and can never gain one retrospectively.
     static let attributionGap =
-        "A closed incident does not record which application was involved, so only "
-        + "an incident that is still going can name one."
+        "An incident recorded before this version does not carry what it was "
+        + "attributed to, so those rows name no application. Nothing can be added "
+        + "to them now — the evidence was not kept at the time."
 }

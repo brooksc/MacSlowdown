@@ -283,6 +283,22 @@ public struct Incident: Sendable, Identifiable, Equatable, Codable {
     public var peakCPUBusyFraction: Double
     public var peakMemoryPressure: MemoryPressureLevel
 
+    /// The worst thermal state seen while this incident was open, and whether the
+    /// startup volume was ever observed below the low-storage line.
+    ///
+    /// Both exist for one reason: the report and the notification want to say "not
+    /// thermal" and "storage did not run low", and until these were recorded those
+    /// sentences rested on `conditions` alone — which holds only what *sustained*
+    /// past its duration threshold. A machine at `.serious` thermal for 110 s of a
+    /// 120 s threshold produced a report asserting, as a measured fact, that
+    /// nothing thermal happened. That is a fabricated measurement at the highest
+    /// evidence class (FR-002, FR-038).
+    ///
+    /// Optional so an incident recorded before these existed decodes as "we do not
+    /// know" rather than as "nothing happened", and the claims stay unsaid for it.
+    public var peakThermalState: ThermalState?
+    public var lowStorageObserved: Bool?
+
     /// What the incident was attributed to, recorded while it was open and frozen
     /// when it closed (FR-011's "leading contributors", FR-013's evidence).
     ///
@@ -342,6 +358,7 @@ public struct Incident: Sendable, Identifiable, Equatable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, beganAt, triggeredAt, recoveryStartedAt, closedAt
         case conditions, severity, peakCPUBusyFraction, peakMemoryPressure
+        case peakThermalState, lowStorageObserved
         case attribution, actions, suppressions
         case beganAtEstablishedFromRetainedHistory
         case lifecycleFindings
@@ -380,6 +397,12 @@ extension Incident {
         peakCPUBusyFraction = try container.decode(Double.self, forKey: .peakCPUBusyFraction)
         peakMemoryPressure = try container.decode(
             MemoryPressureLevel.self, forKey: .peakMemoryPressure)
+        // Absent means unknown, never "nominal": an older record cannot be made to
+        // support a claim nobody measured at the time.
+        peakThermalState = try container.decodeIfPresent(
+            ThermalState.self, forKey: .peakThermalState)
+        lowStorageObserved = try container.decodeIfPresent(
+            Bool.self, forKey: .lowStorageObserved)
         // Read back exactly as recorded, including its confidence. There is
         // deliberately no fallback that reconstructs an attribution from anything
         // else: absent means nothing was attributed, and a screen must say so
@@ -724,6 +747,11 @@ public struct IncidentDetector: Sendable {
             peakCPUBusyFraction: observation.cpuBusyFraction,
             peakMemoryPressure: observation.memoryPressure
         )
+        // Recorded from the first observation, so "not thermal" and "storage did
+        // not run low" rest on readings rather than on the absence of a sustained
+        // condition (FR-002).
+        incident.peakThermalState = observation.thermalState
+        incident.lowStorageObserved = observation.lowStorage
         // If the start we are dating this from was recovered from retained readings
         // after a threshold change, say so on the incident rather than leave a user
         // to discover an incident that appeared instantly and claims to be minutes
@@ -827,6 +855,17 @@ public struct IncidentDetector: Sendable {
             }
             if observation.memoryPressure > incident.peakMemoryPressure {
                 incident.peakMemoryPressure = observation.memoryPressure
+                changed = true
+            }
+            if observation.thermalState > incident.peakThermalState ?? .nominal {
+                incident.peakThermalState = observation.thermalState
+                changed = true
+            }
+            // Once observed low it stays recorded: the claim the report makes is
+            // "storage did not run low at any point", so a later recovery must not
+            // erase the evidence that it did.
+            if observation.lowStorage, incident.lowStorageObserved != true {
+                incident.lowStorageObserved = true
                 changed = true
             }
             let escalated = severity(for: observation, conditions: incident.conditions)

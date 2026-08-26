@@ -5,16 +5,24 @@ import Testing
 
 private let origin = Date(timeIntervalSince1970: 1_700_000_000)
 
+/// - Parameter open: whether the incident is still running. It matters for any
+///   test that passes a *live* attribution: a closed incident is never narrated
+///   from live state, because the live reading describes a machine that has since
+///   recovered. Tests about evidence labelling therefore describe an open incident,
+///   which is the case where a live reading is a measurement of the thing being
+///   summarised.
 private func incident(
     conditions: Set<IncidentCondition> = [.cpuSaturation],
     severity: IncidentSeverity = .high,
     peakCPU: Double = 0.94,
     peakMemory: MemoryPressureLevel = .normal,
-    minutes: Double = 6
+    minutes: Double = 6,
+    open: Bool = true
 ) -> Incident {
     Incident(
         id: UUID(), beganAt: origin, triggeredAt: origin.addingTimeInterval(180),
-        recoveryStartedAt: nil, closedAt: origin.addingTimeInterval(minutes * 60),
+        recoveryStartedAt: nil,
+        closedAt: open ? nil : origin.addingTimeInterval(minutes * 60),
         conditions: conditions, severity: severity,
         peakCPUBusyFraction: peakCPU, peakMemoryPressure: peakMemory)
 }
@@ -177,5 +185,92 @@ struct IncidentSummaryTests {
             attribution: attribution())
         #expect(summary.headline.contains("Memory pressure"))
         #expect(summary.headline.contains("minute"))
+    }
+}
+
+/// Finding 5 of the 2026-08-26 review. `conditions` holds only what *sustained*
+/// past its duration threshold — 60 s for storage, 120 s for thermal — so on
+/// `conditions` alone a machine that sat at serious thermal for 110 s produced a
+/// report asserting, as a measured fact, that nothing thermal happened.
+@Suite("Ruling something out needs a measurement, not an absence")
+struct RuledOutEvidenceTests {
+    private func incident(
+        thermal: ThermalState?, lowStorage: Bool?
+    ) -> Incident {
+        var subject = Incident(
+            id: UUID(), beganAt: Date(), triggeredAt: Date(),
+            recoveryStartedAt: nil, closedAt: Date(),
+            conditions: [.cpuSaturation], severity: .high,
+            peakCPUBusyFraction: 0.95, peakMemoryPressure: .normal)
+        subject.peakThermalState = thermal
+        subject.lowStorageObserved = lowStorage
+        return subject
+    }
+
+    private func ruledOut(_ subject: Incident) -> [String] {
+        IncidentSummarizer.summarize(incident: subject, attribution: nil)
+            .ruledOut.map(\.text)
+    }
+
+    @Test("A recorded nominal peak supports the claim")
+    func recordedEvidenceSupportsTheClaim() {
+        let text = ruledOut(incident(thermal: .nominal, lowStorage: false))
+        #expect(text.contains { $0.contains("Not thermal throttling") })
+        #expect(text.contains { $0.contains("Not a storage problem") })
+    }
+
+    /// The defect: raised thermal that never lasted long enough to open a condition.
+    @Test("A raised peak withholds it, even though no condition opened")
+    func aRaisedPeakWithholdsTheClaim() {
+        let text = ruledOut(incident(thermal: .serious, lowStorage: true))
+        #expect(!text.contains { $0.contains("Not thermal throttling") })
+        #expect(!text.contains { $0.contains("Not a storage problem") })
+    }
+
+    /// An incident recorded before these fields existed knows nothing either way,
+    /// and silence is the honest answer to a question nobody measured.
+    @Test("An unrecorded peak says nothing rather than reassuring")
+    func unknownSaysNothing() {
+        let text = ruledOut(incident(thermal: nil, lowStorage: nil))
+        #expect(!text.contains { $0.contains("Not thermal throttling") })
+        #expect(!text.contains { $0.contains("Not a storage problem") })
+        // Memory is unaffected: it was already corroborated by its recorded peak.
+        #expect(text.contains { $0.contains("Not a memory problem") })
+    }
+}
+
+/// Finding 19: the function's doc promised a guard the code did not have.
+@Suite("A closed incident is never narrated from live state")
+struct ClosedIncidentNarrationTests {
+    private func attribution() -> CPUAttribution {
+        CPUAttribution(
+            totalBusyPercentOfOneCore: 100, attributedPercentOfOneCore: 100,
+            unattributedPercentOfOneCore: 0,
+            contributors: [ProcessCPUUsage(
+                identity: ProcessIdentity(pid: 1, startTime: 1), command: "Passer By",
+                percentOfOneCore: 100, residentBytes: 0)],
+            protectedProcesses: [], logicalCoreCount: 8)
+    }
+
+    private func incident(open: Bool) -> Incident {
+        Incident(
+            id: UUID(), beganAt: Date(), triggeredAt: Date(),
+            recoveryStartedAt: nil, closedAt: open ? nil : Date(),
+            conditions: [.cpuSaturation], severity: .high,
+            peakCPUBusyFraction: 0.95, peakMemoryPressure: .normal)
+    }
+
+    @Test("A closed incident with no recorded attribution names nobody")
+    func closedNamesNobody() {
+        let summary = IncidentSummarizer.summarize(
+            incident: incident(open: false), attribution: attribution())
+        #expect(!summary.conclusions.contains { $0.text.contains("Passer By") })
+    }
+
+    @Test("An open one may still use the live reading, which is about it")
+    func openMayUseLive() {
+        let summary = IncidentSummarizer.summarize(
+            incident: incident(open: true), attribution: attribution())
+        #expect(summary.conclusions.contains { $0.text.contains("Passer By") })
     }
 }

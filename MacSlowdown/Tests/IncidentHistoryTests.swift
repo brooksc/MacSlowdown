@@ -370,8 +370,17 @@ struct IncidentRetentionTests {
         }
     }
 
-    @Test("The screen explains why a closed incident names no application")
+    /// The note used to say that *no* closed incident records what it was
+    /// attributed to. TASK-68 made that false, and the footer then contradicted the
+    /// rows above it, which named applications — leaving a reader to decide which of
+    /// the two was lying (FR-038). The real gap is narrower and is about the file.
+    @Test("The screen explains which rows name no application, and why")
     func attributionGapIsStated() {
-        #expect(IncidentHistory.attributionGap.contains("does not record"))
+        let note = IncidentHistory.attributionGap
+        #expect(note.contains("recorded before this version"))
+        #expect(!note.contains("A closed incident does not record"),
+                "closed incidents have recorded their attribution since TASK-68")
+        // The reason has to be about our records, never about the application.
+        #expect(note.contains("the evidence was not kept at the time"))
     }
 }

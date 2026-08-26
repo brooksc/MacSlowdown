@@ -329,10 +329,15 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
            incident.peakMemoryPressure == .normal {
             clauses.append("Memory pressure stayed normal.")
         }
-        if !incident.conditions.contains(.thermalPressure) {
+        // Corroborated by a recorded peak, exactly as the memory clause is.
+        // `conditions` alone would have this banner assert "the machine did not
+        // report thermal pressure" about a machine that sat at serious thermal for
+        // 110 seconds of a 120-second threshold. Nil means the claim goes unsaid.
+        if !incident.conditions.contains(.thermalPressure),
+           let peak = incident.peakThermalState, peak < .serious {
             clauses.append("The machine did not report thermal pressure.")
         }
-        if !incident.conditions.contains(.lowStorage) {
+        if !incident.conditions.contains(.lowStorage), incident.lowStorageObserved == false {
             clauses.append("Storage did not run low.")
         }
         return clauses.first

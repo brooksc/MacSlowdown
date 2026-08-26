@@ -291,11 +291,16 @@ struct NotificationBannerTests {
     /// evidence are required before the app tells someone their memory is fine.
     @Test("A memory peak above normal withholds the memory reassurance")
     func peakContradictsTheCondition() {
-        let spiked = Incident(
+        var spiked = Incident(
             id: UUID(), beganAt: Date(), triggeredAt: Date(),
             recoveryStartedAt: nil, closedAt: Date(),
             conditions: [.cpuSaturation], severity: .high,
             peakCPUBusyFraction: 0.95, peakMemoryPressure: .warning)
+        // The thermal clause now needs a recorded peak behind it, not merely the
+        // absence of a sustained condition: `conditions` holds only what lasted
+        // past its threshold, so a machine at serious thermal for 110 s of a 120 s
+        // threshold was being described as having reported nothing (FR-002).
+        spiked.peakThermalState = .nominal
 
         let reassurance = NotificationDelivery.reassurance(for: spiked)
         #expect(reassurance?.contains("Memory") != true)

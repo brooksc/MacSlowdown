@@ -9,12 +9,26 @@ private let secretName = "SecretProject"
 private let secretPath = "/Users/someone/Private/SecretProject.app/Contents/MacOS/SecretProject"
 private let contributorIdentity = ProcessIdentity(pid: 4242, startTime: 99)
 
+/// Closed and carrying its own recorded attribution, which is what a closed
+/// incident's report is built from — a closed incident is never narrated from the
+/// live reading, because that describes a machine which has since recovered.
 private func incident() -> Incident {
-    Incident(
+    var subject = Incident(
         id: UUID(), beganAt: origin, triggeredAt: origin.addingTimeInterval(180),
         recoveryStartedAt: nil, closedAt: origin.addingTimeInterval(600),
         conditions: [.cpuSaturation], severity: .high,
         peakCPUBusyFraction: 0.94, peakMemoryPressure: .warning)
+    subject.attribution = IncidentAttribution(
+        sample: AttributionSample(
+            applications: [IncidentContributor(
+                applicationID: "/Applications/SecretProject.app",
+                displayName: secretName, peakPercentOfOneCore: 412)],
+            totalBusyPercentOfOneCore: 800,
+            attributedPercentOfOneCore: 700,
+            unattributedPercentOfOneCore: 100,
+            logicalCoreCount: 8),
+        at: origin)
+    return subject
 }
 
 private func attribution() -> CPUAttribution {
