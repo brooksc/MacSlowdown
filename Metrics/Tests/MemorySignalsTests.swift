@@ -75,7 +75,7 @@ struct MemoryPressureMonitorTests {
     /// record it immediately rather than at the next sample.
     @Test("A transition is recorded with its timestamp")
     func transitionRecorded() throws {
-        let monitor = MemoryPressureMonitor()
+        let monitor = MemoryPressureMonitor(initialLevel: .normal)
         let before = Date()
         let transition = try #require(monitor.record(.warning))
 
@@ -87,7 +87,7 @@ struct MemoryPressureMonitorTests {
 
     @Test("Repeated notifications at the same level are not transitions")
     func repeatsAreNotTransitions() {
-        let monitor = MemoryPressureMonitor()
+        let monitor = MemoryPressureMonitor(initialLevel: .normal)
         monitor.record(.warning)
         monitor.record(.warning)
         monitor.record(.warning)
@@ -96,7 +96,7 @@ struct MemoryPressureMonitorTests {
 
     @Test("Every change is recorded, in order, including recovery")
     func recordsSequence() {
-        let monitor = MemoryPressureMonitor()
+        let monitor = MemoryPressureMonitor(initialLevel: .normal)
         monitor.record(.warning)
         monitor.record(.critical)
         monitor.record(.warning)
@@ -108,7 +108,7 @@ struct MemoryPressureMonitorTests {
 
     @Test("Transition history is bounded")
     func historyIsBounded() {
-        let monitor = MemoryPressureMonitor(maximumTransitions: 10)
+        let monitor = MemoryPressureMonitor(maximumTransitions: 10, initialLevel: .normal)
         for index in 0..<100 {
             monitor.record(index.isMultiple(of: 2) ? .warning : .normal)
         }
@@ -117,10 +117,28 @@ struct MemoryPressureMonitorTests {
 
     @Test("Starting the monitor reads the live level without crashing")
     func startsAgainstLiveSystem() async throws {
-        let monitor = MemoryPressureMonitor()
+        let monitor = MemoryPressureMonitor(initialLevel: .normal)
         monitor.start()
         defer { monitor.stop() }
         try await Task.sleep(for: .milliseconds(300))
         #expect(MemoryPressureLevel.allCases.contains(monitor.level))
+    }
+}
+
+@Suite("The monitor still starts from the machine")
+struct MemoryPressureMonitorSeedTests {
+    /// TASK-92 moved the starting level behind a parameter so tests stop asserting
+    /// on the developer's Mac. The product behaviour must not have moved with it:
+    /// a monitor constructed with no argument still reads the live level, because
+    /// one that began at `.normal` on a Mac already under pressure would report a
+    /// recovery that never happened.
+    @Test("The default is the live level, not normal")
+    func defaultSeedIsLive() {
+        #expect(MemoryPressureMonitor().level == MemorySignals.currentPressureLevel())
+    }
+
+    @Test("An explicit level is honoured")
+    func explicitSeedIsUsed() {
+        #expect(MemoryPressureMonitor(initialLevel: .critical).level == .critical)
     }
 }

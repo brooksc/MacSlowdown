@@ -3,9 +3,10 @@ id: TASK-90
 title: >-
   Trends over instants: contextualise CPU over a window, stop ranking by the
   current sample, and sink the unattributable row
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-24 04:04'
+updated_date: '2026-08-26 18:35'
 labels:
   - ui
   - decision
@@ -39,10 +40,28 @@ Do not start implementing until the split above is confirmed, and until the wind
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The windowed statistic is chosen and named in copy, so a figure states which window and which statistic it is
-- [ ] #2 The instantaneous reading remains available and is never presented as a sustained fact
-- [ ] #3 Default ordering is derived from the retained window rather than the newest sample, and the interaction with TASK-74's 10 s order hold is settled
+- [x] #1 The windowed statistic is chosen and named in copy, so a figure states which window and which statistic it is
+- [x] #2 The instantaneous reading remains available and is never presented as a sustained fact
+- [x] #3 Default ordering is derived from the retained window rather than the newest sample, and the interaction with TASK-74's 10 s order hold is settled
 - [ ] #4 The unattributable entry is pinned outside the ranking in the peer process list
-- [ ] #5 The unattributable entry remains first-class and in the sum wherever contributors are presented, or FR-055 is amended first
+- [x] #5 The unattributable entry remains first-class and in the sum wherever contributors are presented, or FR-055 is amended first
 - [ ] #6 Verified on screen: a row's figure does not visibly churn at sampling cadence, and the list does not reorder on a one-second spike
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Settled and built, 2026-08-25/26
+
+**The statistic is the mean over a trailing 60 s** (product owner: "averaging this over the last 1m"). Delivered through `FamilyHistory.trailing`, which carries mean, peak, sample count and the span actually covered, and `TrailingPresentation`, which names the window and says the span out loud when it is short. Built under TASK-95, along with the per-family retention that made it possible and the FR-031 cadence amendment that feeds it.
+
+**The instant is kept.** The Now table now has two labelled columns, "Now" and "Last minute", rather than one ambiguous "CPU". A spike is real information; it is just not the thing to rank a list by.
+
+**Default sort is the trailing mean** (`InventoryRow.trendSortKey`, used by `defaultInventorySort`), falling back to the instant while no history exists so a freshly launched application takes its place immediately rather than sinking for a minute. A fallback, not a blend — averaging the two would give a figure that is neither.
+
+**Interaction with TASK-74's 10 s order hold:** left in place. They address different causes — the hold damps re-sorting between samples, the mean damps what is being sorted — and removing the hold is a change worth making on its own evidence, on screen, rather than blind.
+
+**AC #4 (the unattributable row pinned in the peer list) was split out as TASK-93** and is done for both popover lists. The peer *process* list in Apps & Processes has not been checked for the same behaviour.
+
+Remaining here: AC #4's Apps & Processes half, and AC #6, which needs the screen.
+<!-- SECTION:NOTES:END -->

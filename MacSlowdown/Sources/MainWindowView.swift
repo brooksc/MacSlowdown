@@ -831,7 +831,13 @@ struct ContributorHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             Text("App").frame(maxWidth: .infinity, alignment: .leading)
-            Text("CPU").frame(width: 90, alignment: .trailing)
+            // Two figures, labelled apart, because they answer different questions
+            // and only one of them is stable enough to read (TASK-95). "Now" is the
+            // newest sample; "Last minute" is the mean of the readings we retained
+            // over the trailing minute. The instant is kept because a spike is real
+            // information — it is just not the thing to rank a list by.
+            Text("Now").frame(width: 70, alignment: .trailing)
+            Text("Last minute").frame(width: 90, alignment: .trailing)
             Text("Resident memory").frame(width: 130, alignment: .trailing)
             // Named for what is retained rather than "Last 5 min": the span is
             // whatever we have kept, and the cell states it.
@@ -899,7 +905,10 @@ struct ContributorRow: View {
             Spacer(minLength: 8)
 
             measurement { CPUPresentation.percentOfOneCore(row.percentOfOneCore) }
-                .frame(width: 90, alignment: .trailing)
+                .frame(width: 70, alignment: .trailing)
+
+            trailingMean.frame(width: 90, alignment: .trailing)
+
             measurement {
                 row.residentBytes == 0
                     ? "—" : ByteCountFormatStyle().format(Int64(row.residentBytes))
@@ -973,6 +982,33 @@ struct ContributorRow: View {
         }
     }
 
+    /// The trailing mean cell (TASK-95).
+    ///
+    /// An em dash rather than a figure whenever nothing was retained for this row —
+    /// "no readings" and "no CPU" are different statements and only one of them is
+    /// a measurement (FR-002). The tooltip says which window the mean covers, and
+    /// says so honestly when we have not been watching a full minute yet.
+    @ViewBuilder
+    private var trailingMean: some View {
+        if let trailing = rowTrailing {
+            Text(CPUPresentation.percentOfOneCore(trailing.meanPercentOfOneCore))
+                .monospacedDigit()
+                .help(TrailingPresentation.caption(trailing)
+                    + ", from \(trailing.sampleCount) readings")
+        } else {
+            Text("—")
+                .foregroundStyle(.secondary)
+                .help(row.isMeasurable
+                    ? "No readings retained for this row yet."
+                    : "Per-process usage is not reported for these processes.")
+        }
+    }
+
+    /// The trailing statistics behind this row. Attached by the store, so the
+    /// figure the row is sorted by and the figure it prints are the same one —
+    /// looking it up again here is how two surfaces start disagreeing.
+    private var rowTrailing: TrailingUsage? { row.trailing }
+
     /// This family's retained series, as sparkline points. A sample the family was
     /// absent from is simply not here, so the sparkline's own gap rule draws it as
     /// a break rather than a fall to zero.
@@ -1018,7 +1054,15 @@ struct ContributorRow: View {
         if row.kind != .member { parts.append("\(row.processCount) processes") }
         parts.append(contentsOf: NowPresentation.chips(for: row))
         if row.isMeasurable {
-            parts.append("\(CPUPresentation.percentOfOneCore(row.percentOfOneCore)) of one core")
+            parts.append("\(CPUPresentation.percentOfOneCore(row.percentOfOneCore)) of one core now")
+            // The mean is spoken with its window attached, never as a second bare
+            // percentage — two unqualified figures in one sentence would be worse
+            // than one (FR-034, FR-038).
+            if let trailing = rowTrailing {
+                parts.append(
+                    "\(CPUPresentation.percentOfOneCore(trailing.meanPercentOfOneCore)) "
+                    + TrailingPresentation.caption(trailing))
+            }
             if row.residentBytes > 0 {
                 parts.append(ByteCountFormatStyle().format(Int64(row.residentBytes)) + " resident")
             }

@@ -131,6 +131,11 @@ struct InventoryRow: Identifiable {
     }
 
     let id: String
+    /// Trailing usage over the last minute, attached by the store from
+    /// `FamilyHistory` (TASK-95). Nil where nothing has been retained for this row
+    /// — never zero, because "no readings" and "no CPU" are different statements
+    /// (FR-002).
+    var trailing: TrailingUsage?
     let name: String
     /// Where to look for an icon. Nil for rows that have none.
     let executablePath: String?
@@ -180,6 +185,23 @@ struct InventoryRow: Identifiable {
     /// — last, descending — rather than mixing in with genuine zeroes. Sorting
     /// them as 0 would put "we were not allowed to look" alongside "idle".
     var cpuSortKey: Double { isMeasurable ? percentOfOneCore : -1 }
+
+    /// Sort key for the trailing mean, which is what the list actually opens on
+    /// (TASK-90, TASK-95).
+    ///
+    /// Ranking by the newest sample made the list reorder constantly and promoted
+    /// whatever had spiked in the last second — the product owner's "maybe don't
+    /// sort based on the highest cpu". A minute's mean is the sustained figure the
+    /// product is about, and it is what a reader can act on.
+    ///
+    /// Falls back to the instant while no history exists yet, so a freshly launched
+    /// application takes its rightful place immediately rather than sinking to the
+    /// bottom for a minute. That is a fallback, not a blend: the two are never
+    /// averaged together, because the result would be neither figure.
+    var trendSortKey: Double {
+        guard isMeasurable else { return -1 }
+        return trailing?.meanPercentOfOneCore ?? percentOfOneCore
+    }
     var memorySortKey: Double { isMeasurable ? Double(residentBytes) : -1 }
     /// Aggregates have no PID and sort together, below every real one.
     var pidSortKey: Int { pid.map(Int.init) ?? -1 }
@@ -346,8 +368,10 @@ extension Presentation {
         }
     }
 
-    /// The order the inventory opens in: busiest application first.
+    /// The order the inventory opens in: the application that has been busiest
+    /// over the trailing minute, not the one that spiked in the last sample
+    /// (TASK-90). `cpuSortKey` remains available as a column the user can sort by.
     static let defaultInventorySort = [
-        KeyPathComparator(\InventoryRow.cpuSortKey, order: .reverse)
+        KeyPathComparator(\InventoryRow.trendSortKey, order: .reverse)
     ]
 }

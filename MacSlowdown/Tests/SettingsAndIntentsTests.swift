@@ -173,3 +173,27 @@ struct MonitorStoreDefaultsTests {
         #expect(store.mute == .notMuted)
     }
 }
+
+/// TASK-91. The app-hosted bundle runs inside the real application container, so
+/// `MonitorStore.shared` used to load the developer's own incident history — and a
+/// test requiring an empty store failed the day this Mac recorded its first
+/// incident. Clearing the file would have made it pass and left the defect.
+@Suite("Tests do not read the developer's own container")
+@MainActor
+struct StorageIsolationTests {
+    @Test("Persistent stores are redirected to a throwaway directory under test")
+    func storageIsRedirected() throws {
+        let url = try #require(MonitorStore.storageURL(named: "incidents.json"))
+        #expect(url.path.contains(FileManager.default.temporaryDirectory.path))
+        #expect(!url.path.contains("Application Support"))
+        // Per-launch, so two runs cannot leak state into one another either.
+        #expect(url.path.contains("\(ProcessInfo.processInfo.processIdentifier)"))
+    }
+
+    /// The consequence the failing test was really about: a store built the way the
+    /// app builds it holds nothing at the start of a test run.
+    @Test("The shared store starts a test run with no recorded incidents")
+    func sharedStoreIsEmptyUnderTest() {
+        #expect(MonitorStore.persistentIncidentHistory.incidents.isEmpty)
+    }
+}

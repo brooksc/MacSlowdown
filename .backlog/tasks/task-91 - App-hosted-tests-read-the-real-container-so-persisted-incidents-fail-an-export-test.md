@@ -3,9 +3,10 @@ id: TASK-91
 title: >-
   App-hosted tests read the real container, so persisted incidents fail an
   export test
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-24 04:15'
+updated_date: '2026-08-26 18:35'
 labels:
   - infra
 milestone: m-3
@@ -28,8 +29,22 @@ The fix is isolation, not deletion — clearing the file makes the test pass aga
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The app-hosted tests pass on a machine whose container already holds incidents
-- [ ] #2 No test asserts on the state of the developer's real container
-- [ ] #3 The fix does not require clearing any file before a test run
-- [ ] #4 statusBeforeFirstReading is audited for the same assumption
+- [x] #1 The app-hosted tests pass on a machine whose container already holds incidents
+- [x] #2 No test asserts on the state of the developer's real container
+- [x] #3 The fix does not require clearing any file before a test run
+- [x] #4 statusBeforeFirstReading is audited for the same assumption
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+New `MonitorStore.storageURL(named:)` is the single place a persistent file's location is decided. Under `AppDelegate.isHostingTests` it returns a path in a per-launch temporary directory; otherwise the app's Application Support directory as before. Both `persistentIncidentHistory` and `defaultPolicies` go through it — the policy store had the same exposure and nothing had tripped over it yet.
+
+Per-launch rather than a fixed temporary path, so two runs cannot leak state into each other either.
+
+The fix is isolation, not deletion: clearing `incidents.json` would have made the test pass and left the defect for whoever recorded the next incident.
+
+`StorageIsolationTests`, 2 tests: the redirected path is under the temporary directory, is not in Application Support, and carries the process id; and the shared store genuinely starts a test run empty — which is the assumption `exportWithNoIncidents` was making silently.
+
+Full suite now 1096 passing. The only remaining failure is `EndToEndIncidentTests.realSlowdownProducesOneIncident`, which recorded its own "baseline CPU too high" skip on a machine running Xcode, LM Studio and this app.
+<!-- SECTION:NOTES:END -->

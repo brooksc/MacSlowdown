@@ -11,6 +11,21 @@ struct FamilyHistoryPoint: Equatable, Identifiable {
     var id: Date { at }
 }
 
+/// A trailing statistic, carried with the evidence it was computed from.
+///
+/// The window and the sample count travel with the number because FR-038 requires
+/// a derived value to say what it derives from: "29%" and "29% on average over the
+/// last minute, from 47 readings" are different claims, and only the second is true
+/// of a mean.
+struct TrailingUsage: Equatable {
+    let meanPercentOfOneCore: Double
+    let peakPercentOfOneCore: Double
+    let sampleCount: Int
+    /// The span actually covered — at most the window asked for, and less whenever
+    /// we have not been watching that long.
+    let span: Duration
+}
+
 /// How a trailing figure describes itself on screen (FR-038, FR-002).
 enum TrailingPresentation {
     /// "average over the last minute". The statistic and the window are both named,
@@ -26,6 +41,26 @@ enum TrailingPresentation {
         requestedWindow: Duration = TrailingPresentation.defaultWindow
     ) -> String {
         "average over \(windowPhrase(trailing, requested: requestedWindow))"
+    }
+
+    /// The same statistic over any series of points, for the rows that are not
+    /// families — "System processes" carries `unattributedPercentOfOneCore`, which
+    /// lives in `MetricsHistory` rather than `FamilyHistory` but deserves the same
+    /// column treatment. One rule, so the column means one thing on every row.
+    static func trailing(
+        of points: [SparklinePoint],
+        window: Duration = TrailingPresentation.defaultWindow,
+        now: Date = Date()
+    ) -> FamilyHistory.Trailing? {
+        let cutoff = now.addingTimeInterval(-window.totalSeconds)
+        let inWindow = points.filter { $0.at >= cutoff }
+        guard let first = inWindow.first, let last = inWindow.last else { return nil }
+        let total = inWindow.reduce(0) { $0 + $1.value }
+        return FamilyHistory.Trailing(
+            meanPercentOfOneCore: total / Double(inWindow.count),
+            peakPercentOfOneCore: inWindow.map(\.value).max() ?? 0,
+            sampleCount: inWindow.count,
+            span: .seconds(last.at.timeIntervalSince(first.at)))
     }
 
     /// Says the short span out loud when we have not been watching long enough to
@@ -150,20 +185,10 @@ final class FamilyHistory {
     /// outside this type's actor isolation; a test holds the two equal.
     static let defaultTrailingWindow: Duration = .seconds(60)
 
-    /// A trailing statistic, carried with the evidence it was computed from.
-    ///
-    /// The window and the sample count travel with the number because FR-038
-    /// requires a derived value to say what it derives from: "29%" and "29% on
-    /// average over the last minute, from 47 readings" are different claims, and
-    /// only the second is true of a mean.
-    struct Trailing: Equatable {
-        let meanPercentOfOneCore: Double
-        let peakPercentOfOneCore: Double
-        let sampleCount: Int
-        /// The span actually covered — at most the window asked for, and less
-        /// whenever we have not been watching that long.
-        let span: Duration
-    }
+    /// Kept as a nested name because every call site reads better for it, but the
+    /// type is declared outside this class so it is usable off the main actor —
+    /// `InventoryRow` carries one, and rows are built where the store is.
+    typealias Trailing = TrailingUsage
 
     /// Trailing statistics for one family, or nil when nothing was retained in the
     /// window.

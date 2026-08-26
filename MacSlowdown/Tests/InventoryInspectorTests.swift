@@ -530,3 +530,59 @@ struct TrailingFamilyFigureTests {
         #expect(!caption.contains("minute"))
     }
 }
+
+/// TASK-90. "maybe don't sort based on the highest cpu" — ranking by the newest
+/// sample made the list reorder constantly and promoted whatever had spiked in the
+/// last second.
+@Suite("The inventory opens on the trailing minute, not the last sample")
+@MainActor
+struct TrendSortTests {
+    private func row(
+        _ id: String, now: Double, mean: Double?, measurable: Bool = true
+    ) -> InventoryRow {
+        var row = InventoryRow(
+            id: id, name: id, executablePath: nil, kind: .application,
+            percentOfOneCore: now, residentBytes: 1_000_000, isMeasurable: measurable,
+            processCount: 1, qualification: nil, children: [])
+        row.trailing = mean.map {
+            TrailingUsage(meanPercentOfOneCore: $0, peakPercentOfOneCore: $0,
+                          sampleCount: 60, span: .seconds(59))
+        }
+        return row
+    }
+
+    @Test("A one-second spike does not jump to the top of the list")
+    func spikesDoNotReorderTheList() {
+        // Steady is the busier application over the minute; Spiky just twitched.
+        let sorted = Presentation.sortedInventory(
+            [row("Spiky", now: 400, mean: 5), row("Steady", now: 30, mean: 120)],
+            by: Presentation.defaultInventorySort)
+        #expect(sorted.map(\.id) == ["Steady", "Spiky"])
+    }
+
+    /// A freshly launched application has no history. It must take its place on the
+    /// instant rather than sinking for a minute — but the two figures are never
+    /// blended, because the result would be neither of them.
+    @Test("With no history yet, the instant stands in")
+    func theInstantIsTheFallback() {
+        let fresh = row("Fresh", now: 200, mean: nil)
+        #expect(fresh.trendSortKey == 200)
+
+        let sorted = Presentation.sortedInventory(
+            [row("Known", now: 10, mean: 50), fresh],
+            by: Presentation.defaultInventorySort)
+        #expect(sorted.map(\.id) == ["Fresh", "Known"])
+    }
+
+    /// FR-002: "we were not allowed to look" must not sort among genuine zeroes.
+    @Test("An unmeasurable row still sorts last, not as an idle one")
+    func unmeasurableSortsLast() {
+        let denied = row("Denied", now: 0, mean: nil, measurable: false)
+        #expect(denied.trendSortKey == -1)
+
+        let sorted = Presentation.sortedInventory(
+            [denied, row("Idle", now: 0, mean: 0)],
+            by: Presentation.defaultInventorySort)
+        #expect(sorted.map(\.id) == ["Idle", "Denied"])
+    }
+}

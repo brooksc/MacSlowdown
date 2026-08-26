@@ -127,10 +127,19 @@ public final class MemoryPressureMonitor: Sendable {
     private let state = Mutex(State())
     private let maximumTransitions: Int
 
-    public init(maximumTransitions: Int = 200) {
+    /// - Parameter initialLevel: the level to start from. Defaults to the live
+    ///   machine, which is right for the product — a monitor that began at
+    ///   `.normal` on a Mac already under pressure would report a transition that
+    ///   never happened. It is a parameter so a test can start from a known level
+    ///   rather than from whatever the developer's Mac is doing: three tests here
+    ///   passed on an idle machine and failed on a busy one, which reads as
+    ///   flakiness and is actually the test asserting on the real world (TASK-92).
+    public init(
+        maximumTransitions: Int = 200,
+        initialLevel: MemoryPressureLevel = MemorySignals.currentPressureLevel()
+    ) {
         self.maximumTransitions = maximumTransitions
-        let initial = MemorySignals.currentPressureLevel()
-        state.withLock { $0.level = initial }
+        state.withLock { $0.level = initialLevel }
     }
 
     public var level: MemoryPressureLevel { state.withLock { $0.level } }

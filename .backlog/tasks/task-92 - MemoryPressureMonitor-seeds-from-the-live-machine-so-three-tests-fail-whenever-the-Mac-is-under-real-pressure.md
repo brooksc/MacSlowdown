@@ -3,9 +3,10 @@ id: TASK-92
 title: >-
   MemoryPressureMonitor seeds from the live machine, so three tests fail
   whenever the Mac is under real pressure
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-25 17:44'
+updated_date: '2026-08-26 18:35'
 labels:
   - infra
 milestone: m-3
@@ -34,8 +35,18 @@ Related: TASK-91 (app-hosted tests read the real container). Same root cause, di
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three tests pass on a machine already at warning or critical memory pressure
-- [ ] #2 The product still seeds from the live level at construction, so a monitor started under pressure does not misreport its first transition
-- [ ] #3 The seam is a parameter rather than a test-only branch inside the type
+- [x] #1 The three tests pass on a machine already at warning or critical memory pressure
+- [x] #2 The product still seeds from the live level at construction, so a monitor started under pressure does not misreport its first transition
+- [x] #3 The seam is a parameter rather than a test-only branch inside the type
 - [ ] #4 CLAUDE.md's list of machine-sensitive tests is updated, or these are removed from it because they are no longer machine-sensitive
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`MemoryPressureMonitor.init` takes an `initialLevel` defaulting to `MemorySignals.currentPressureLevel()`, so the product behaviour is unchanged — a monitor built with no argument still seeds from the live machine, which it must, or one started on a Mac already under pressure would report a recovery that never happened.
+
+The four tests that assumed a starting level now say so. Two new tests in `MemoryPressureMonitorSeedTests` hold the product side in place: the default really is the live level, and an explicit level is honoured. Without the first of those, someone could "fix" a future failure by changing the default and nothing would object.
+
+AC #4 (updating CLAUDE.md's machine-sensitive list) is left for the CLAUDE.md pass — these tests are no longer machine-sensitive, so the entry to make is a removal rather than an addition, and there is no entry today because they were never listed.
+<!-- SECTION:NOTES:END -->

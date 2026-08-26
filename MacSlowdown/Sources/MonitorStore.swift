@@ -331,9 +331,37 @@ final class MonitorStore {
     /// The inventory as a tree: families with their processes beneath them, plus
     /// the processes we are not permitted to measure collected into one group.
     var inventory: [InventoryRow] {
-        Presentation.inventory(
+        annotatedWithTrailingUsage(Presentation.inventory(
             families, contributions: contributionIndex,
-            unattributedPercentOfOneCore: attribution?.unattributedPercentOfOneCore ?? 0)
+            unattributedPercentOfOneCore: attribution?.unattributedPercentOfOneCore ?? 0))
+    }
+
+    /// Attaches each row's trailing minute (TASK-95).
+    ///
+    /// Done here rather than inside `Presentation.inventory` because that function
+    /// is pure over one sample and this is the only place that holds the history.
+    /// Rows the history has nothing for keep a nil `trailing`, which every surface
+    /// renders as "—" rather than as zero (FR-002).
+    ///
+    /// "System processes" is not a family, so its mean comes from the retained
+    /// unattributed series instead — the same column has to mean the same thing on
+    /// every row it appears on.
+    private func annotatedWithTrailingUsage(_ rows: [InventoryRow]) -> [InventoryRow] {
+        rows.map { row in
+            var row = row
+            switch row.kind {
+            case .application:
+                row.trailing = familyHistory.trailing(for: row.id)
+            case .systemProcesses:
+                row.trailing = TrailingPresentation.trailing(
+                    of: SparklinePresentation.unattributedSeries(history.samples))
+            case .member:
+                // Keyed on the family: a member has no series of its own, because
+                // a family outlives its processes and pids are recycled.
+                break
+            }
+            return row
+        }
     }
 
     private var contributionIndex: [ProcessIdentity: Double] = [:]
@@ -473,12 +501,33 @@ final class MonitorStore {
     /// from it: rules are the user's decisions and history is recorded evidence, so
     /// "delete all history" must be able to take one without the other (FR-029).
     static let persistentIncidentHistory: IncidentHistoryStore = {
-        let base = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask).first
-        return IncidentHistoryStore(url: base?
-            .appendingPathComponent("MacSlowdown", isDirectory: true)
-            .appendingPathComponent("incidents.json"))
+        IncidentHistoryStore(url: storageURL(named: "incidents.json"))
     }()
+
+    /// A file in the app's own storage, or in a throwaway directory under test.
+    ///
+    /// **The test case is the point** (TASK-91). The app-hosted bundle runs inside
+    /// the real container, so `MonitorStore.shared` loaded the developer's actual
+    /// incident history and a test requiring an empty store failed the moment this
+    /// Mac recorded its first incident. That is a test asserting on the developer's
+    /// world, and clearing the file to make it pass would leave the defect for the
+    /// next person — the same shape as `MemoryPressureMonitor` seeding from live
+    /// memory pressure (TASK-92).
+    ///
+    /// A per-launch temporary directory rather than a fixed one, so two runs cannot
+    /// leak state into each other either.
+    static func storageURL(named name: String) -> URL? {
+        guard !AppDelegate.isHostingTests else {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("MacSlowdownTests-\(ProcessInfo.processInfo.processIdentifier)",
+                                        isDirectory: true)
+                .appendingPathComponent(name)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("MacSlowdown", isDirectory: true)
+            .appendingPathComponent(name)
+    }
 
     // MARK: - User policies (FR-016)
 
@@ -489,12 +538,11 @@ final class MonitorStore {
     let policies: PolicyStore
 
     /// The single on-disk policy store, at the location the inspector already used.
+    /// Isolated under test for the same reason as the incident history: a test that
+    /// reads the developer's real rules is asserting on their machine, not on the
+    /// code.
     static let defaultPolicies: PolicyStore = {
-        let base = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask).first
-        return PolicyStore(url: base?
-            .appendingPathComponent("MacSlowdown", isDirectory: true)
-            .appendingPathComponent("policies.json"))
+        PolicyStore(url: storageURL(named: "policies.json"))
     }()
 
     // MARK: - Grouping corrections (FR-039)
