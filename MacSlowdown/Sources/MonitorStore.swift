@@ -43,6 +43,36 @@ enum Severity: Int, Comparable, CaseIterable {
         }
     }
 
+    /// The band a *settled* reading falls in, with a deadband so the word does not
+    /// oscillate at a boundary (TASK-100).
+    ///
+    /// Moving up requires crossing the boundary; moving down requires falling a
+    /// margin below it. Without that, a machine sitting exactly on a line flips
+    /// between two words for as long as it stays there — which is what the product
+    /// owner watched it do, cycling "running normally", "working hard", "heavily
+    /// loaded" while iStat showed a steady 86% busy.
+    static func settled(
+        _ share: Double, previous: Severity, breachingAt threshold: Double,
+        margin: Double = 0.05
+    ) -> Severity {
+        let candidate = forBusyShareOfMachine(share, breachingAt: threshold)
+        guard candidate < previous else { return candidate }
+        // Stepping down: only once the reading is clear of the band we are leaving,
+        // by the margin. Stepping up is immediate, because a machine getting worse
+        // is news and delaying it would be the opposite failure.
+        let leavingFloor = boundary(of: previous, breachingAt: threshold)
+        return share >= leavingFloor - margin ? previous : candidate
+    }
+
+    /// The lower edge of a band, in machine-share terms.
+    static func boundary(of severity: Severity, breachingAt threshold: Double) -> Double {
+        switch severity {
+        case .normal: 0
+        case .elevated: threshold * Self.elevatedFractionOfThreshold
+        case .severe: threshold
+        }
+    }
+
     /// Derived from the share of total machine capacity in use, against the
     /// threshold the detector is actually judging by.
     ///
@@ -333,13 +363,43 @@ final class MonitorStore {
     /// CPU card's state word, or the elevated glyph. The detector's threshold is
     /// the line the product actually stands behind; anything describing the same
     /// machine has to use it or the two disagree in front of the user.
-    var severity: Severity {
-        guard let attribution else { return .normal }
-        return .forBusyShareOfMachine(
-            Presentation.busyShareOfMachine(
-                percentOfOneCore: attribution.totalBusyPercentOfOneCore,
-                logicalCores: machine.logicalCores),
-            breachingAt: incidentPolicyInForce.cpuBusyFractionThreshold)
+    /// The status word on every surface: the Now headline, the CPU card, the menu
+    /// bar glyph and its spoken label.
+    ///
+    /// **Stored, and settled over a window** (TASK-100). It used to be computed from
+    /// `attribution.totalBusyPercentOfOneCore` — the newest sample alone — so at a
+    /// one-second cadence it changed as often as the machine breathed. The product
+    /// owner watched it cycle through all three words while the load was in fact
+    /// steady, and reported the obvious conclusion: an indicator that cannot make
+    /// up its mind is not one you trust.
+    ///
+    /// It is now the trailing mean over `severityWindow`, with a deadband on the way
+    /// down (`Severity.settled`). This is the same medicine the tables got under
+    /// TASK-90 — judge an interval, not an instant — applied to the sentence that
+    /// answers "is my Mac all right?", which was always a question about a state.
+    private(set) var severity: Severity = .normal
+
+    /// How much recent history the status word is judged over. Long enough to be
+    /// steady, short enough that a machine getting into trouble is described as
+    /// being in trouble while it still is.
+    static let severityWindow: Duration = .seconds(30)
+
+    /// The mean share of machine capacity in use over the trailing window, or nil
+    /// before anything has been retained.
+    ///
+    /// Nil rather than zero: no readings and an idle machine are different, and only
+    /// one of them is a measurement (FR-002).
+    func trailingBusyShare(
+        window: Duration = MonitorStore.severityWindow, now: Date = Date()
+    ) -> Double? {
+        let cutoff = now.addingTimeInterval(-window.totalSeconds)
+        let capacity = Double(machine.logicalCores) * 100
+        guard capacity > 0 else { return nil }
+        let readings = history.samples
+            .filter { $0.timestamp >= cutoff }
+            .map { $0.totalBusyPercentOfOneCore / capacity }
+        guard !readings.isEmpty else { return nil }
+        return readings.reduce(0, +) / Double(readings.count)
     }
 
     /// One row of the inventory: a family with its aggregated usage.
@@ -900,6 +960,16 @@ final class MonitorStore {
             enumeration = snapshot.enumeration
             freshness = overdue ? .stale(age: elapsed) : .current
             lastUpdate = Date()
+            // Settled over the trailing window rather than read off this sample, so
+            // the word on screen describes the machine rather than the instant
+            // (TASK-100). Computed here, on the sampling pass, rather than in a
+            // `body` — it now has history to consult and a previous value to
+            // compare against, neither of which belongs in a view.
+            if let share = trailingBusyShare(now: sampledAt) {
+                severity = .settled(
+                    share, previous: severity,
+                    breachingAt: incidentPolicyInForce.cpuBusyFractionThreshold)
+            }
 
             // MARK: Incident detection (FR-011)
 

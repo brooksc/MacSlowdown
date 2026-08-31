@@ -56,15 +56,37 @@ struct IncidentTriggeringTests {
         #expect(opened.count == 1, "opened \(opened.count) incidents for one continuous slowdown")
     }
 
-    @Test("A breach that resets does not accumulate toward the duration")
+    /// The rule as it stands since TASK-100: a **gap longer than
+    /// `breachDipTolerance`** throws the clock away. Two separate slowdowns with a
+    /// real quiet spell between them are two things, and neither reaches 180 s.
+    @Test("A run genuinely broken by a quiet spell does not accumulate")
     func brokenRunResets() {
-        // 100s busy, a dip, then 100s busy: neither run reaches 180s.
+        // 100s busy, a full minute quiet, then 100s busy.
         var observations = stride(from: 0.0, through: 100, by: 10).map { busy($0) }
-        observations.append(quiet(110))
-        observations += stride(from: 120.0, through: 220, by: 10).map { busy($0) }
+        observations += stride(from: 110.0, through: 170, by: 10).map { quiet($0) }
+        observations += stride(from: 180.0, through: 280, by: 10).map { busy($0) }
 
         let opened = run(observations).filter { if case .opened = $0 { true } else { false } }
         #expect(opened.isEmpty, "a broken run should not accumulate")
+    }
+
+    /// The other side of that line, and the defect it was written for. Real load
+    /// does not sit still: a machine steady at 86% crosses an 85% threshold several
+    /// times a minute. Resetting on every dip meant the three-minute clock restarted
+    /// constantly and no incident ever opened — observed on 2026-08-31 as a popover
+    /// reading "Your Mac is heavily loaded" above "No slowdowns since 11:22 AM",
+    /// nearly an hour later.
+    @Test("A momentary dip does not throw away the sustained clock")
+    func briefDipsSurvive() {
+        var observations: [SystemObservation] = []
+        for second in stride(from: 0.0, through: 220, by: 10) {
+            // Dips below the line every fortieth second, briefly, as real load does.
+            observations.append(
+                second.truncatingRemainder(dividingBy: 40) == 0 && second > 0
+                    ? quiet(second) : busy(second))
+        }
+        let opened = run(observations).filter { if case .opened = $0 { true } else { false } }
+        #expect(opened.count == 1, "one fluctuating slowdown is one slowdown")
     }
 }
 

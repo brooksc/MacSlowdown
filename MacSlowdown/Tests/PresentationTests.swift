@@ -447,3 +447,58 @@ struct ActionHandOffTests {
         }
     }
 }
+
+/// TASK-100. The product owner watched the popover's headline cycle through
+/// "running normally", "working hard" and "heavily loaded" while iStat showed the
+/// machine steady at 86% busy. An indicator that cannot make up its mind is not one
+/// anybody trusts, and the cause was that it read a single sample.
+@Suite("The status word settles instead of flickering")
+struct SettledSeverityTests {
+    private let threshold = 0.85
+
+    @Test("A reading on a boundary does not oscillate")
+    func boundaryDoesNotOscillate() {
+        // Hovering either side of the severe line, as real load does.
+        var severity = Severity.severe
+        for share in [0.86, 0.84, 0.86, 0.83, 0.87, 0.84] {
+            severity = .settled(share, previous: severity, breachingAt: threshold)
+            #expect(severity == .severe, "at \(share) it should hold, not flip")
+        }
+    }
+
+    /// Getting worse is news. Delaying it would be the opposite failure to the one
+    /// being fixed.
+    @Test("Stepping up is immediate")
+    func escalationIsImmediate() {
+        #expect(Severity.settled(0.9, previous: .normal, breachingAt: threshold) == .severe)
+        #expect(Severity.settled(0.7, previous: .normal, breachingAt: threshold) == .elevated)
+    }
+
+    @Test("Stepping down needs to be clear of the band being left")
+    func deEscalationNeedsMargin() {
+        // Just below the line: still severe, because it has not cleared the margin.
+        #expect(Severity.settled(0.83, previous: .severe, breachingAt: threshold) == .severe)
+        // Genuinely recovered.
+        #expect(Severity.settled(0.70, previous: .severe, breachingAt: threshold) == .elevated)
+        #expect(Severity.settled(0.20, previous: .severe, breachingAt: threshold) == .normal)
+    }
+
+    /// The deadband must not be able to strand a word: a quiet machine always
+    /// reaches normal.
+    @Test("A machine that goes quiet always arrives at normal")
+    func quietAlwaysSettlesToNormal() {
+        var severity = Severity.severe
+        for _ in 0..<5 {
+            severity = .settled(0, previous: severity, breachingAt: threshold)
+        }
+        #expect(severity == .normal)
+    }
+
+    @Test("The bands move with the user's threshold, deadband included")
+    func bandsFollowTheThreshold() {
+        // 0.80 is severe under a sensitive threshold and merely elevated under a
+        // relaxed one, and the deadband is measured from whichever is in force.
+        #expect(Severity.settled(0.80, previous: .normal, breachingAt: 0.75) == .severe)
+        #expect(Severity.settled(0.80, previous: .normal, breachingAt: 0.92) == .elevated)
+    }
+}

@@ -146,6 +146,27 @@ public struct IncidentPolicy: Sendable, Equatable {
     /// on. Five minutes without another exit is the line.
     public var repeatedQuitQuietPeriod: Duration
 
+    /// How long a condition may fall below its threshold without the
+    /// sustained-duration clock being thrown away (TASK-100).
+    ///
+    /// The clock used to reset on **any** single sample that did not breach. Real
+    /// load does not sit still: a machine steady at 86% busy crosses an 85% line
+    /// several times a minute, so the three-minute clock restarted constantly and
+    /// no incident ever opened. The product owner watched exactly that on
+    /// 2026-08-31 — a popover reading "Your Mac is heavily loaded" above "No
+    /// slowdowns since 11:22 AM", nearly an hour later, with iStat showing steady
+    /// load throughout.
+    ///
+    /// The FR-031 cadence amendment made it worse rather than causing it: at one
+    /// second instead of two, there are twice as many chances to sample a dip.
+    ///
+    /// This is not a weakening of FR-006. "Sustained" describes an interval, and an
+    /// interval with brief dips in it is still that interval — the condition must
+    /// still be breaching *now* to be counted, and a gap longer than this tolerance
+    /// still clears the clock, so a genuinely intermittent spike accumulates
+    /// nothing.
+    public var breachDipTolerance: Duration
+
     public init(
         cpuBusyFractionThreshold: Double = 0.85,
         cpuSustainedDuration: Duration = .seconds(180),
@@ -153,7 +174,8 @@ public struct IncidentPolicy: Sendable, Equatable {
         thermalSustainedDuration: Duration = .seconds(120),
         recoveryDuration: Duration = .seconds(60),
         mergeWindow: Duration = .seconds(120),
-        repeatedQuitQuietPeriod: Duration = .seconds(300)
+        repeatedQuitQuietPeriod: Duration = .seconds(300),
+        breachDipTolerance: Duration = .seconds(15)
     ) {
         self.cpuBusyFractionThreshold = cpuBusyFractionThreshold
         self.cpuSustainedDuration = cpuSustainedDuration
@@ -162,6 +184,7 @@ public struct IncidentPolicy: Sendable, Equatable {
         self.recoveryDuration = recoveryDuration
         self.mergeWindow = mergeWindow
         self.repeatedQuitQuietPeriod = repeatedQuitQuietPeriod
+        self.breachDipTolerance = breachDipTolerance
     }
 
     public static let `default` = IncidentPolicy()
@@ -550,6 +573,9 @@ public struct IncidentDetector: Sendable {
         /// Conditions whose `breachStart` was established from retained readings
         /// by `adopt(_:state:retainedCPU:)` rather than by a live observation.
         var breachStartFromRetainedHistory: Set<IncidentCondition> = []
+        /// When each condition was last seen breaching, so a brief dip can be told
+        /// from a condition that has actually stopped (`breachDipTolerance`).
+        var lastBreachAt: [IncidentCondition: Date] = [:]
         public internal(set) var current: Incident?
         /// Kept after closing so a new breach inside the merge window can rejoin
         /// the previous episode rather than starting a second one.
@@ -689,12 +715,23 @@ public struct IncidentDetector: Sendable {
                     .compactMap { $0 }
                     .min() ?? observation.at
                 state.breachStart[condition] = start
+                state.lastBreachAt[condition] = observation.at
                 let held = observation.at.timeIntervalSince(start)
                 if held >= policy.sustainedDuration(for: condition).totalSeconds {
                     sustained.insert(condition)
                 }
             } else {
+                // A dip, or a stop? Only a gap longer than the tolerance throws the
+                // clock away. Note `sustained` is only ever inserted in the
+                // breaching branch above, so a condition in a dip contributes
+                // nothing while it is dipping — it merely keeps its place.
+                let since = state.lastBreachAt[condition]
+                    .map { observation.at.timeIntervalSince($0) }
+                if let since, since <= policy.breachDipTolerance.totalSeconds {
+                    continue
+                }
                 state.breachStart[condition] = nil
+                state.lastBreachAt[condition] = nil
                 state.breachStartFromRetainedHistory.remove(condition)
             }
         }
