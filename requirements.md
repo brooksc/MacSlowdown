@@ -1,8 +1,19 @@
 # MacSlowdown — Product Definition and Functional Requirements
 
 **Document status:** Greenfield product specification  
-**Version:** 1.2  
-**Last updated:** August 1, 2026
+**Version:** 1.3  
+**Last updated:** August 31, 2026
+
+> **Revision note (1.3):** amended after two weeks of running the built app on a
+> real machine, which contradicted several things this document asserted. Changes:
+> FR-046's two drafted amendments approved and two more added, with the
+> false-positive evidence recorded; FR-006 and FR-011 now say what *sustained*
+> means, because "unbreached at every sample" turned out to be a definition no real
+> workload satisfies; FR-031's cadence amendment carries its measured cost; FR-030's
+> reference figure no longer names a quantity its own note forbids; §1.1, §2 and §9
+> no longer promise capabilities measured as unavailable; FR-051 carries the
+> measurement that contradicts it. Open challenges to the product's shape are listed
+> in §10 rather than resolved unilaterally.
 
 > **Revision note (1.2):** amended to reflect capabilities measured against a
 > sandboxed Mac App Store build rather than assumed. Sources are recorded in
@@ -33,7 +44,7 @@ MacSlowdown should continuously and locally observe performance-related conditio
 ## 1.1 Primary user outcomes
 
 - Detect sustained performance degradation without requiring the user to watch live charts.
-- Explain whether CPU, memory pressure, swap activity, disk I/O, low storage capacity, thermal pressure, application hangs, background activity, or another observable condition contributed.
+- Explain whether CPU, memory pressure, swap activity, disk I/O, low storage capacity, thermal pressure, repeated application relaunch, background activity, or another observable condition contributed. (**Application hangs are not observable** to a sandboxed build — measured, see FR-046 — and were removed from this list in v1.3. The product must not imply it can detect them.)
 - Identify likely application-level contributors while preserving access to individual process details.
 - Retain enough pre-trigger and recovery history to investigate incidents after they end.
 - Reduce false alarms through duration thresholds, hysteresis, user policies, and machine-specific baselines where practical.
@@ -56,7 +67,7 @@ user-directed remediation. The initial release is a Mac App Store application an
   defensible explanation of which resource is constrained and which
   application family is contributing.
 
-- Primary resources and contexts: CPU, application and system memory, memory pressure, swap/paging, disk I/O, storage capacity, thermal state, power context, process lifecycle, responsiveness signals, and other public metrics whose collection is technically and legally supportable.
+- Primary resources and contexts: CPU, application and system memory, memory pressure, swap/paging, disk I/O, storage capacity, thermal state, power context, and process lifecycle. (**"Responsiveness signals" was removed in v1.3**: no public API exposes them to a sandboxed build, and listing them here implied a capability the product does not have.)
 
 - Primary interaction surfaces: compact persistent status, on-demand
   detail, notifications and retained incident reports.
@@ -195,11 +206,32 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Trigger                       | Aggregate CPU exceeds a configurable threshold for a configurable duration.                                                       |
 | Expected behavior             | Open or update an incident, rank contributors by interval CPU, and track persistence.                                             |
 | Expected outcome              | User receives a defensible CPU incident record.                                                                                   |
-| Acceptance criteria           | No alert for a single transient spike shorter than the configured duration; contributor shares sum consistently within tolerance. |
+| Acceptance criteria           | No alert for a single transient spike shorter than the configured duration; contributor shares sum consistently within tolerance; **a condition that dips briefly below its threshold and returns is one episode, not a restart of the clock** (see the definition below). |
 | Confidence level              | High                                                                                                                              |
 | Design freedom                | Detection model may be rules, statistics or another explainable approach.                                                         |
-| Open questions or assumptions | Default thresholds by core count and power mode.                                                                                  |
-| Human-review status           | Approved                                                                                                                          |
+| Open questions or assumptions | Default thresholds by core count and power mode. **Whether the default threshold is set where users actually perceive slowness — see the challenge in §10.** |
+| Human-review status           | Approved; the definition of *sustained* clarified in v1.3 from measurement.                                                       |
+
+**What "sustained" means (clarified 2026-08-31).** Two readings are possible and only
+one of them describes a real machine.
+
+The implementation originally read it as *unbreached at no sample*: any single reading
+below the threshold discarded the accumulated duration. Measured against a real workload,
+that is a definition nothing satisfies. A machine sitting steadily at 86% of capacity
+crosses an 85% line several times a minute, so the duration clock restarted continuously
+and no incident opened — observed 2026-08-31 as a status surface reading "Your Mac is
+heavily loaded" above "No slowdowns since 11:22 AM", nearly an hour later.
+
+The reading this document intends is the ordinary one: **an interval during which the
+condition held, allowing for brief dips.** A gap longer than a configurable tolerance
+(default 15 s) ends the interval; a shorter one does not. The condition must still be
+breaching at the moment the duration is judged, so an intermittent spike accumulates
+nothing.
+
+The same distinction governs the **status surface** (FR-001): a word describing the
+machine's condition is a claim about an interval, and reading it off a single sample made
+it change as often as the machine breathed. It is judged over a trailing window, with a
+deadband so it does not oscillate at a boundary.
 
 ## FR-007 — The system shall monitor system memory-pressure state.
 
@@ -280,7 +312,7 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Trigger                       | A rule crosses its trigger duration.                                                                                                           |
 | Expected behavior             | Create one incident with start time, active conditions, severity and leading contributors; merge related signals within a configurable window. |
 | Expected outcome              | User receives one coherent episode rather than repeated alerts.                                                                                |
-| Acceptance criteria           | Repeated samples do not create duplicate incidents; incident closes only after recovery hysteresis.                                            |
+| Acceptance criteria           | Repeated samples do not create duplicate incidents; incident closes only after recovery hysteresis; **the opening clock tolerates brief dips as FR-006 defines, so hysteresis applies to both ends of an episode rather than only to its close**.                        |
 | Confidence level              | High                                                                                                                                           |
 | Design freedom                | Rules, statistical detection or hybrid model allowed; must remain explainable.                                                                 |
 | Open questions or assumptions | Merge window and hysteresis defaults.                                                                                                          |
@@ -634,7 +666,7 @@ requirement's retention controls.
 | Trigger                       | Performance tests run.                                                                                                                                                               |
 | Expected behavior             | Use adaptive sampling, bounded queues, batched persistence and reduced UI refresh when hidden.                                                                                       |
 | Expected outcome              | Utility remains unobtrusive.                                                                                                                                                         |
-| Acceptance criteria           | **Deferred — measured and reported, not gated.** The overhead harness continues to run and its figures are recorded, but no numeric threshold blocks work on functionality or UX. Reference figures, to be revisited before release: idle CPU median ≤1% of one core; resident memory ≤100 MB; disk writes ≤10 MB/hour absent incidents. |
+| Acceptance criteria           | **Deferred — measured and reported, not gated.** The overhead harness continues to run and its figures are recorded, but no numeric threshold blocks work on functionality or UX. Reference figures, to be revisited before release: idle CPU median ≤1% of one core, measured over ≥300 s; **`phys_footprint` median ≤300 MB over ≥300 s** — not resident size, for the reason in the deferral note below; disk writes ≤10 MB/hour absent incidents. The app itself no longer states or judges any of these on screen (product owner, 2026-08-31); it reports its own cost and leaves the judgement to whoever is optimising. |
 | Confidence level              | High                                                                                                                                                                                 |
 | Design freedom                | Architecture open; numeric targets are initial recommendations.                                                                                                                      |
 | Open questions or assumptions | Reference hardware and acceptable variance. Which memory quantity the budget names — see the deferral note below.                                                                     |
@@ -937,9 +969,12 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 | Confidence level              | High for lifecycle signals; unresponsiveness measured as unavailable |
 | Design freedom                | Presentation of relaunch patterns is open. |
 | Open questions or assumptions | Measured: no public API reports hang state — `NSRunningApplication` describes a beachballing app identically to a healthy one, Accessibility is untrusted under the sandbox, and `/Library/Logs/DiagnosticReports` is unreadable (the home-relative path redirects into our own container). Crash-log access is therefore also out of scope. |
-| Amendment 1 — termination status (drafted 2026-08-09, awaiting review) | Termination status is not observable. `kqueue`'s `EVFILT_PROC` accepts `NOTE_EXITSTATUS` only for a process the app itself forked — measured, 3 of 527 own-uid processes in a sandboxed build, against 520 of 526 unsandboxed — so a Mac App Store build cannot distinguish a crash from an ordinary exit for any process it did not create. The app must therefore never describe an observed termination as a crash, a failure, or "quit unexpectedly". The only supported statement about a `(pid, start time)` that is no longer present is that it is no longer running, and the only supported pattern claim is repeated relaunch over a bounded window, labelled a heuristic hypothesis under FR-038. |
-| Amendment 2 — subject restriction (drafted 2026-08-09, awaiting review) | A repeated-relaunch finding is raised only where the exiting process resolves to an application bundle. Repeated exits of daemons, launch agents and command-line tools are recorded as lifecycle events and shown in the process inspector, but do not open an incident. Rationale: measured over one 901 s window on a developer Mac, 28 non-application commands reached the exit threshold and one application did; the unrestricted predicate breaches continuously on any machine that compiles. The known cost is that a genuinely crash-looping daemon no longer opens an incident. |
-| Human-review status           | Approved — narrowed in v1.2 from measurement. **Two amendments above are drafted and awaiting product owner review**; both are already implemented, because the unrestricted behaviour was firing continuously and the word "unexpected" was an unsupported claim. Reject either and the code comes back out. |
+| Amendment 1 — termination status (**approved 2026-08-23**) | Termination status is not observable. `kqueue`'s `EVFILT_PROC` accepts `NOTE_EXITSTATUS` only for a process the app itself forked — measured, 3 of 527 own-uid processes in a sandboxed build, against 520 of 526 unsandboxed — so a Mac App Store build cannot distinguish a crash from an ordinary exit for any process it did not create. The app must therefore never describe an observed termination as a crash, a failure, or "quit unexpectedly". The only supported statement about a `(pid, start time)` that is no longer present is that it is no longer running, and the only supported pattern claim is repeated relaunch over a bounded window, labelled a heuristic hypothesis under FR-038. |
+| Amendment 2 — subject restriction (**approved 2026-08-23**) | A repeated-relaunch finding is raised only where the exiting process resolves to an application bundle. Repeated exits of daemons, launch agents and command-line tools are recorded as lifecycle events and shown in the process inspector, but do not open an incident. Rationale: measured over one 901 s window on a developer Mac, 28 non-application commands reached the exit threshold and one application did; the unrestricted predicate breaches continuously on any machine that compiles. The known cost is that a genuinely crash-looping daemon no longer opens an incident. |
+| Amendment 3 — the subject must be a bundle's main executable (2026-08-23) | "Inside a `.app`" is not the same as "is an application". Xcode ships its entire toolchain at `Xcode.app/Contents/Developer/usr/bin/`, so `clang`, `git`, `ld` and `swift-frontend` all satisfied amendment 2 — one build recorded 419 exits of `swift-frontend` and opened an incident for `git`. Chromium-derived applications then produced the same failure one level down: `LM Studio Helper.app` inside `LM Studio.app` recycles renderers as routine work. The subject must therefore be the **outermost** bundle's main executable. Helper exits remain visible as lifecycle events; only the incident is withheld. |
+| Amendment 4 — the subject must have been a session (2026-08-31) | Even the outermost-main-executable rule admits a whole class of false positive, because some Apple bundles exist to run many short-lived executables: `XProtect.app/Contents/MacOS/` holds about 34 remediators that macOS runs briefly as a scheduled scan, and `p_comm`'s 16 bytes truncate every one to the same `XProtectRemediat` fragment, so 34 programs running once each were counted as one thing quitting 34 times. No path rule can separate that from a real application, because on disk they *are* applications. An exit therefore counts only where the process had been running for a minimum period (default 60 s), measured from `(pid, start time)`; an exit that cannot be dated does not count. This is FR-006's sustained-not-transient rule applied to the subject rather than to the count. |
+| Measured false-positive record (2026-08-31) | Nine days of continuous running on a developer Mac produced **ten incidents, all of them repeated-quit, and all of them false**. No CPU, memory, thermal or storage incident occurred in that period. Each amendment above closed the cause of the previous set and a new one appeared. This history is recorded because it bears directly on whether the requirement should ship at all — see the challenge raised in §10. |
+| Human-review status           | Approved — narrowed in v1.2 from measurement; amendments 1 and 2 approved 2026-08-23; amendments 3 and 4 implemented from measured false positives and **awaiting product owner review**. The requirement's continued inclusion in the initial release is itself an open question (§10). |
 
 ## FR-047 — The system shall record power-source and energy context for incidents.
 
@@ -1024,7 +1059,9 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 | Confidence level              | Medium |
 | Design freedom                | Supporting context rather than a primary incident category in the initial release. |
 | Open questions or assumptions | Sandbox feasibility and privacy implications. |
-| Human-review status           | Review required |
+| Measured 2026-08-09 (TASK-40) | **Per-application network attribution is not merely hard, it is unavailable.** No public API returns a per-process byte counter: `libproc` FD enumeration reads 445/447 own-uid processes unsandboxed and **1/447 sandboxed** — one of the few places the sandbox itself, rather than uid, is the binding limit — the PCB tables return zero entries either way, and `socket_info` carries queue occupancy rather than a differenceable counter. `nettop` reaches it only through a private framework. Aggregate, machine-wide throughput **is** available with no extra entitlement. Two rules came out of the same work: `lo0`'s counters wrap at 2^32 even through the 64-bit `if_data64` field (measured mid-transfer, where naive subtraction produced 1.8×10^19), and loopback must be reported separately or one local file copy reads as a WAN transfer. |
+| Narrowing status | **Proposed and not applied.** The requirement should be narrowed to aggregate-only exactly as FR-009 was, and this document currently promises a capability that cannot be built. The product owner elected on 2026-08-23 to defer the decision rather than act on it, so the promise stands unamended and is flagged here rather than quietly honoured. |
+| Human-review status           | Review required — and now overdue, since the requirement as written is known to be unimplementable. |
 
 ## FR-052 — The system may monitor GPU activity where supported by public interfaces.
 
@@ -1179,7 +1216,7 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 
 | **Phase**                      | **Included scope**                                                                                                        | **Exit criteria**                                                                                          |
 |--------------------------------|---------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| Phase 1 — Core monitor         | Status surface, process inventory, CPU and application-family resident-memory display, grouping, standalone processes, unattributable activity (FR-055), lifecycle events, bounded history, search, machine context, and overhead instrumentation. | Measurements validated; idle overhead budget met; accessible UI; contributors survive PID changes. |
+| Phase 1 — Core monitor         | Status surface, process inventory, CPU and application-family resident-memory display, grouping, standalone processes, unattributable activity (FR-055), lifecycle events, bounded history, search, machine context, and overhead instrumentation. | Measurements validated; overhead measured and recorded (the numeric budget is deferred and does not gate — see FR-030); accessible UI; contributors survive PID changes. |
 | Phase 2 — Incident diagnosis   | Memory pressure, swap/paging, aggregate disk I/O, storage capacity, low-storage detection, thermal and power context, relaunch-failure signals, audio-activity deferral, incident lifecycle, incident-data retention, notifications, guided investigation, and reports. | Controlled slowdowns and low-storage scenarios produce coherent incidents with acceptable false-positive rates. |
 | Phase 3 — Safe response and guidance | Activate, reveal, open system tools, ignore/expected policies, mute, export, safe automation, and post-action verification. | Actions are non-destructive, verified, permission-aware, and followed by measurable outcome reporting. |
 | Phase 4 — Advanced context | Explainable baselines, optional network and GPU context, profiles, richer comparisons, and contextual guidance compatible with the Mac App Store. | API, privacy, accessibility, performance, and App Store feasibility are validated on macOS 26 and 27. |
@@ -1220,7 +1257,7 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 
 Answered in v1.2 by measurement, recorded in `probe/FINDINGS.md`:
 
-- Primary memory metric: resident size, by elimination.
+- Primary memory metric **for other processes**: resident size, by elimination — `phys_footprint` is denied for anything but ourselves. Not to be confused with FR-030's rule that **our own** cost must be stated in `phys_footprint`: the two say different things because different data is available about other processes than about this one.
 - Per-process disk I/O, footprint and wakeups: unavailable.
 - Per-application audio: available, without a microphone permission.
 - Application unresponsiveness: unavailable; repeated relaunch is available.
@@ -1231,6 +1268,78 @@ Still open and now the largest single risk: whether App Review accepts
 explicitly denied and Apple has stated no entitlement lifts it. The product
 requests no entitlements beyond App Sandbox, but no Apple statement blesses the
 alternative. This cannot be settled by testing.
+
+## 10.1 Challenges to this specification, raised 2026-08-31
+
+Raised after two weeks of running the built product on a real machine. Each is a
+question about whether a requirement still earns its place, not a note that it is
+unimplemented. None has been acted on: they change the product's shape and that is the
+product owner's call.
+
+**C-01 — FR-046 (repeated application failure) may not be shippable at acceptable
+precision.** In nine days of continuous running it produced ten incidents, every one
+false, and no other kind of incident occurred at all. Three successive narrowings each
+closed one cause and revealed another: compiler toolchains inside `Xcode.app`, Chromium
+helper bundles, then Apple's own multi-executable bundles. The fourth narrowing
+(session lifetime) may hold, but its precision is unproven and its recall is now very
+low. Consider what remains after all four: *an application you were using disappeared
+and came back, three times, within fifteen minutes*. A user generally knows this already
+— they watched it happen. Meanwhile we cannot say **why** it went (amendment 1: exit
+status is unobservable), and `p_comm`'s 16 bytes leave the subject ambiguous. The
+options are to ship it with the current narrowing and watch, to reduce it to a lifecycle
+*record* in the inspector with no incident and no notification, or to cut it from the
+initial release. **Recommendation: reduce to a record.** The evidence is that its false
+positives cost more trust than its true positives have yet earned — there have been
+none.
+
+**C-02 — the CPU threshold may sit well above where users perceive slowness.** FR-006's
+default is 85% of total machine capacity sustained for three minutes: on an eight-core
+Mac, roughly 6.8 cores busy continuously. Observed on 2026-08-31, a machine at 86% with
+a load average of 26 was described by its owner as loaded and by this product as barely
+qualifying. Perceived slowness correlates with contention — run queue depth, scheduling
+latency — more closely than with a busy-time percentage, and a machine at 60% with 40
+runnable threads feels far worse than one at 95% running two. This document mentions run
+queue nowhere. It was previously rejected as a *displayed* figure for good reason (a load
+average of 18 invites exactly the wrong conclusion), but that is an argument about
+presentation, not about whether it should inform detection. **Recommendation: a spike to
+compare run-queue depth against busy-time as a slowdown predictor, before the default
+threshold is settled.**
+
+**C-03 — the document treats incident diagnosis as the primary product; observed use
+does not.** DR-01 and §1.2 both centre the product on opening an incident afterwards and
+understanding it. In two weeks of real use, every piece of product feedback concerned the
+*live* surfaces: what the popover says now, whether a figure is an instant or a trend,
+whether the status word is steady, whether a table's ordering can be trusted. Not one
+concerned an incident report, and no legitimate incident was recorded to read. That may
+be because the detection thresholds are wrong (C-02), or because a well-behaved machine
+genuinely has few incidents — but either way the product a user touches daily is a live
+monitor, and this specification's acceptance criteria barely describe it. **Recommendation:
+either add first-class requirements for the live surfaces' honesty over time — trends,
+settling, ordering stability, which are currently governed only by FR-002's general
+"never fabricate" rule — or state explicitly that they are secondary and accept that the
+product's daily value rests on requirements this document does not have.**
+
+**C-04 — the success definition does not survive the attribution ceiling.** §1.2 says the
+product succeeds when a user can understand "which applications were associated with"
+a condition. Measured: roughly 40 percentage points of busy CPU is unattributable in a
+Mac App Store build, because per-process data is denied for every process owned by
+another user and that is a uid boundary, not a sandbox one. FR-055 handles this honestly
+on screen. The *success definition* has not been updated to match, and as written it sets
+a bar the distribution model forbids clearing. **Recommendation: reword §1.2 so success
+includes stating what could not be attributed and why, which is what the product actually
+does well.**
+
+**C-05 — three Phase 4 requirements have no evidence of need.** FR-053 (explainable
+baselines), FR-025 (named profiles) and FR-026 (contextual profile activation) were
+written before anything was built. Nothing in two weeks of use has suggested a user wants
+them, and each is substantial. **Recommendation: move all three to Deferred with a note
+that they return only on user evidence.** No work is lost; the backlog simply stops
+implying they are planned.
+
+**C-06 — FR-051 promises what cannot be built.** See the measurement recorded against it.
+The narrowing to aggregate-only has been proposed since 2026-08-09 and deferred once.
+Until it is applied, this document commits the product to per-application network
+attribution that no public API can provide.
 
 # 11. Implementation authority
 
