@@ -212,6 +212,47 @@ user-directed remediation. The initial release is a Mac App Store application an
 | Open questions or assumptions | Default thresholds by core count and power mode. **Whether the default threshold is set where users actually perceive slowness — see the challenge in §10.** |
 | Human-review status           | Approved; the definition of *sustained* clarified in v1.3 from measurement.                                                       |
 
+**Amendment — run-queue pressure as a second condition (proposed 2026-08-31, C-02).**
+
+The threshold in this requirement is a share of *busy time*, and busy time is a poor
+predictor of the thing the product exists to explain. Measured on the product owner's
+Mac on 2026-08-31, 40 samples at one second:
+
+| | |
+|---|---|
+| Load average, peak | **95.8** on 8 cores — about twelve runnable threads per core |
+| CPU busy at that moment | 93% |
+| Load average, 30 s later | 45.9 — still nearly six runnable threads per core |
+| CPU busy at that moment | **44–51%** |
+| Correlation across the run | **0.68** |
+
+A machine with six threads queued per core is unusable, and at 44% busy this
+requirement sees nothing whatever: the CPU condition needs 85% sustained for three
+minutes. The two signals are related but not the same, and the one currently used is
+the weaker of the two for this purpose. Waiting on the run queue is what "slow" feels
+like; busy time is what "working" looks like.
+
+**Proposed:** a second, independent condition — *sustained run-queue pressure* —
+breaching when runnable threads per logical core stay above a configurable ratio
+(initial proposal **2.0**) for a configurable duration (initial proposal **60 s**).
+`vm.loadavg` is a public sysctl, costs one call, and is available sandboxed. The CPU
+saturation condition and its 85% threshold are unchanged; this adds a case rather than
+loosening an existing one.
+
+**Presentation constraint, which is why this needs a spec amendment and not just code.**
+A load average must never be shown as though it were a percentage — "18.45" invites
+exactly the wrong reading, and this project rejected the figure as a *display* for that
+reason. It is expressed to the user as **runnable threads per core**, or as a described
+state ("more work queued than this Mac can run at once"), never as a bare number beside
+percentages. Under FR-038 it is a measured fact; any statement about what it *causes*
+remains a heuristic.
+
+**Known risk:** on macOS the load average counts threads blocked in uninterruptible I/O
+as well as runnable ones, so a machine waiting on a slow disk can read high while the
+CPU is idle. That is arguably still a slowdown worth reporting, but it means the
+condition must not be described as a CPU condition. Validation against real workloads is
+required before the ratio and duration are fixed.
+
 **What "sustained" means (clarified 2026-08-31).** Two readings are possible and only
 one of them describes a real machine.
 
@@ -974,7 +1015,8 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 | Amendment 3 — the subject must be a bundle's main executable (2026-08-23) | "Inside a `.app`" is not the same as "is an application". Xcode ships its entire toolchain at `Xcode.app/Contents/Developer/usr/bin/`, so `clang`, `git`, `ld` and `swift-frontend` all satisfied amendment 2 — one build recorded 419 exits of `swift-frontend` and opened an incident for `git`. Chromium-derived applications then produced the same failure one level down: `LM Studio Helper.app` inside `LM Studio.app` recycles renderers as routine work. The subject must therefore be the **outermost** bundle's main executable. Helper exits remain visible as lifecycle events; only the incident is withheld. |
 | Amendment 4 — the subject must have been a session (2026-08-31) | Even the outermost-main-executable rule admits a whole class of false positive, because some Apple bundles exist to run many short-lived executables: `XProtect.app/Contents/MacOS/` holds about 34 remediators that macOS runs briefly as a scheduled scan, and `p_comm`'s 16 bytes truncate every one to the same `XProtectRemediat` fragment, so 34 programs running once each were counted as one thing quitting 34 times. No path rule can separate that from a real application, because on disk they *are* applications. An exit therefore counts only where the process had been running for a minimum period (default 60 s), measured from `(pid, start time)`; an exit that cannot be dated does not count. This is FR-006's sustained-not-transient rule applied to the subject rather than to the count. |
 | Measured false-positive record (2026-08-31) | Nine days of continuous running on a developer Mac produced **ten incidents, all of them repeated-quit, and all of them false**. No CPU, memory, thermal or storage incident occurred in that period. Each amendment above closed the cause of the previous set and a new one appeared. This history is recorded because it bears directly on whether the requirement should ship at all — see the challenge raised in §10. |
-| Human-review status           | Approved — narrowed in v1.2 from measurement; amendments 1 and 2 approved 2026-08-23; amendments 3 and 4 implemented from measured false positives and **awaiting product owner review**. The requirement's continued inclusion in the initial release is itself an open question (§10). |
+| Amendment 5 — demoted to a record (**approved 2026-08-31, C-01**) | **Repeated relaunch no longer opens an incident and no longer notifies.** It is recorded as a lifecycle finding, shown in the process inspector and available as incident *evidence* where an incident exists for another reason. Rationale: nine days of continuous running produced ten repeated-quit incidents and no others, all ten false, across four successive narrowings. What survives the narrowings is "an application you were using disappeared and came back three times in fifteen minutes" — which the user generally watched happen — while amendment 1 forbids saying why it went and `p_comm`'s 16 bytes leave the subject ambiguous. The value never justified the false-positive cost, and there has yet to be a true positive. The detection code is retained, not deleted: if a second machine produces a genuine crash-loop this decision is cheap to revisit. |
+| Human-review status           | Approved — narrowed in v1.2, amendments 1–2 approved 2026-08-23, amendments 3–5 approved 2026-08-31. Amendments 3 and 4 remain in force because they govern what is *recorded*, not only what opened an incident. |
 
 ## FR-047 — The system shall record power-source and energy context for incidents.
 
@@ -1237,11 +1279,11 @@ challenges in §10.1.
 
 | # | Question | Governs | Why it is still open |
 |---|---|---|---|
-| D-01 | Do incident summaries use an on-device language model, or deterministic templates? | FR-013 | Templates are predictable, testable and cannot invent a cause; a model reads better and generalises but can hallucinate one, which collides with FR-038 and would need a verification layer that removes most of the benefit. Nothing is blocked on this: templates are what is built. |
-| D-02 | Is telemetry or crash reporting offered at all, and on what opt-in and redaction model? | A-05, FR-029 | Untouched since v1.0. A-05 forbids transmitting anything without separate explicit consent, so the default answer is "no" and the product works without it. |
-| D-03 | Are storage-exhaustion forecasting and folder-level growth attribution in scope? | FR-041, FR-042 | Both would need permissions the product does not currently request. Nothing is built. |
-| D-04 | Is GPU activity surfaced, now that it is measured available? | FR-052 | The capability question is answered — `IOAccelerator`'s `Device Utilization %` works sandboxed, machine-wide only, with no per-process key. What is open is whether it earns a place in the interface, and it is Phase 4. |
-| D-05 | Is baseline learning on by default, over what period, and how is it inspected or reset? | FR-053 | Contingent on C-05: if FR-053 is deferred, this question goes with it. |
+| D-01 | Do incident summaries use an on-device language model, or deterministic templates? | FR-013 | **Direction set 2026-08-31:** the product owner is open to a model, on condition it is one shipped *with* macOS 26 or 27 rather than bundled or remote — which points at the Foundation Models framework. A spike is required before this is decided: availability across both target versions, behaviour under App Sandbox and Mac App Store review, what happens on a machine where Apple Intelligence is unavailable or disabled, and above all how a generated sentence is held to FR-038's evidence classification when the generator can produce a fluent claim nothing measured. Templates remain what is built and remain the fallback. |
+| D-02 | Is telemetry or crash reporting offered at all? | A-05, FR-029 | **Deferred 2026-08-31.** Revisited once the UX and functionality are right. A-05's default of "no" stands until then and the product works without it. |
+| D-03 | Are storage-exhaustion forecasting and folder-level growth attribution in scope? | FR-041, FR-042 | **Deferred 2026-08-31**, tracked in the backlog. Both would need permissions the product does not request. |
+| D-04 | Is GPU activity surfaced? | FR-052 | **Recommendation 2026-08-31: as incident context only, in Phase 4, and not as a condition of its own.** The capability is measured working — `IOAccelerator`'s `Device Utilization %`, sandboxed — but it is **machine-wide with no per-process key**, so it can say "the GPU was busy" and never "which application". That answers question 1 of §1's five (*what was constrained*) and cannot answer question 2 (*which application contributed*), which makes it diagnostic context rather than something a user can act on. It also reads up to 68% on an idle desktop from ordinary compositing, so it is only meaningful as a sustained condition. Low value, low cost, no urgency. |
+| D-05 | Is baseline learning on by default, over what period, and how is it inspected or reset? | FR-053 | **Recommendation 2026-08-31: defer with FR-053 under C-05.** The question only exists if baselines are built, nothing in two weeks of use has asked for them, and C-05 proposes deferring the requirement itself. Answering this before that would be deciding the details of a feature that may not be wanted. |
 
 ## 10.1 Challenges to this specification, raised 2026-08-31
 
