@@ -1224,50 +1224,24 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 
 # 10. Open product and engineering decisions
 
-- The initial commercial target is the Mac App Store. A direct-download edition is deferred.
+Restructured 2026-08-31. This section had become a mix of settled constraints, facts
+already answered by measurement, and genuinely open questions, which made it useless for
+its one purpose: telling the product owner what still needs an answer. **§10.0 is now the
+whole of what is open.** Everything else has moved to §10.2, or was a restatement of §4
+and §7 and has been deleted rather than duplicated.
 
-- Privileged helpers and elevated components are paused and outside the initial release.
+## 10.0 Awaiting a product decision
 
-- Automatic suspension and automatic quitting are explicitly excluded from the initial release.
+Nothing else in this document is waiting on the product owner. These are, plus the six
+challenges in §10.1.
 
-- macOS 26 and macOS 27 are supported; Apple Silicon is the initial hardware target.
-
-- Whether raw hardware temperature is necessary beyond public thermal
-  state.
-
-- Whether on-device language generation is used for summaries or
-  deterministic templates are sufficient.
-
-- ~~Whether incident records persist across restarts and the default
-  retention duration.~~ **Settled 2026-08-09:** they persist, on by default,
-  kept 30 days (user-adjustable 7/30/90) and additionally count-bounded. See the
-  settled-decision subsection under FR-029.
-
-- Whether telemetry or crash reporting is offered, and the exact opt-in
-  and redaction model.
-
-- Whether storage exhaustion forecasting and folder-level growth attribution are included, and what permissions they require.
-
-
-- Whether GPU, per-process network, raw temperature, or fan metrics are sufficiently public, stable, low-overhead, and App Store-compatible. (Wakeups and sleep-prevention are settled: unavailable — see FR-048.)
-
-- Whether baseline learning is enabled by default, its learning period, and how users inspect or reset it.
-
-- ~~Whether crash logs, hang reports, or other diagnostic artifacts are in scope.~~ **Settled in v1.2:** unreadable from the sandbox, so out of scope.
-
-Answered in v1.2 by measurement, recorded in `probe/FINDINGS.md`:
-
-- Primary memory metric **for other processes**: resident size, by elimination — `phys_footprint` is denied for anything but ourselves. Not to be confused with FR-030's rule that **our own** cost must be stated in `phys_footprint`: the two say different things because different data is available about other processes than about this one.
-- Per-process disk I/O, footprint and wakeups: unavailable.
-- Per-application audio: available, without a microphone permission.
-- Application unresponsiveness: unavailable; repeated relaunch is available.
-- Window titles and per-tab context: unavailable without Screen Recording.
-
-Still open and now the largest single risk: whether App Review accepts
-`sysctl KERN_PROC_ALL` for process enumeration, given that `proc_listpids` is
-explicitly denied and Apple has stated no entitlement lifts it. The product
-requests no entitlements beyond App Sandbox, but no Apple statement blesses the
-alternative. This cannot be settled by testing.
+| # | Question | Governs | Why it is still open |
+|---|---|---|---|
+| D-01 | Do incident summaries use an on-device language model, or deterministic templates? | FR-013 | Templates are predictable, testable and cannot invent a cause; a model reads better and generalises but can hallucinate one, which collides with FR-038 and would need a verification layer that removes most of the benefit. Nothing is blocked on this: templates are what is built. |
+| D-02 | Is telemetry or crash reporting offered at all, and on what opt-in and redaction model? | A-05, FR-029 | Untouched since v1.0. A-05 forbids transmitting anything without separate explicit consent, so the default answer is "no" and the product works without it. |
+| D-03 | Are storage-exhaustion forecasting and folder-level growth attribution in scope? | FR-041, FR-042 | Both would need permissions the product does not currently request. Nothing is built. |
+| D-04 | Is GPU activity surfaced, now that it is measured available? | FR-052 | The capability question is answered — `IOAccelerator`'s `Device Utilization %` works sandboxed, machine-wide only, with no per-process key. What is open is whether it earns a place in the interface, and it is Phase 4. |
+| D-05 | Is baseline learning on by default, over what period, and how is it inspected or reset? | FR-053 | Contingent on C-05: if FR-053 is deferred, this question goes with it. |
 
 ## 10.1 Challenges to this specification, raised 2026-08-31
 
@@ -1340,6 +1314,39 @@ implying they are planned.
 The narrowing to aggregate-only has been proposed since 2026-08-09 and deferred once.
 Until it is applied, this document commits the product to per-application network
 attribution that no public API can provide.
+
+## 10.2 Settled, and not to be reopened without evidence
+
+Kept because a later reader will otherwise ask again, not because anything is pending.
+
+- **Distribution, sandboxing and process control.** Mac App Store first, direct download deferred; no privileged helpers or elevated components; no automatic suspension, quitting or other process control. These restate A-03, A-04 and §7 and are not separate decisions.
+- **Platform.** macOS 26 and 27, Apple Silicon. Restates A-01.
+- **Raw hardware temperature: not exposed.** Public thermal state only — raw values need undocumented SMC keys, which A-03 and FR-010 both rule out.
+- **Incident persistence** (2026-08-09): records persist across restarts, on by default, kept 30 days, user-adjustable 7/30/90, additionally count-bounded. See FR-029.
+- **Crash logs and hang reports:** out of scope. Unreadable from the sandbox.
+- **Wakeups and sleep-prevention:** unavailable. See FR-048.
+- **Fan metrics and per-process network:** unavailable. See FR-051's measurement.
+- **FR-050 post-action verification is staged, not wired** (2026-08-09): every action this build offers is observational, so there is no outcome to measure and a before/after around one would be the false causal claim FR-050 exists to prevent.
+
+Answered by measurement, recorded in `probe/FINDINGS.md`:
+
+- Primary memory metric **for other processes**: resident size, by elimination — `phys_footprint` is denied for anything but ourselves. Not to be confused with FR-030's rule that **our own** cost must be stated in `phys_footprint`: the two differ because different data is available about other processes than about this one.
+- Per-process disk I/O, footprint and wakeups: unavailable.
+- Per-application audio: available, without a microphone permission.
+- Application unresponsiveness: unavailable; repeated relaunch is available.
+- Window titles and per-tab context: unavailable without Screen Recording.
+
+## 10.3 The largest single risk, which is not a decision
+
+Whether App Review accepts `sysctl KERN_PROC_ALL` for process enumeration, given that
+`proc_listpids` is explicitly denied and Apple has stated no entitlement lifts it. The
+product requests no entitlements beyond App Sandbox, but no Apple statement blesses the
+alternative, and **this cannot be settled by testing** — it needs a DTS incident, which
+is the product owner's action rather than a work item. Recorded here as a risk rather
+than an open question because there is nothing to decide until Apple answers.
+
+Mitigation in place: `ProcessSampler.processTable()` is the single point of contact, so
+the day this breaks there is exactly one place to change. See `.backlog/decisions/decision-1`.
 
 # 11. Implementation authority
 
