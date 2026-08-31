@@ -1190,6 +1190,116 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 | Open questions or assumptions | Measured and available with no additional entitlement: `kCGWindowOwnerName` is readable for every window without Screen Recording permission (window *titles* are not, so no per-document context), `NSWorkspace.frontmostApplication` gives the foreground application, resident memory is readable for own-uid processes, and the official memory pressure signal is already wired. **The known weakness is the heuristic itself**: a background render, download, build or backup is doing exactly what the user asked, and "not frontmost" cannot distinguish it from an application genuinely finished with. Whether an activity signal (audio output, which is already available per-process) should suppress a candidate is unresolved. |
 | Human-review status           | **Drafted 2026-08-09 from a product owner request — awaiting review.** Not to be implemented until this row reads Approved. |
 
+### The live surfaces (FR-057 to FR-062)
+
+Added in v1.3 from challenge C-03. This document described incident diagnosis in detail and the surfaces a person looks at every day not at all: they were governed only by FR-002's instruction never to fabricate a measurement, and everything else about them — whether a figure is steady enough to read, whether two surfaces agree, whether an ordering means what it appears to — was decided implementation by implementation and corrected only when somebody noticed on screen.
+
+The defects that reached the product owner in the first fortnight of real use were almost all of this kind. None violated a requirement, because no requirement covered them. Each of the six below names a failure it forbids rather than a feature it wants, which is the property that has made FR-002 and FR-038 useful.
+
+Origin and fuller reasoning: `design/live-surfaces.md`.
+
+## FR-057 — A displayed figure shall state which statistic it is and over what interval
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-057 |
+| Requirement statement | A displayed figure shall state which statistic it is and over what interval. |
+| User or system objective      | A number beside an application's name is read as "right now" unless it says otherwise. "29%" and "29% on average over the last minute" are different claims. |
+| Preconditions                 | A measurement is available to display. |
+| Trigger                       | Any live surface renders a numeric figure. |
+| Expected behavior             | Every figure is either an instantaneous reading, evident as such from context or wording, or a statistic over a stated window. Where the window is shorter than intended — monitoring has not run long enough — the figure states the span actually covered rather than the span requested. |
+| Expected outcome              | The user can trust what a live surface says without checking it against another. |
+| Acceptance criteria           | No figure appears whose statistic cannot be determined from the surface; a mean over eight seconds never describes itself as a minute; a figure with no readings behind it renders as unavailable rather than as zero. |
+| Confidence level              | High |
+| Design freedom                | Wording and placement are open. Whether the window is named in the figure, its column heading or an adjacent caption is a design choice. |
+| Open questions or assumptions | None. Partly built: `TrailingPresentation`, and the Now table's paired columns. |
+| Human-review status           | Approved 2026-08-31 (challenge C-03) |
+
+## FR-058 — A state shown to the user shall be judged over an interval, not a sample
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-058 |
+| Requirement statement | A state shown to the user shall be judged over an interval, not a sample. |
+| User or system objective      | A status word is a claim about the machine's condition. Read from one sample it changes as often as the machine breathes, and an indicator that cannot make up its mind is not trusted. |
+| Preconditions                 | Retained history covering at least part of the judging window exists. |
+| Trigger                       | Any categorical state is presented — status word, severity, menu bar glyph, spoken label. |
+| Expected behavior             | The state is derived from a trailing window and does not oscillate at a band boundary. Escalation may be immediate; de-escalation requires clearing the band being left. |
+| Expected outcome              | The user can trust what a live surface says without checking it against another. |
+| Acceptance criteria           | A reading hovering at a boundary holds its state across consecutive samples; a machine that goes quiet always reaches the calm state, so the deadband cannot strand a word; escalation is not delayed by the mechanism that damps de-escalation. |
+| Confidence level              | High |
+| Design freedom                | Window length, deadband width and whether escalation is instantaneous are tunable. |
+| Open questions or assumptions | Observed 2026-08-31: the headline cycled through three states while load was steady. Built as `Severity.settled`; this requirement exists so it cannot be undone by accident. |
+| Human-review status           | Approved 2026-08-31 (challenge C-03) |
+
+## FR-059 — Ordering shall be stable, and shall be by a value the user can see
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-059 |
+| Requirement statement | Ordering shall be stable, and shall be by a value the user can see. |
+| User or system objective      | A list that reorders every second cannot be read, and a list ordered by a number that is not on screen invites the reader to conclude the ordering is broken. |
+| Preconditions                 | More than one row is displayed. |
+| Trigger                       | Any list of applications or processes is presented. |
+| Expected behavior             | Lists are ordered by a value displayed in the list. The default ordering derives from a window rather than the newest sample. Where ordering is additionally damped, the damping is explained on the surface. |
+| Expected outcome              | The user can trust what a live surface says without checking it against another. |
+| Acceptance criteria           | Every sort key is a visible column; a one-second spike does not promote a row to the top; any explanation shown for an ordering delay describes the mechanism actually in use. |
+| Confidence level              | High |
+| Design freedom                | Which statistic orders the list, and whether the user may change it, are open. |
+| Open questions or assumptions | TASK-63 cost an hour to a table that was sorting correctly and could not be seen to be. Design 1c already shows the sort indicator on the column heading. |
+| Human-review status           | Approved 2026-08-31 (challenge C-03) |
+
+## FR-060 — Two surfaces describing one fact shall not be able to disagree
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-060 |
+| Requirement statement | Two surfaces describing one fact shall not be able to disagree. |
+| User or system objective      | This is the defect this project produces most: a fix lands on one surface and a second site keeps the old behaviour. Each is individually defensible and the pair is incoherent. |
+| Preconditions                 | A fact is presented on more than one surface. |
+| Trigger                       | Any fact is rendered in two or more places. |
+| Expected behavior             | Where a fact is shown on more than one surface it is derived in one place. Where two surfaces deliberately differ — a summary against a detail view — the divergence is recorded at the point of divergence with its reason. |
+| Expected outcome              | The user can trust what a live surface says without checking it against another. |
+| Acceptance criteria           | A fact rendered on two surfaces has one source; a deliberate divergence carries a written reason at both sites; a test asserts agreement wherever both can be computed in one process. |
+| Confidence level              | High |
+| Design freedom                | How the single source is structured is an implementation choice. |
+| Open questions or assumptions | **Applies as a debt to pay down, not to new work only** (product owner, 2026-08-31). `probe/seam-reachability.sh` catches capabilities built and never wired; nothing yet catches *fixed in one place*. |
+| Human-review status           | Approved 2026-08-31 (challenge C-03) |
+
+## FR-061 — A live surface shall not become part of the slowdown
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-061 |
+| Requirement statement | A live surface shall not become part of the slowdown. |
+| User or system objective      | FR-030's objective survives its deferred budget, and the live surfaces are where it is most easily lost — they redraw often, and they are open precisely when the machine is struggling. |
+| Preconditions                 | A surface is visible. |
+| Trigger                       | Any redraw. |
+| Expected behavior             | Redraw is driven by data changing rather than by a clock, except where a clock is the data — an age counter during a stall. Work proportional to the size of the process table is done once per sample, not once per redraw. |
+| Expected outcome              | The user can trust what a live surface says without checking it against another. |
+| Acceptance criteria           | No surface rebuilds a whole-table derivation on a timer; overhead is re-measured after any change to a surface's refresh behaviour. |
+| Confidence level              | High |
+| Design freedom                | Refresh strategy is open. |
+| Open questions or assumptions | Found as a real defect: the Now screen rebuilt the whole family tree once a second to redraw a caption that changes only when a reading is late. |
+| Human-review status           | Approved 2026-08-31 (challenge C-03) |
+
+## FR-062 — An action offered shall be one that can succeed
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-062 |
+| Requirement statement | An action offered shall be one that can succeed. |
+| User or system objective      | A control whose only possible outcome is an apology costs more trust than an absent one. |
+| Preconditions                 | An action is available in principle for some process. |
+| Trigger                       | Any surface offers a user-directed action. |
+| Expected behavior             | An action is offered only where the conditions for its success are known to hold. Where withheld, the surface may explain why but does not present the control. Where an action hands off to macOS and the result cannot be observed, it is reported as a request rather than as a result. |
+| Expected outcome              | The user can trust what a live surface says without checking it against another. |
+| Acceptance criteria           | No offered action fails for a reason determinable before offering it; a hand-off is never reported as a success; the rule lives in one place rather than at each call site. |
+| Confidence level              | High |
+| Design freedom                | How an absence is explained is open. |
+| Open questions or assumptions | "Show fileproviderd" was offered for a daemon that cannot be activated, at three sites, and fixed at one of them twice. |
+| Human-review status           | Approved 2026-08-31 (challenge C-03) |
+
 # 6. Conceptual data requirements
 
 | **Entity**            | **Minimum conceptual fields**                                                                                                               | **Notes**                                                               |

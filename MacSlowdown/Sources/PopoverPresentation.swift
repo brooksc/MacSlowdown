@@ -395,13 +395,7 @@ enum PopoverPresentation {
     /// Coarse on purpose: the popover is read at a glance, and a second-resolution
     /// duration would imply a precision the sampling cadence does not have.
     static func elapsedPhrase(_ seconds: Double) -> String {
-        let seconds = max(0, seconds)
-        guard seconds >= 60 else { return "less than a minute" }
-        let minutes = Int(seconds / 60)
-        guard minutes >= 60 else { return "\(minutes) min" }
-        let hours = minutes / 60
-        let remainder = minutes % 60
-        return remainder == 0 ? "\(hours) hr" : "\(hours) hr \(remainder) min"
+        DurationPhrase.phrase(seconds, .compact)
     }
 
     private static func lowercasedFirst(_ text: String) -> String {

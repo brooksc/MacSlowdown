@@ -285,15 +285,7 @@ enum MenuBarIcon {
     /// one and either would be a claim the clock does not support, so it is said
     /// in words instead.
     static func durationPhrase(_ duration: Duration) -> String {
-        let seconds = max(0, duration.totalSeconds)
-        guard seconds >= 60 else { return "less than a minute" }
-        let minutes = Int(seconds / 60)
-        guard minutes >= 60 else { return "\(minutes) minute\(minutes == 1 ? "" : "s")" }
-        let hours = minutes / 60
-        let remainder = minutes % 60
-        let hourPart = "\(hours) hour\(hours == 1 ? "" : "s")"
-        guard remainder > 0 else { return hourPart }
-        return "\(hourPart) \(remainder) minute\(remainder == 1 ? "" : "s")"
+        DurationPhrase.phrase(duration, .full)
     }
 
     // MARK: - Ordering conditions

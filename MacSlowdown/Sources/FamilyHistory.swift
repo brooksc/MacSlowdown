@@ -24,6 +24,36 @@ struct TrailingUsage: Equatable {
     /// The span actually covered — at most the window asked for, and less whenever
     /// we have not been watching that long.
     let span: Duration
+
+    /// The one implementation. Everything trailing is computed here.
+    ///
+    /// There were two, written a week apart by the same hand: one over
+    /// `FamilyHistoryPoint`, one over `SparklinePoint`, identical in every line that
+    /// mattered. Neither was wrong, which is exactly the problem — the moment one is
+    /// corrected the other quietly disagrees, and two surfaces start describing the
+    /// same minute differently. Callers supply `(at, value)` pairs; the arithmetic
+    /// lives once (FR-060).
+    ///
+    /// Nil rather than zero when the window holds nothing: "we have no readings" and
+    /// "it used no CPU" are different statements and only one is a measurement
+    /// (FR-002).
+    static func over(
+        _ readings: [(at: Date, value: Double)],
+        window: Duration,
+        now: Date = Date()
+    ) -> TrailingUsage? {
+        let cutoff = now.addingTimeInterval(-window.totalSeconds)
+        let inWindow = readings.filter { $0.at >= cutoff }
+        guard let first = inWindow.first, let last = inWindow.last else { return nil }
+        let total = inWindow.reduce(0) { $0 + $1.value }
+        return TrailingUsage(
+            meanPercentOfOneCore: total / Double(inWindow.count),
+            peakPercentOfOneCore: inWindow.map(\.value).max() ?? 0,
+            sampleCount: inWindow.count,
+            // The span we actually hold, not the one we asked for. A mean over eight
+            // seconds must not describe itself as a minute.
+            span: .seconds(last.at.timeIntervalSince(first.at)))
+    }
 }
 
 /// How a trailing figure describes itself on screen (FR-038, FR-002).
@@ -51,16 +81,9 @@ enum TrailingPresentation {
         of points: [SparklinePoint],
         window: Duration = TrailingPresentation.defaultWindow,
         now: Date = Date()
-    ) -> FamilyHistory.Trailing? {
-        let cutoff = now.addingTimeInterval(-window.totalSeconds)
-        let inWindow = points.filter { $0.at >= cutoff }
-        guard let first = inWindow.first, let last = inWindow.last else { return nil }
-        let total = inWindow.reduce(0) { $0 + $1.value }
-        return FamilyHistory.Trailing(
-            meanPercentOfOneCore: total / Double(inWindow.count),
-            peakPercentOfOneCore: inWindow.map(\.value).max() ?? 0,
-            sampleCount: inWindow.count,
-            span: .seconds(last.at.timeIntervalSince(first.at)))
+    ) -> TrailingUsage? {
+        TrailingUsage.over(points.map { (at: $0.at, value: $0.value) },
+                           window: window, now: now)
     }
 
     /// Says the short span out loud when we have not been watching long enough to
@@ -218,15 +241,8 @@ final class FamilyHistory {
         window: Duration = FamilyHistory.defaultTrailingWindow,
         now: Date = Date()
     ) -> Trailing? {
-        let cutoff = now.addingTimeInterval(-window.totalSeconds)
-        let points = points(for: id).filter { $0.at >= cutoff }
-        guard let first = points.first, let last = points.last else { return nil }
-        let total = points.reduce(0) { $0 + $1.percentOfOneCore }
-        return Trailing(
-            meanPercentOfOneCore: total / Double(points.count),
-            peakPercentOfOneCore: points.map(\.percentOfOneCore).max() ?? 0,
-            sampleCount: points.count,
-            span: .seconds(last.at.timeIntervalSince(first.at)))
+        TrailingUsage.over(points(for: id).map { (at: $0.at, value: $0.percentOfOneCore) },
+                           window: window, now: now)
     }
 
     /// The span actually covered, which is never longer than the app has been open.
