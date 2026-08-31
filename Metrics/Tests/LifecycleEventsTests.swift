@@ -5,6 +5,10 @@ import Testing
 @testable import Metrics
 
 private let origin = Date(timeIntervalSince1970: 1_700_000_000)
+/// A start time an hour before `origin`, in the microseconds-since-epoch the kernel
+/// reports. Fixtures need one now that a relaunch pattern requires the exiting
+/// process to have been a *session* rather than a task (`minimumSessionLifetime`).
+private let sessionStart = UInt64((origin.timeIntervalSince1970 - 3600) * 1_000_000)
 private func at(_ seconds: TimeInterval) -> Date { origin.addingTimeInterval(seconds) }
 
 private func snapshot(
@@ -87,7 +91,7 @@ struct RelaunchPatternTests {
         _ command: String, times: [TimeInterval], isApplication: Bool = true
     ) -> [LifecycleEvent] {
         times.enumerated().map { index, seconds in
-            .exited(identity: ProcessIdentity(pid: Int32(1000 + index), startTime: UInt64(index)),
+            .exited(identity: ProcessIdentity(pid: Int32(1000 + index), startTime: sessionStart),
                     command: command, isApplication: isApplication, at: at(seconds))
         }
     }
@@ -136,7 +140,7 @@ struct RelaunchPatternTests {
     func launchesDoNotCount() {
         let tracker = LifecycleTracker(minimumExits: 2)
         let launches: [LifecycleEvent] = (0..<5).map {
-            .launched(identity: ProcessIdentity(pid: Int32($0), startTime: 1),
+            .launched(identity: ProcessIdentity(pid: Int32($0), startTime: sessionStart),
                       command: "Thing", isApplication: true, at: at(Double($0)))
         }
         #expect(tracker.relaunchPatterns(in: launches, now: at(10)).isEmpty)
@@ -301,7 +305,7 @@ struct RepeatedQuitSubjectTests {
     ) -> [LifecycleEvent] {
         (0..<count).map { index in
             .exited(
-                identity: ProcessIdentity(pid: Int32(2000 + index), startTime: UInt64(index)),
+                identity: ProcessIdentity(pid: Int32(2000 + index), startTime: sessionStart),
                 command: command, isApplication: isApplication(path),
                 at: at(Double(index) * spacing))
         }
@@ -336,5 +340,79 @@ struct RepeatedQuitSubjectTests {
             .relaunchPatterns(in: events, now: at(500))
         #expect(patterns.map(\.command) == ["Final Cut Pro"])
         #expect(try #require(patterns.first).exits == 4)
+    }
+}
+
+/// The third hole in this predicate, found in the product owner's own recorded
+/// incidents on 2026-08-31 rather than by reasoning.
+///
+/// Every one of the ten incidents this app had ever recorded was a repeated-quit,
+/// and every one was false. The survivor after TASK-84 and TASK-86 was
+/// `XProtectRemediator*`: about 34 scanners that live at
+/// `XProtect.app/Contents/MacOS/`, so they are genuinely the main executables of an
+/// application bundle and pass every path test we have. `p_comm`'s 16 bytes
+/// truncate all of them to `XProtectRemediat`, so they were counted as one thing
+/// quitting 34 times when they were 34 programs each running once.
+@Suite("A task that finished is not an application that quit")
+struct SessionLifetimeTests {
+    private let tracker = LifecycleTracker(minimumExits: 3, window: .seconds(900))
+
+    /// Microseconds since the epoch, as `kp_proc.p_starttime` reports it.
+    private func started(_ secondsBefore: Double, of moment: Date) -> UInt64 {
+        UInt64((moment.timeIntervalSince1970 - secondsBefore) * 1_000_000)
+    }
+
+    private func exits(
+        _ command: String, count: Int, lifetime: Double, spacing: TimeInterval = 20
+    ) -> [LifecycleEvent] {
+        (0..<count).map { index in
+            let at = origin.addingTimeInterval(Double(index) * spacing)
+            return .exited(
+                identity: ProcessIdentity(pid: Int32(5000 + index),
+                                          startTime: started(lifetime, of: at)),
+                command: command, isApplication: true, at: at)
+        }
+    }
+
+    @Test("A scheduled scan's short-lived processes do not form a pattern")
+    func shortLivedTasksAreNotSessions() {
+        // The real shape: many scanners, each alive a few seconds.
+        let scan = exits("XProtectRemediat", count: 34, lifetime: 4, spacing: 5)
+        #expect(tracker.relaunchPatterns(in: scan, now: origin.addingTimeInterval(200)).isEmpty)
+    }
+
+    @Test("An application the user was working in still forms one")
+    func realSessionsStillCount() throws {
+        // Quit and reopened three times, each session a few minutes long.
+        let sessions = exits("Final Cut Pro", count: 3, lifetime: 300, spacing: 120)
+        let patterns = tracker.relaunchPatterns(
+            in: sessions, now: origin.addingTimeInterval(400))
+        #expect(patterns.map(\.command) == ["Final Cut Pro"])
+        #expect(try #require(patterns.first).exits == 3)
+    }
+
+    /// The boundary, asserted so a future change to the default cannot move it
+    /// silently.
+    @Test("The line is the configured minimum, either side of it")
+    func theBoundaryIsTheConfiguredMinimum() {
+        let minimum = tracker.minimumSessionLifetime.totalSeconds
+        let justUnder = exits("Something", count: 3, lifetime: minimum - 1)
+        let justOver = exits("Something", count: 3, lifetime: minimum + 1)
+        let now = origin.addingTimeInterval(200)
+        #expect(tracker.relaunchPatterns(in: justUnder, now: now).isEmpty)
+        #expect(!tracker.relaunchPatterns(in: justOver, now: now).isEmpty)
+    }
+
+    /// An exit we cannot date is one we cannot call a session. Withholding is the
+    /// answer a predicate that has been wrong three times should give.
+    @Test("An undated exit is excluded rather than assumed to be a session")
+    func undatedExitsAreExcluded() {
+        let undated: [LifecycleEvent] = (0..<3).map { index in
+            .exited(identity: ProcessIdentity(pid: Int32(6000 + index), startTime: 0),
+                    command: "Unknown", isApplication: true,
+                    at: origin.addingTimeInterval(Double(index) * 20))
+        }
+        #expect(tracker.relaunchPatterns(
+            in: undated, now: origin.addingTimeInterval(100)).isEmpty)
     }
 }

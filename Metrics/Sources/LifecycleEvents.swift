@@ -203,9 +203,39 @@ public struct LifecycleTracker: Sendable {
     public var minimumExits: Int
     public var window: Duration
 
-    public init(minimumExits: Int = 3, window: Duration = .seconds(900)) {
+    /// How long a process must have been running for its exit to count as an
+    /// **application session** ending, rather than a task finishing.
+    ///
+    /// Added 2026-08-31 after the third hole in this predicate, found in the
+    /// product owner's own recorded incidents: `XProtectRemediatorAdload`,
+    /// `XProtectRemediatorBundlore` and their siblings live at
+    /// `XProtect.app/Contents/MacOS/`, so they are genuinely the main executables
+    /// of an application bundle and pass every path test we have. macOS runs about
+    /// 34 of them, briefly, as a scheduled malware scan — and `p_comm`'s 16 bytes
+    /// truncate every one to the same `XProtectRemediat` fragment, so they were
+    /// counted as one thing quitting 34 times when they were 34 different programs
+    /// each running once.
+    ///
+    /// No path rule can separate those from a real application, because on disk
+    /// they *are* applications. What separates them is duration: FR-046 is about an
+    /// application the user was working in going away and coming back, and a
+    /// program that lived for four seconds was never a session. This is FR-006's
+    /// sustained-not-transient rule applied to the right axis at last — the earlier
+    /// attempts (TASK-71's exit count, TASK-84's bundle test, TASK-86's
+    /// main-executable test) all measured multiplicity or provenance instead.
+    ///
+    /// Measured from `(pid, start time)`, which every event already carries, so
+    /// this costs arithmetic and no new plumbing.
+    public var minimumSessionLifetime: Duration
+
+    public init(
+        minimumExits: Int = 3,
+        window: Duration = .seconds(900),
+        minimumSessionLifetime: Duration = .seconds(60)
+    ) {
         self.minimumExits = minimumExits
         self.window = window
+        self.minimumSessionLifetime = minimumSessionLifetime
     }
 
     /// Events between two snapshots.
@@ -275,11 +305,29 @@ public struct LifecycleTracker: Sendable {
     /// Multiplicity is not duration: FR-006 forbids alerting on one event too short
     /// to matter, and the old predicate alerted on many events that were each
     /// entirely normal. See `minimumExits` for why no value of the count fixes that.
+    /// How long the exiting process had been running, or nil when the kernel gave
+    /// us no start time.
+    ///
+    /// Nil excludes the exit rather than admitting it: an exit we cannot date is one
+    /// we cannot call a session, and opening an incident on an unknown is the
+    /// guess this predicate has already been wrong about three times.
+    func sessionLifetime(of event: LifecycleEvent) -> Double? {
+        let startTime = event.identity.startTime
+        guard startTime > 0 else { return nil }
+        // `kp_proc.p_starttime` is microseconds since the epoch.
+        let started = Date(timeIntervalSince1970: Double(startTime) / 1_000_000)
+        let lifetime = event.at.timeIntervalSince(started)
+        return lifetime >= 0 ? lifetime : nil
+    }
+
     public func relaunchPatterns(in events: [LifecycleEvent], now: Date = Date()) -> [RelaunchPattern] {
         let cutoff = now.addingTimeInterval(-window.totalSeconds)
         let exits = events.filter {
-            if case .exited = $0 { return $0.isApplication && $0.at >= cutoff }
-            return false
+            guard case .exited = $0, $0.isApplication, $0.at >= cutoff else { return false }
+            // A session, not a task. See `minimumSessionLifetime`.
+            return sessionLifetime(of: $0).map {
+                $0 >= minimumSessionLifetime.totalSeconds
+            } ?? false
         }
 
         return Dictionary(grouping: exits, by: \.command)

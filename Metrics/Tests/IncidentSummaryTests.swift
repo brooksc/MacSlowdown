@@ -178,13 +178,19 @@ struct IncidentSummaryTests {
         #expect(summary.hypotheses.isEmpty, "no attribution means no basis for a hypothesis")
     }
 
+    /// **Closed deliberately.** An open incident's duration runs to `Date()`, so
+    /// against a fixture dated 2023 the headline reads in tens of thousands of
+    /// hours and whether it also names minutes depends on the clock — this test
+    /// passed or failed according to the time of day. A duration assertion needs a
+    /// duration that is fixed, which only a closed incident has.
     @Test("The headline names the condition and the duration")
     func headlineIsInformative() {
         let summary = IncidentSummarizer.summarize(
-            incident: incident(conditions: [.memoryPressure], peakMemory: .critical),
+            incident: incident(conditions: [.memoryPressure], peakMemory: .critical,
+                               minutes: 6, open: false),
             attribution: attribution())
         #expect(summary.headline.contains("Memory pressure"))
-        #expect(summary.headline.contains("minute"))
+        #expect(summary.headline.contains("6 minutes"))
     }
 }
 
