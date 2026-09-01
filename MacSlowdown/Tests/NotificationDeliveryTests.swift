@@ -254,26 +254,69 @@ struct NotificationContentTests {
     }
 }
 
-/// Design 1g: the banner says what is *not* wrong as well as what is, and carries
-/// two actions.
+/// Design 1g: the banner says what is wrong, and carries two actions.
+///
+/// It used to also say what was *not* wrong. Four consecutive alerts seen in
+/// Notification Centre on 2026-08-31 each ended on a negative finding — "Memory
+/// pressure stayed normal", "The machine did not report thermal pressure" — and
+/// the product owner's call was that a banner cannot afford a sentence that
+/// reports nothing happening. These tests hold the removal in place and, more
+/// importantly, hold on to the fact itself, which now lives only in the summary.
 @MainActor
 @Suite("The banner (design 1g)")
 struct NotificationBannerTests {
-    /// A notification naming only the failing resource invites the reader to
-    /// assume the machine is failing generally, and they then act on a belief the
-    /// app never measured.
-    @Test("A CPU incident with normal memory says memory pressure stayed normal")
-    func statesWhatIsNotWrong() {
+    @Test("The banner names what is wrong and spends no words on what is not")
+    func saysOnlyWhatIsWrong() {
         let subject = incident(conditions: [.cpuSaturation])
         let body = NotificationDelivery.message(
             for: subject, leadingContributor: "Xcode").body
 
         #expect(body.contains("Xcode"), "what is wrong")
-        #expect(body.contains("Memory pressure stayed normal"), "and what is not")
+        #expect(!body.contains("stayed normal"))
+        #expect(!body.contains("did not report thermal"))
+        #expect(!body.contains("did not run low"))
     }
 
-    /// The reassurance is a measurement, not politeness: it is withheld when the
-    /// evidence does not support it.
+    /// The banner is now exactly what the shared gate composes, for every incident
+    /// — so a clause can never reappear on this one surface alone (FR-060).
+    @Test("The banner adds nothing to the wording the whole app shares")
+    func addsNothingToTheSharedWording() {
+        let cases = [
+            incident(conditions: [.cpuSaturation]),
+            Incident(
+                id: UUID(), beganAt: Date(), triggeredAt: Date(),
+                recoveryStartedAt: nil, closedAt: Date(),
+                conditions: [.cpuSaturation, .memoryPressure], severity: .high,
+                peakCPUBusyFraction: 0.95, peakMemoryPressure: .critical),
+            Incident(
+                id: UUID(), beganAt: Date(), triggeredAt: Date(),
+                recoveryStartedAt: nil, closedAt: Date(),
+                conditions: Set(IncidentCondition.allCases), severity: .severe,
+                peakCPUBusyFraction: 1, peakMemoryPressure: .critical),
+        ]
+        for subject in cases {
+            #expect(NotificationDelivery.message(for: subject, leadingContributor: "Xcode")
+                == NotificationGate.message(for: subject, leadingContributor: "Xcode"))
+        }
+    }
+
+    /// The point of the removal was that the fact belongs elsewhere, not that it
+    /// stopped being true. If this fails, dropping it from the banner deleted it
+    /// from the product.
+    @Test("What the banner stopped saying is still said under Ruled out")
+    func theFactSurvivesInTheSummary() {
+        var subject = incident(conditions: [.cpuSaturation])
+        subject.peakThermalState = .nominal
+        let ruledOut = IncidentSummarizer.summarize(incident: subject, attribution: nil).ruledOut.map(\.text)
+
+        #expect(ruledOut.contains { $0.contains("Not a memory problem") },
+                "the clause the banner used to carry")
+        #expect(ruledOut.allSatisfy { $0.isEmpty == false })
+    }
+
+    /// Still a measurement, not politeness: the summary withholds it when memory
+    /// was in fact the problem. Removing the banner clause must not have loosened
+    /// the rule behind it.
     @Test("Memory is never called fine when memory was the problem")
     func noFalseReassurance() {
         let underPressure = Incident(
@@ -282,51 +325,24 @@ struct NotificationBannerTests {
             conditions: [.cpuSaturation, .memoryPressure], severity: .high,
             peakCPUBusyFraction: 0.95, peakMemoryPressure: .critical)
 
-        let body = NotificationDelivery.message(
-            for: underPressure, leadingContributor: nil).body
-        #expect(!body.contains("Memory pressure stayed normal"))
+        #expect(!IncidentSummarizer.summarize(incident: underPressure, attribution: nil).ruledOut
+            .contains { $0.text.contains("Not a memory problem") })
     }
 
     /// The condition never opened, but the peak reading did rise. Two pieces of
-    /// evidence are required before the app tells someone their memory is fine.
-    @Test("A memory peak above normal withholds the memory reassurance")
+    /// evidence are required before the app tells someone their memory is fine —
+    /// `conditions` holds only what lasted past its threshold (FR-002).
+    @Test("A memory peak above normal withholds the memory clause")
     func peakContradictsTheCondition() {
         var spiked = Incident(
             id: UUID(), beganAt: Date(), triggeredAt: Date(),
             recoveryStartedAt: nil, closedAt: Date(),
             conditions: [.cpuSaturation], severity: .high,
             peakCPUBusyFraction: 0.95, peakMemoryPressure: .warning)
-        // The thermal clause now needs a recorded peak behind it, not merely the
-        // absence of a sustained condition: `conditions` holds only what lasted
-        // past its threshold, so a machine at serious thermal for 110 s of a 120 s
-        // threshold was being described as having reported nothing (FR-002).
         spiked.peakThermalState = .nominal
 
-        let reassurance = NotificationDelivery.reassurance(for: spiked)
-        #expect(reassurance?.contains("Memory") != true)
-        #expect(reassurance == "The machine did not report thermal pressure.",
-                "it falls through to something the incident does support")
-    }
-
-    @Test("An incident breaching everything we watch claims nothing is fine")
-    func nothingToReassureAbout() {
-        let everything = Incident(
-            id: UUID(), beganAt: Date(), triggeredAt: Date(),
-            recoveryStartedAt: nil, closedAt: Date(),
-            conditions: Set(IncidentCondition.allCases), severity: .severe,
-            peakCPUBusyFraction: 1, peakMemoryPressure: .critical)
-
-        #expect(NotificationDelivery.reassurance(for: everything) == nil)
-        let body = NotificationDelivery.message(
-            for: everything, leadingContributor: nil).body
-        #expect(body == NotificationGate.message(
-            for: everything, leadingContributor: nil).body)
-    }
-
-    @Test("Only one reassurance is offered, so the banner stays readable")
-    func atMostOneClause() {
-        let text = NotificationDelivery.reassurance(for: incident()) ?? ""
-        #expect(text.filter { $0 == "." }.count == 1)
+        #expect(!IncidentSummarizer.summarize(incident: spiked, attribution: nil).ruledOut
+            .contains { $0.text.contains("Not a memory problem") })
     }
 
     @Test("The banner carries a details action and a mute action")

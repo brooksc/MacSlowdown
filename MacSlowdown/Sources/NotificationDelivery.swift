@@ -297,49 +297,27 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
 
     /// The banner's text (design 1g).
     ///
-    /// The title and the account of what went wrong come from `NotificationGate`,
-    /// which the whole app shares. What is added here is the clause saying what is
-    /// **not** wrong — "Memory pressure stayed normal" alongside "CPU saturation
-    /// for 6 minutes".
+    /// **The banner says only what is wrong.** It used to append a clause saying
+    /// what is not — "Memory pressure stayed normal", "The machine did not report
+    /// thermal pressure" — on the reasoning that naming only the failing resource
+    /// invites the reader to assume the machine is failing generally.
     ///
-    /// That clause is not politeness. A notification naming only the failing
-    /// resource invites the reader to assume the machine is failing generally, and
-    /// the reader then acts on a belief the app never measured. It stays a
-    /// measurement: every clause comes from a condition the detector watched
-    /// throughout this incident and never saw breach.
+    /// That reasoning is sound about a report and wrong about a banner. Seen in
+    /// Notification Centre on 2026-08-31, four consecutive alerts each spent their
+    /// last and most expensive sentence on a negative finding, and the product
+    /// owner's judgement was that it is noise the reader pays for every time: the
+    /// risk a notification actually runs is not being misunderstood, it is being
+    /// switched off.
+    ///
+    /// Nothing is lost by dropping it, which is what makes this safe rather than
+    /// merely shorter. The same clauses are already derived once in
+    /// `IncidentSummary.ruledOut` and shown under "Ruled out" in the incident
+    /// detail — a surface with room for them, reached by a reader who went looking.
+    /// This is FR-060's rule applied in the direction it is usually read backwards:
+    /// one fact, one home, and the summary is the home.
     static func message(
         for incident: Incident, leadingContributor: String?
     ) -> (title: String, body: String) {
-        let (title, body) = NotificationGate.message(
-            for: incident, leadingContributor: leadingContributor)
-        guard let reassurance = reassurance(for: incident) else { return (title, body) }
-        return (title, "\(body) \(reassurance)")
-    }
-
-    /// The single strongest thing this incident shows is holding up, or nil when
-    /// every condition we watch was breaching and there is nothing reassuring to
-    /// report. One clause only: a banner is two lines, and listing everything that
-    /// is fine buries what is not.
-    static func reassurance(for incident: Incident) -> String? {
-        var clauses: [String] = []
-        // The memory claim is corroborated twice — the condition never opened, and
-        // the peak pressure reading stayed normal — because memory is the resource
-        // users most often assume is at fault when the machine is slow.
-        if !incident.conditions.contains(.memoryPressure),
-           incident.peakMemoryPressure == .normal {
-            clauses.append("Memory pressure stayed normal.")
-        }
-        // Corroborated by a recorded peak, exactly as the memory clause is.
-        // `conditions` alone would have this banner assert "the machine did not
-        // report thermal pressure" about a machine that sat at serious thermal for
-        // 110 seconds of a 120-second threshold. Nil means the claim goes unsaid.
-        if !incident.conditions.contains(.thermalPressure),
-           let peak = incident.peakThermalState, peak < .serious {
-            clauses.append("The machine did not report thermal pressure.")
-        }
-        if !incident.conditions.contains(.lowStorage), incident.lowStorageObserved == false {
-            clauses.append("Storage did not run low.")
-        }
-        return clauses.first
+        NotificationGate.message(for: incident, leadingContributor: leadingContributor)
     }
 }
