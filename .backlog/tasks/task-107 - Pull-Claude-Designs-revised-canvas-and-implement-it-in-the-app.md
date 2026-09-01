@@ -4,6 +4,7 @@ title: Pull Claude Design's revised canvas and implement it in the app
 status: To Do
 assignee: []
 created_date: '2026-08-31 22:10'
+updated_date: '2026-08-31 23:12'
 labels:
   - ui
 milestone: m-3
@@ -37,9 +38,32 @@ Those local edits are now in `git stash@{0}` — kept only so a specific point c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The remote canvas is fetched and becomes the repo's reference copy, with screens/*.png regenerated from it
+- [x] #1 The remote canvas is fetched and becomes the repo's reference copy, with screens/*.png regenerated from it
 - [ ] #2 No local canvas is ever pushed over the remote
 - [ ] #3 The stashed local edits are reviewed for anything worth raising, then dropped
-- [ ] #4 Claude Design's revisions are reported against the built app before any code changes
+- [x] #4 Claude Design's revisions are reported against the built app before any code changes
 - [ ] #5 The design is implemented in the app, or each deviation is recorded with its reason per FR-060
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**The canvas is in, whole — but not via the MCP.** `DesignSync get_file` caps at 256 KiB and the revised canvas is 298,585 bytes, so the fetch came back truncated at exactly 262,144, cut mid-attribute. The product owner exported the project to `~/Downloads/MacSlowdown.zip` instead. The truncated fetch verified as a clean byte-prefix of the export, so it is the same document. **If this file needs fetching again, ask for an export; the MCP cannot deliver it.**
+
+**1o is deleted, not annotated.** The old canvas had 1a-1p; the new has 1a-1n and 1p. 1o was "Repeated-crash incident — evidence is lifecycle events, not curves", and FR-046 amendment 5 makes it unreachable. 4c replaces it with a lifecycle record inside the process inspector.
+
+**Turn 3 (3a-3f, the six app-icon directions) is new to the repo's copy**, though the renders already existed in `design/icons/`.
+
+**The older turns were edited.** Diffed artboard by artboard; four changed, every one a correction toward something already settled here:
+- 1j: "Stored encrypted in the app's own container" → "In MacSlowdown's own container, which no other app can read." CLAUDE.md explicitly forbids the first wording; the design had carried it since the first pass.
+- 1f: repeated-quit row gone, "quit unexpectedly" gone, 9 incidents → 8, retention copy corrected.
+- 1n, 2d: the "higher-priority path" claim replaced with the measured truth.
+
+So the design now agrees with the repo's settled facts rather than contradicting them. Nothing in the older turns needs arguing with.
+
+**Renders.** All 30 artboards regenerated from the canvas into `design/screens/`, autocropped to content against the `#dcd9d2` ground, each checked for content touching the bottom edge (the fixed-height clipping that bit an earlier session). None clipped, none blank. `design/screens/1o.png` removed.
+
+Render recipe that works, for next time: extract the document's `<style>` block plus one `.dv-opt` block into a temp file, take `max(width:NNNpx)` found in the block as the artboard width, screenshot at that width + 80 with `--window-size=W,3200 --force-device-scale-factor=2`, then autocrop with PIL against the background colour and warn if the content bbox reaches the bottom edge. Chrome intermittently drops one screenshot per batch — check the file exists and retry the misses.
+
+Committed as 7f652a3. No code changed.
+<!-- SECTION:NOTES:END -->
