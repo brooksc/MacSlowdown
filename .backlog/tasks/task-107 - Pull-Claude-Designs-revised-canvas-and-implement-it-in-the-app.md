@@ -1,10 +1,10 @@
 ---
 id: TASK-107
 title: Pull Claude Design's revised canvas and implement it in the app
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-31 22:10'
-updated_date: '2026-08-31 23:12'
+updated_date: '2026-09-03 18:58'
 labels:
   - ui
 milestone: m-3
@@ -39,10 +39,10 @@ Those local edits are now in `git stash@{0}` — kept only so a specific point c
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 The remote canvas is fetched and becomes the repo's reference copy, with screens/*.png regenerated from it
-- [ ] #2 No local canvas is ever pushed over the remote
-- [ ] #3 The stashed local edits are reviewed for anything worth raising, then dropped
+- [x] #2 No local canvas is ever pushed over the remote
+- [x] #3 The stashed local edits are reviewed for anything worth raising, then dropped
 - [x] #4 Claude Design's revisions are reported against the built app before any code changes
-- [ ] #5 The design is implemented in the app, or each deviation is recorded with its reason per FR-060
+- [x] #5 The design is implemented in the app, or each deviation is recorded with its reason per FR-060
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -66,4 +66,23 @@ So the design now agrees with the repo's settled facts rather than contradicting
 Render recipe that works, for next time: extract the document's `<style>` block plus one `.dv-opt` block into a temp file, take `max(width:NNNpx)` found in the block as the artboard width, screenshot at that width + 80 with `--window-size=W,3200 --force-device-scale-factor=2`, then autocrop with PIL against the background colour and warn if the content bbox reaches the bottom edge. Chrome intermittently drops one screenshot per batch — check the file exists and retry the misses.
 
 Committed as 7f652a3. No code changed.
+
+**Implementation, 2026-09-03.** Four of Claude Design's five artboards are now built or deliberately deferred with a written reason (FR-060 discipline, criterion #5).
+
+- **4a, the four-column table** — built (56f3eed). Seven columns to four; the two CPU columns collapse to one, which is the 60 s mean and the visible sort key. The instant survives as the sparkline's live end and in the accessibility label. PID and Started move to the inspector; the process count becomes a caption under the name. Narrows the table's minimum width from ~644 pt to ~504 pt, which bears on TASK-97.
+- **4a, the state tiles** — built (fbc2798). `NowPresentation.stateHold` on memory pressure and thermals, stamped in `didSet` because pressure has two writers. Keeps the honest case separate: a state held for the whole watch says "At this state for the 22 min we have been watching" rather than dating a change we never saw.
+- **4c, the lifecycle demotion** — built via TASK-102 (b0e9e27). 4c's *richer* inspector treatment (per-generation timeline, the "what this does and doesn't say" panel, Copy lifecycle record) is **not** built and is not claimed.
+- **4d, the menu bar icon** — the build was already right, as 4d says. One real gap closed (fbc2798 precursor): severe was separated from an ordinary open incident by **colour alone**, which FR-034 forbids. Severe now fills the badge; ordinary keeps the ring. Derived from `tint` so fill and colour cannot drift.
+- **4e's corrections** — already true in the app. Checked rather than assumed: no "encrypted", no "quit unexpectedly", no higher-priority-path claim anywhere in `MacSlowdown/Sources` or `Metrics/Sources`. The app had these right before the design did.
+- **4b, run-queue** — **not built, deliberately.** TASK-103's measurement refutes its numbers; see that task. The vocabulary, lane graphic and never-list remain correct and are buildable once a threshold exists.
+
+**Criterion #3.** Stash reviewed and dropped. Nothing was worth extracting: the 2d recolour I had made is settled by 4d endorsing the build's template-except-severe rule, 1o is deleted from the canvas outright, and 1c is superseded by 4a.
+
+**Criterion #2 held throughout** — nothing was ever pushed to the remote.
+
+**Two things left for the product owner**, both flagged rather than decided:
+1. **A copy defect in 4b.** Its legend reads "Running now — 8" and "Waiting for a turn — 88", but two allowed phrasings say "12 threads per core **waiting**". 96/8 = 12 includes the running thread; waiting is 11 per core. The unit 4b actually chose is depth-including-running, which is what makes "keeping up is 1" coherent — so the arithmetic is fine and the word "waiting" is wrong on those two lines. Exactly the FR-057 failure the design exists to prevent.
+2. **The unattributed footer band.** 4a moves the unattributed row from a pinned list item into the footer band, revising work completed on the owner's own instruction. Held rather than done.
+
+1141 passing at the close.
 <!-- SECTION:NOTES:END -->
