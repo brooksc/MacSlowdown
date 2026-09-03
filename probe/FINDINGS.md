@@ -1377,3 +1377,92 @@ second that quits cleanly), runs the unsandboxed control and then the sandboxed
 unexpectedly" alert on screen for a segfaulting application. The sandboxed
 report is written to
 `~/Library/Containers/com.brooksc.MacSlowdown.Probe.exit-status-probe/Data/exit-status-result.txt`.
+
+# TASK-103 — run-queue pressure: the proposed threshold is refuted
+
+Measured 2026-09-03 on the M2 Air, 8 logical cores, macOS 27, via
+`probe/Sources/loadavg-probe.swift` sampling `getloadavg` and the host CPU load
+counters at one second.
+
+FR-006's proposed amendment adds a condition breaching above **2.0 runnable
+threads per logical core held for 60 s**. Both numbers came from one observation
+(peak load 95.8 on 8 cores — about twelve per core — while CPU busy sat at
+44–51%, correlation 0.68) and were explicitly flagged as a starting guess.
+
+## What was measured
+
+| Shape | Samples | Per-core median | Per-core peak | CPU busy median | Correlation |
+|---|---|---|---|---|---|
+| Baseline, ordinary desktop | 180 | 0.61 | 0.89 | 20.2% | 0.22 |
+| `tuist xcodebuild build -jobs 6`, nice'd | 240 | **2.87** | **8.68** | 63.1% | 0.34 |
+
+At a 2.0 boundary the build run breaches on **59.2% of samples**, and 113 of
+those 142 samples are below FR-006's 85% CPU threshold. Even 4.0 breaches on 35%.
+
+## Three findings, in the order they bite
+
+**1. 2.0 per core is refuted outright.** A capped, nice'd build — the exact
+workflow CLAUDE.md prescribes — sits at a median of 2.87 per core and peaks at
+8.68. A condition at 2.0 held for 60 s would breach through most of every
+compile. That is FR-046's history repeating: a condition that fires whenever you
+build is worse than no condition, because it trains the user to ignore it. The
+proposal cannot go to approved at this value.
+
+**2. The high readings are dominated by I/O wait, not runnable work.** Of the 142
+build samples at or above 2.0 per core, **141 had pagein above 1 MB/s**. macOS's
+load average counts threads in uninterruptible waits alongside runnable ones, and
+under a build that term dominates. Two consequences: the condition can never be
+*described* as a CPU condition (which design 4b already says, and this measures),
+and a large part of what it would report is a disk being busy — which may be worth
+reporting, but is a different claim needing different words.
+
+**3. The figure is 1-minute smoothed, so a 60 s duration double-counts it.**
+`load1` moves in coarse steps of roughly 5 s and lags reality by tens of seconds:
+at build start it read 7.43 for 16 s before stepping to 10.28, while CPU busy was
+already swinging 62–78% second to second. It is an exponentially-weighted average
+over a minute, so it *already encodes* a minute of history. Requiring it to hold
+for a further 60 s means roughly two minutes of real elapsed time before a
+breach — and it means the amendment's premise, that run-queue pressure is "felt
+immediately, unlike CPU saturation", is not true of *this signal*. The thing that
+is felt immediately is the queue depth; `getloadavg` is not a measurement of it
+at an instant.
+
+The correlation with CPU busy also fell from the original 0.68 to **0.34** under
+build load, which strengthens the amendment's core claim — the two signals are
+genuinely different — while removing the threshold that was supposed to exploit it.
+
+## What this does not settle
+
+The original observation stands: a machine at twelve per core was unusable while
+CPU busy read 44–51%, and FR-006 saw nothing. The signal separates felt-slow from
+busy — the boundary is simply much higher than proposed, somewhere above the 8.68
+per core an ordinary build reaches, and near the 12 the unusable machine showed.
+That is a narrow gap and it cannot be set from these two shapes.
+
+Still needed before any number is fixed:
+
+- A deliberately oversubscribed run, to find where the boundary actually falls.
+  **Not run: it makes the machine unusable for minutes and needs the owner's
+  go-ahead.**
+- Observation across ordinary work over hours, for criterion #3 — which is the
+  owner's real workload and cannot be synthesised.
+- A decision on whether a separate, *unsmoothed* queue-depth reading is available
+  at all. If the condition is to claim immediacy, `getloadavg` is the wrong input
+  for it.
+
+## Rule that comes out of this regardless
+
+**Never put a 1-minute load average behind a sub-minute duration threshold.** The
+smoothing is part of the measurement, and a duration on top of it is counting the
+same history twice — the same error as presenting a cumulative total as a rate.
+
+## Reproducing
+
+```sh
+swiftc -O -o probe/build/loadavg-probe probe/Sources/loadavg-probe.swift
+probe/build/loadavg-probe 180 baseline
+```
+
+CSV on stdout, summary on stderr. The summary reports, for each candidate
+threshold, how many samples breach and how many of those FR-006's CPU rule would
+have missed — which is the comparison the amendment turns on.

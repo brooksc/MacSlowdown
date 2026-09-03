@@ -3,9 +3,10 @@ id: TASK-103
 title: >-
   Run-queue pressure as a detection condition: validate the ratio, then build it
   (C-02)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-31 20:42'
+updated_date: '2026-09-03 18:57'
 labels:
   - core
 milestone: m-2
@@ -46,8 +47,41 @@ At six runnable threads per core the machine is unusable, and at 44% busy FR-006
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 The ratio and duration are set from measurement across at least four workload shapes, not from the initial proposal
-- [ ] #2 The contribution of uninterruptible I/O to the figure is measured, and the condition's wording reflects what it actually indicates
+- [x] #2 The contribution of uninterruptible I/O to the figure is measured, and the condition's wording reflects what it actually indicates
 - [ ] #3 The condition does not breach during ordinary developer work on this machine
-- [ ] #4 The user-facing expression is runnable threads per core or a described state, never a bare load-average number
+- [x] #4 The user-facing expression is runnable threads per core or a described state, never a bare load-average number
 - [ ] #5 FR-006's amendment is updated with the measured values and moved from proposed to approved
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Measured 2026-09-03. The proposed threshold is refuted; the amendment cannot go to approved as written.** Full write-up in `probe/FINDINGS.md`; probe at `probe/Sources/loadavg-probe.swift`.
+
+| Shape | Samples | Per-core median | Per-core peak | CPU busy median | Correlation |
+|---|---|---|---|---|---|
+| Baseline desktop | 180 | 0.61 | 0.89 | 20.2% | 0.22 |
+| Capped nice'd build (`-jobs 6`) | 240 | **2.87** | **8.68** | 63.1% | 0.34 |
+
+**1. 2.0 per core fires through most of every build.** 59.2% of build samples breach it; 113 of those 142 are below FR-006's 85% CPU threshold. Even 4.0 breaches on 35%. This is criterion #3 answered in the negative, and it is FR-046's history about to repeat — a condition that fires whenever you compile trains the user to ignore it.
+
+**2. The high readings are I/O wait, not runnable work.** 141 of the 142 build samples at or above 2.0 per core had pagein above 1 MB/s. macOS counts uninterruptible waits in the load average and under a build that term dominates. Criterion #2 is met: the condition can never be described as a CPU condition, and much of what it would report is a busy disk — a different claim needing different words.
+
+**3. `getloadavg` is 1-minute smoothed, so a 60 s duration counts the same history twice.** `load1` moves in ~5 s steps and lagged tens of seconds at build start — 7.43 held for 16 s while CPU busy swung 62–78% second to second. It already encodes a minute of history, so a further 60 s hold means about two minutes of real time. **This breaks the amendment's premise** that run-queue pressure is "felt immediately, unlike CPU saturation". That is true of queue depth; it is not true of this signal.
+
+The correlation falling from the original 0.68 to 0.34 under load *strengthens* the case that the two signals differ — while removing the threshold meant to exploit it.
+
+**What still stands.** The founding observation is not in doubt: twelve per core was unusable while CPU read 44–51% and FR-006 saw nothing. The boundary is simply far higher than proposed — above the 8.68 an ordinary build reaches, near the 12 the unusable machine showed. That gap is narrow and cannot be set from two shapes.
+
+**Blocked on, and why.**
+
+- **A deliberately oversubscribed run.** Needs the product owner's go-ahead: it makes the machine unusable for minutes, which is exactly what the guidance in CLAUDE.md says to ask about first.
+- **Criterion #3 proper** — ordinary work over hours. That is the owner's real workload and cannot be synthesised.
+- **A prior question, now the important one: is an unsmoothed queue-depth reading available at all?** If the condition is to claim immediacy, `getloadavg` is the wrong input. Worth a look at `host_processor_info`/`processor_set_load_info` before any threshold is chosen. If nothing unsmoothed is public, the condition should be *described* differently rather than given a number that pretends otherwise.
+
+**Rule recorded in FINDINGS.md regardless of the outcome:** never put a 1-minute load average behind a sub-minute duration threshold — the smoothing is part of the measurement, and a duration on top of it counts the same history twice.
+
+**Criterion #5 deliberately not done.** FR-006's amendment stays *proposed*. Moving it to approved with numbers this measurement contradicts is the exact failure the spike existed to prevent.
+
+**Consequence for the design.** 4b's vocabulary, lane graphic, spoken label and the never-list are unaffected — they are shape and copy, and remain right. Its *numbers* ("keeping up is 1 or below", the high band at 12 per core) rest on this unsettled threshold and must not be built yet.
+<!-- SECTION:NOTES:END -->
