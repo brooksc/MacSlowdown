@@ -1,10 +1,10 @@
 ---
 id: TASK-102
 title: Demote repeated relaunch from an incident to a record (C-01)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-31 20:42'
-updated_date: '2026-08-31 20:42'
+updated_date: '2026-09-03 18:36'
 labels:
   - core
   - ui
@@ -37,10 +37,38 @@ Scope — `repeatedApplicationQuits` reaches a lot of surfaces, and each needs a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A repeated relaunch pattern opens no incident and sends no notification
-- [ ] #2 The pattern is still recorded and still visible in the process inspector
-- [ ] #3 An incident opened for another reason still carries lifecycle findings as evidence, with its heuristic label
-- [ ] #4 Persisted incidents whose only condition was repeated quits are handled deliberately, not left rendering half a screen
-- [ ] #5 Surfaces that narrated it as a subject degrade cleanly, with tests covering the now-unreachable paths
-- [ ] #6 Design 1o's unreachability is recorded against TASK-65 with the reason
+- [x] #1 A repeated relaunch pattern opens no incident and sends no notification
+- [x] #2 The pattern is still recorded and still visible in the process inspector
+- [x] #3 An incident opened for another reason still carries lifecycle findings as evidence, with its heuristic label
+- [x] #4 Persisted incidents whose only condition was repeated quits are handled deliberately, not left rendering half a screen
+- [x] #5 Surfaces that narrated it as a subject degrade cleanly, with tests covering the now-unreachable paths
+- [x] #6 Design 1o's unreachability is recorded against TASK-65 with the reason
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Done 2026-09-03.** The demotion is one property and three call sites, deliberately — the detection code is retained in full.
+
+**What changed.** `IncidentCondition.opensAnIncident` says which conditions may open an incident; `repeatedApplicationQuits` is the only one that may not. `IncidentCondition.opening` is the filtered set, and the three sites that asked "is something wrong now" now use it instead of `allCases`: the detector's condition loop and its `stillBreaching` check (`Incident.swift`), and `MonitorStore`'s `breaching` guard.
+
+Written as a switch rather than a filter, so adding a condition forces someone to decide this question about it.
+
+**The case is kept, not deleted.** It is in the persisted schema (removing it is a migration); amendments 3 and 4 still govern what is *recorded*; and a second machine producing a genuine crash-loop makes this cheap to revisit. That reversibility is the point of spending a property here.
+
+**Criteria.**
+
+1. A calm machine with a 30-exit pattern now produces no event at all — asserted through the detector, not by reading the flag.
+2. Still visible in the process inspector: `FamilyInspectorView` shows "Relaunches, by name" with `Evidence.heuristic`, the confidence, and the caveat that the count is matched by command across the whole process table. Unchanged by this work.
+3. `recordLifecycleFindings` runs on open and on update, independent of `sustained`, so an incident opened for a resource reason still carries the pattern. Tested with a CPU incident carrying a 4-exit finding.
+4 and 5. **Handled by construction rather than by migration.** Only the *opening* was removed; every narration path — `IncidentNarrative.applicationLifecycle`, `RepeatedQuitIncident`'s detail section, `IncidentHistory.Entry.subject`, the menu bar and popover wording — is untouched and still tested. So a persisted lifecycle-only incident from an earlier build loads and renders exactly as it did. Nothing renders half a screen; the paths are unreachable for *new* incidents only.
+6. Recorded against TASK-65.15, now Out of Scope: 1o is deleted from Claude Design's canvas outright, replaced by 4c.
+
+**Notification:** there is no separate suppression, and that is the right shape — the alert path is only ever reached by an incident event, so no incident is no notification. A test asserts it end to end rather than trusting the reasoning.
+
+**Tests.** `RepeatedQuitConditionTests` rewritten from "opens an incident of its own" to "is a record, and opens no incident", keeping every merge/confidence/quiet-period assertion by moving them onto a busy-machine policy. `MonitorStoreWiringTests.patternsReachTheDetector` keeps its real value — the hand-over from tracker to observation — and now asserts the detector opens nothing on it.
+
+1134 passing. `EndToEndIncidentTests.realSlowdownProducesOneIncident` failed in the full run and passes in isolation: machine-sensitive, as CLAUDE.md documents, and several builds had just run back to back.
+
+**Not done, and not claimed:** 4c's richer inspector treatment — the per-generation timeline, the "what this does and doesn't say" panel, the Copy lifecycle record action. That is open design work.
+<!-- SECTION:NOTES:END -->

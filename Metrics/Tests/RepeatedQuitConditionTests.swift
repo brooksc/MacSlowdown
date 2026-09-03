@@ -49,41 +49,72 @@ private func closed(_ events: [IncidentEvent]) -> [Incident] {
     events.compactMap { if case .closed(let incident) = $0 { incident } else { nil } }
 }
 
-@Suite("A repeated-quit episode opens an incident of its own")
+/// A machine that *is* in trouble, so a lifecycle finding has an incident to ride
+/// on. `cpuSustainedDuration: .zero` opens it on the first observation — the
+/// sustained clock is FR-006's business and is tested where it belongs.
+private let busyPolicy = IncidentPolicy(
+    cpuBusyFractionThreshold: 0.85,
+    cpuSustainedDuration: .zero,
+    memoryPressureSustainedDuration: .seconds(45))
+
+private func busy(_ seconds: TimeInterval, findings: [RelaunchPattern] = []) -> SystemObservation {
+    SystemObservation(
+        at: at(seconds), cpuBusyFraction: 0.95, memoryPressure: .normal,
+        thermalState: .nominal, lowStorage: false, lifecycleFindings: findings)
+}
+
+@Suite("A repeated-quit episode is a record, and opens no incident (FR-046 amendment 5)")
 struct RepeatedQuitConditionTests {
-    /// The whole point of TASK-71. Before it, this sequence produced nothing at all.
-    @Test("A relaunch pattern opens an incident with no resource condition breached")
-    func patternOpensAnIncident() throws {
+    /// The demotion, stated as the one fact it turns on. This exact sequence used
+    /// to open an incident and send a notification; nine days of it produced ten,
+    /// all false, and no incident of any other kind.
+    @Test("A relaunch pattern on a calm machine opens nothing at all")
+    func patternOpensNoIncident() {
         let events = run([
             calm(0),
             calm(60, findings: [pattern(from: 0, to: 50)]),
+            calm(120, findings: [pattern(exits: 9, from: 0, to: 110)]),
         ])
-        let incident = try #require(opened(events).first)
-        #expect(incident.conditions == [.repeatedApplicationQuits])
-        #expect(incident.conditions.allSatisfy { !$0.isResourceCondition })
-        #expect(incident.peakCPUBusyFraction < 0.1, "this must not be a CPU incident")
+        #expect(events.isEmpty, "a lifecycle pattern opened an incident")
+    }
+
+    /// The rule in one line, so it cannot be re-broken by a caller reaching for
+    /// `allCases` — which is what every detection site used to do.
+    @Test("Repeated quits are excluded from the conditions that open an incident")
+    func excludedFromTheOpeningSet() {
+        #expect(!IncidentCondition.opening.contains(.repeatedApplicationQuits))
+        #expect(!IncidentCondition.repeatedApplicationQuits.opensAnIncident)
+        // And nothing else was demoted by accident.
+        for condition in IncidentCondition.allCases where condition.isResourceCondition {
+            #expect(condition.opensAnIncident, "\(condition) stopped opening incidents")
+        }
+    }
+
+    /// No incident is no notification. There is no separate suppression to get
+    /// wrong — the alert path is only ever reached by an incident event.
+    @Test("Nothing is announced, because nothing is opened")
+    func nothingToAnnounce() {
+        let events = run([calm(0), calm(60, findings: [pattern(exits: 30, from: 0, to: 55)])])
+        #expect(opened(events).isEmpty)
+        #expect(closed(events).isEmpty)
     }
 
     /// FR-006. `LifecycleTracker.minimumExits` is the threshold, and it is upstream:
-    /// one exit never becomes a `RelaunchPattern`, so the detector is never offered
-    /// one and no incident can open.
-    @Test("A single quit is not an incident")
+    /// one exit never becomes a `RelaunchPattern`.
+    @Test("A single quit is not a pattern")
     func oneQuitIsNotAnIncident() {
         let tracker = LifecycleTracker()
         let identity = ProcessIdentity(pid: 501, startTime: 1)
         let single: [LifecycleEvent] = [
             .exited(identity: identity, command: "Photocopier", isApplication: true, at: at(10))
         ]
-        let patterns = tracker.relaunchPatterns(in: single, now: at(60))
-        #expect(patterns.isEmpty, "one exit became a pattern")
-
-        // And with no pattern, nothing opens — through the detector, not by assertion.
-        #expect(run([calm(0), calm(60, findings: patterns)]).isEmpty)
+        #expect(tracker.relaunchPatterns(in: single, now: at(60)).isEmpty)
     }
 
-    /// Two exits are still not a pattern. The default threshold is three, and this
-    /// records the number rather than leaving it to a constant nobody re-reads.
-    @Test("Two exits are below the threshold; three are the threshold")
+    /// The *recording* threshold is untouched by the demotion. Amendments 3 and 4
+    /// govern what is recorded, not only what opened an incident, so three exits
+    /// must still produce a pattern for the inspector to show.
+    @Test("Two exits are below the threshold; three still produce a record")
     func thresholdIsThreeExits() {
         let tracker = LifecycleTracker()
         #expect(tracker.minimumExits == 3)
@@ -97,75 +128,17 @@ struct RepeatedQuitConditionTests {
         }
         #expect(tracker.relaunchPatterns(in: exits(2), now: at(60)).isEmpty)
         #expect(tracker.relaunchPatterns(in: exits(3), now: at(60)).count == 1)
-
-        #expect(run([calm(0), calm(60, findings:
-            tracker.relaunchPatterns(in: exits(2), now: at(60)))]).isEmpty)
-        #expect(opened(run([calm(0), calm(60, findings:
-            tracker.relaunchPatterns(in: exits(3), now: at(60)))])).count == 1)
     }
 
-    /// The incident is dated from the episode, not from the sweep that noticed the
-    /// third exit — otherwise a quarter-hour of quitting would be recorded as
-    /// having begun the moment it was already over.
-    @Test("The incident spans the episode, not the moment we noticed it")
-    func incidentIsDatedFromTheEpisode() throws {
-        let events = run([calm(600), calm(660, findings: [pattern(from: 120, to: 600)])])
+    /// Criterion #3 of the demotion, and the reason the detection code is retained
+    /// rather than deleted: an incident that exists for a real reason still carries
+    /// what was quitting while it happened.
+    @Test("An incident opened for another reason still records the pattern")
+    func findingsRideOnARealIncident() throws {
+        let events = run([busy(0, findings: [pattern(exits: 4, from: 0, to: 50)])],
+                         policy: busyPolicy)
         let incident = try #require(opened(events).first)
-        #expect(incident.beganAt == at(120))
-        #expect(incident.triggeredAt == at(660))
-    }
-
-    /// A later pattern joining the episode must not re-date it forward over exits
-    /// already recorded.
-    @Test("A pattern arriving later never moves the start forward")
-    func startOnlyEverMovesEarlier() throws {
-        let detector = IncidentDetector()
-        var state = IncidentDetector.State()
-        _ = detector.observe(calm(600, findings: [pattern(from: 120, to: 600)]), state: &state)
-        _ = detector.observe(
-            calm(660, findings: [pattern(from: 500, to: 650)]), state: &state)
-        let incident = try #require(state.current)
-        #expect(incident.beganAt == at(120))
-    }
-
-    /// The quiet period is what ends the episode. Without it the condition would
-    /// keep breaching until the pattern aged out of the tracker's own 15-minute
-    /// window and every episode would be recorded as a quarter of an hour long.
-    @Test("The episode closes a quiet period plus the recovery hysteresis after the last exit")
-    func episodeClosesAfterQuietPeriod() throws {
-        let policy = IncidentPolicy()
-        let last: TimeInterval = 300
-        let stale = pattern(from: 60, to: last)
-
-        // Still breaching just inside the quiet period.
-        let inside = calm(last + policy.repeatedQuitQuietPeriod.totalSeconds - 10,
-                          findings: [stale])
-        #expect(inside.breaches(.repeatedApplicationQuits, policy: policy))
-
-        // Not breaching once it has passed, even though the tracker still holds it.
-        let outside = calm(last + policy.repeatedQuitQuietPeriod.totalSeconds + 10,
-                           findings: [stale])
-        #expect(!outside.breaches(.repeatedApplicationQuits, policy: policy))
-
-        let events = run([
-            calm(0),
-            calm(last, findings: [stale]),
-            outside,
-            calm(last + policy.repeatedQuitQuietPeriod.totalSeconds
-                 + policy.recoveryDuration.totalSeconds + 20, findings: [stale]),
-        ])
-        #expect(opened(events).count == 1)
-        let ended = try #require(closed(events).first)
-        #expect(ended.conditions == [.repeatedApplicationQuits])
-        #expect(ended.beganAt == at(60))
-    }
-
-    /// The evidence rides on the incident, because lifecycle events do not survive
-    /// a restart and the tracker's window is 15 minutes wide.
-    @Test("The incident records the pattern it was opened on")
-    func incidentCarriesItsEvidence() throws {
-        let events = run([calm(0), calm(60, findings: [pattern(exits: 4, from: 0, to: 50)])])
-        let incident = try #require(opened(events).first)
+        #expect(incident.conditions == [.cpuSaturation], "opened on CPU, not on the quits")
         let finding = try #require(incident.lifecycleFindings.first)
         #expect(finding.command == "Photocopier")
         #expect(finding.exits == 4)
@@ -174,12 +147,12 @@ struct RepeatedQuitConditionTests {
     /// Widest account of the episode, per field, and never an average.
     @Test("Repeated sightings widen the recorded episode rather than replace it")
     func findingsMergeByCommand() throws {
-        let detector = IncidentDetector()
+        let detector = IncidentDetector(policy: busyPolicy)
         var state = IncidentDetector.State()
         _ = detector.observe(
-            calm(60, findings: [pattern(exits: 3, from: 10, to: 55)]), state: &state)
+            busy(60, findings: [pattern(exits: 3, from: 10, to: 55)]), state: &state)
         _ = detector.observe(
-            calm(120, findings: [pattern(exits: 5, from: 20, to: 110)]), state: &state)
+            busy(120, findings: [pattern(exits: 5, from: 20, to: 110)]), state: &state)
         let incident = try #require(state.current)
         #expect(incident.lifecycleFindings.count == 1)
         let finding = try #require(incident.lifecycleFindings.first)
@@ -192,25 +165,40 @@ struct RepeatedQuitConditionTests {
     /// confident association than either supported on its own.
     @Test("Merging takes the weakest confidence, never the strongest")
     func mergingTakesTheWeakestConfidence() throws {
-        let detector = IncidentDetector()
+        let detector = IncidentDetector(policy: busyPolicy)
         var state = IncidentDetector.State()
         _ = detector.observe(
-            calm(60, findings: [pattern(from: 10, to: 55, confidence: .high)]), state: &state)
+            busy(60, findings: [pattern(from: 10, to: 55, confidence: .high)]), state: &state)
         _ = detector.observe(
-            calm(120, findings: [pattern(from: 10, to: 110, confidence: .low)]), state: &state)
+            busy(120, findings: [pattern(from: 10, to: 110, confidence: .low)]), state: &state)
         #expect(try #require(state.current?.lifecycleFindings.first).confidence == .low)
     }
 
     /// A second application quitting is its own finding on the same episode.
     @Test("Two commands quitting are recorded separately")
     func separateCommandsAreSeparateFindings() throws {
-        let events = run([
-            calm(0),
-            calm(60, findings: [pattern("Photocopier", from: 0, to: 50),
-                                pattern("Ledger", from: 10, to: 55)]),
-        ])
+        let events = run([busy(0, findings: [pattern("Photocopier", from: 0, to: 50),
+                                             pattern("Ledger", from: 10, to: 55)])],
+                         policy: busyPolicy)
         let incident = try #require(opened(events).first)
         #expect(Set(incident.lifecycleFindings.map(\.command)) == ["Photocopier", "Ledger"])
+    }
+
+    /// The condition's own breach logic is retained, because it decides which
+    /// patterns are *current* enough to record. Demoting it from opening incidents
+    /// must not have quietly stopped it computing.
+    @Test("The quiet period still decides which patterns are current")
+    func quietPeriodStillGovernsTheRecord() {
+        let policy = IncidentPolicy()
+        let last: TimeInterval = 300
+        let stale = pattern(from: 60, to: last)
+
+        #expect(calm(last + policy.repeatedQuitQuietPeriod.totalSeconds - 10,
+                     findings: [stale])
+            .breaches(.repeatedApplicationQuits, policy: policy))
+        #expect(!calm(last + policy.repeatedQuitQuietPeriod.totalSeconds + 10,
+                      findings: [stale])
+            .breaches(.repeatedApplicationQuits, policy: policy))
     }
 }
 

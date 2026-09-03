@@ -1,10 +1,10 @@
 ---
 id: TASK-65.15
 title: 'Screen 1o — Repeated-quit incident: evidence is lifecycle events, not curves'
-status: In Progress
+status: Out of Scope
 assignee: []
 created_date: '2026-08-09 02:25'
-updated_date: '2026-08-09 07:08'
+updated_date: '2026-09-03 18:36'
 labels:
   - ui
 milestone: m-2
@@ -178,4 +178,14 @@ we can and can't say" lands as candour rather than as an excuse.
   `AlertSettings`, owned by TASK-69. The other three hand-offs are present.
 - Whether opening `macappstore://showUpdatesPage` works under the sandbox was not
   verified. The result of asking is reported to the user either way (FR-017).
+
+**Unreachable, and the screen no longer exists** (2026-09-03, TASK-102, FR-046 amendment 5).
+
+The demotion means a repeated relaunch pattern opens no incident, so there is no incident for this screen to be the detail of. Nothing renders it and nothing can.
+
+Claude Design reached the same conclusion independently and acted on it harder than expected: **1o is deleted from the canvas**, not annotated as superseded. The revised document runs 1a–1n, 1p. Its replacement is **4c**, a lifecycle *record* inside the process inspector — no severity chip, no notification behind it, no triage furniture, because a record has no severity. Claude Design's note on the demotion is worth keeping: "the finding was never wrong about what it saw, it was wrong that anyone needed telling."
+
+What survives of this screen's intent is in the inspector already: `FamilyInspectorView` shows "Relaunches, by name" with `Evidence.heuristic`, the confidence, and the caveat that the count is matched by command across the whole process table. 4c asks for more than that — a per-generation timeline ("PID 2841 no longer present after 4 min · PID 2896 appeared 41 s later"), an explicit "what this does and doesn't say" panel, and a Copy lifecycle record action. **That is open design work and is not claimed here**; it belongs to a new subtask against 4c if it is wanted.
+
+Copy discipline carried forward from 4c, which the app already honours: "no longer present", never "quit", "crashed", "failed" or "unexpectedly".
 <!-- SECTION:NOTES:END -->

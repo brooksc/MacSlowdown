@@ -1021,7 +1021,7 @@ final class MonitorStore {
                 cpuBusyFraction: result.totalBusyPercentOfOneCore
                     / (Double(machine.logicalCores) * 100))
 
-            let breaching = IncidentCondition.allCases.contains {
+            let breaching = IncidentCondition.opening.contains {
                 observation.breaches($0, policy: detector.policy)
             }
             // Rolling attribution up to applications costs more than the rest of

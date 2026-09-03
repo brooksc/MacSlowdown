@@ -428,15 +428,15 @@ struct LifecycleWiringTests {
         #expect(observation.breaches(.repeatedApplicationQuits, policy: .default))
         #expect(!observation.breaches(.cpuSaturation, policy: .default))
 
-        // And through the detector, so this is the real trigger and not a flag.
+        // And through the detector, which since FR-046 amendment 5 must open
+        // nothing on this evidence alone (TASK-102). The hand-over above is still
+        // what this test is for: the pattern has to reach the observation, because
+        // an incident opened for a *resource* reason carries it as evidence. What
+        // changed is only that the pattern may no longer be the reason.
         var detectorState = IncidentDetector.State()
         let event = IncidentDetector().observe(observation, state: &detectorState)
-        guard case .opened(let incident)? = event else {
-            Issue.record("a relaunch pattern did not open an incident: \(String(describing: event))")
-            return
-        }
-        #expect(incident.conditions == [.repeatedApplicationQuits])
-        #expect(incident.lifecycleFindings.first?.exits == 4)
+        #expect(event == nil, "a relaunch pattern opened an incident on a calm machine")
+        #expect(detectorState.current == nil)
     }
 
     /// With no pattern the observation must claim nothing, or every quiet sample

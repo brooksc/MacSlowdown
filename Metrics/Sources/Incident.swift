@@ -46,6 +46,37 @@ public enum IncidentCondition: String, Sendable, CaseIterable, Codable {
         case .repeatedApplicationQuits: false
         }
     }
+
+    /// Whether this condition may *open* an incident (FR-046 amendment 5, TASK-102).
+    ///
+    /// Repeated relaunch may not, and it is the only case that may not. Nine days
+    /// produced ten repeated-quit incidents, no incidents of any other kind, and
+    /// all ten were false — across four successive narrowings. What survives the
+    /// narrowing is "an application you were using disappeared and came back three
+    /// times in fifteen minutes", which the user generally watched happen, while
+    /// amendment 1 forbids saying *why* it went and `p_comm` leaves the subject
+    /// ambiguous to 16 bytes. The finding was never wrong about what it saw; it was
+    /// wrong that anyone needed telling.
+    ///
+    /// **The case is deliberately kept rather than deleted.** It is in the persisted
+    /// incident schema, so removing it would be a migration; amendments 3 and 4
+    /// still govern what is *recorded*; an incident opened for another reason still
+    /// carries lifecycle findings as evidence; and a second machine producing a
+    /// genuine crash-loop makes this decision cheap to revisit — which is the whole
+    /// reason to spend a property here rather than delete the detection.
+    ///
+    /// Written as a switch, not a filter over `allCases`, so a new condition cannot
+    /// be added without someone deciding this question about it.
+    public var opensAnIncident: Bool {
+        switch self {
+        case .cpuSaturation, .memoryPressure, .lowStorage, .thermalPressure: true
+        case .repeatedApplicationQuits: false
+        }
+    }
+
+    /// The conditions the detector watches. Every surface asking "is something
+    /// wrong *now*" must use this rather than `allCases`.
+    public static var opening: [IncidentCondition] { allCases.filter(\.opensAnIncident) }
 }
 
 /// What an incident is about — the single rule every surface narrating one must
@@ -705,7 +736,7 @@ public struct IncidentDetector: Sendable {
     public func observe(_ observation: SystemObservation, state: inout State) -> IncidentEvent? {
         // Which conditions are breaching right now, and for how long.
         var sustained: Set<IncidentCondition> = []
-        for condition in IncidentCondition.allCases {
+        for condition in IncidentCondition.opening {
             if observation.breaches(condition, policy: policy) {
                 // The evidence's own start wins where it has one, and only ever
                 // moves the start earlier — a later pattern joining an episode must
@@ -865,7 +896,7 @@ public struct IncidentDetector: Sendable {
         // Any breach at all keeps the incident alive, not only a sustained one:
         // once an episode is open, a continuing condition should not have to
         // re-serve its duration.
-        let stillBreaching = IncidentCondition.allCases.contains {
+        let stillBreaching = IncidentCondition.opening.contains {
             observation.breaches($0, policy: policy)
         }
 
