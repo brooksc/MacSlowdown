@@ -609,3 +609,39 @@ enum NowPresentation {
             .joined(separator: " · ")
     }
 }
+
+extension NowPresentation {
+    /// How long a categorical state has held, in words (FR-058, design 4a).
+    ///
+    /// The tiles carry a state word — "Normal", "Fair" — and a word alone says
+    /// nothing about whether it is settled or was reached a moment ago. FR-058
+    /// makes the state a judgement over an interval; this is that interval, said
+    /// out loud, so a reader can tell a steady machine from one that just changed.
+    ///
+    /// Two cases, kept apart deliberately:
+    ///
+    /// - The state changed while we were watching, so we saw the change and can
+    ///   date it: "Held 3 min at this state".
+    /// - It has been this way for the whole time we have been watching, so we did
+    ///   **not** see it start and must not imply we did. The phrasing says what was
+    ///   actually covered, which is FR-057's rule about a window shorter than
+    ///   intended, applied to a duration rather than to a mean.
+    ///
+    /// Nil below a minute, because a state that changed seconds ago is described by
+    /// the freshness line already, and "held 0 min" is noise.
+    static func stateHold(
+        since: Date?, monitoringBeganAt: Date?, now: Date = Date()
+    ) -> String? {
+        guard let since else { return nil }
+        let held = now.timeIntervalSince(since)
+        guard held >= 60 else { return nil }
+        let phrase = DurationPhrase.phrase(held, .compact)
+
+        // Equality on the stamp, not a tolerance: `start()` assigns the same
+        // `Date` to both, and any real transition replaces it.
+        if let monitoringBeganAt, since == monitoringBeganAt {
+            return "At this state for the \(phrase) we have been watching"
+        }
+        return "Held \(phrase) at this state"
+    }
+}

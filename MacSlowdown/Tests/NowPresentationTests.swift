@@ -413,3 +413,55 @@ struct NowFreshnessTests {
         #expect(decision == .hold(remaining: .milliseconds(1500)))
     }
 }
+
+/// FR-058, on the state tiles: a categorical state is a claim about an interval,
+/// so the tile says how long it has held (design 4a).
+@MainActor
+@Suite("How long a state has held")
+struct StateHoldTests {
+    private let began = Date(timeIntervalSince1970: 1_700_000_000)
+
+    @Test("A state that changed while we watched is dated from the change")
+    func datedFromTheChange() {
+        let changed = began.addingTimeInterval(600)
+        #expect(NowPresentation.stateHold(
+            since: changed, monitoringBeganAt: began,
+            now: changed.addingTimeInterval(180)) == "Held 3 min at this state")
+    }
+
+    /// The honesty case. If the state has held for the whole watch we did not see
+    /// it start, so we must not date it as though we had — FR-057's rule about a
+    /// window shorter than intended, applied to a duration.
+    @Test("A state held for the whole watch says only what we covered")
+    func neverClaimsToHaveSeenTheChange() {
+        let phrase = NowPresentation.stateHold(
+            since: began, monitoringBeganAt: began,
+            now: began.addingTimeInterval(1320))
+        #expect(phrase == "At this state for the 22 min we have been watching")
+        #expect(phrase?.contains("Held") != true, "that would claim we saw it change")
+    }
+
+    @Test("Under a minute there is nothing worth saying")
+    func shortHoldsAreSilent() {
+        #expect(NowPresentation.stateHold(
+            since: began, monitoringBeganAt: began,
+            now: began.addingTimeInterval(59)) == nil)
+    }
+
+    /// A store that was never started has no span to report, and must not invent
+    /// one from the moment the screen opened.
+    @Test("Before monitoring starts there is no hold to report")
+    func nothingBeforeMonitoring() {
+        #expect(NowPresentation.stateHold(
+            since: nil, monitoringBeganAt: nil, now: began) == nil)
+    }
+
+    /// Hours read as hours, from the one duration formatter (FR-060).
+    @Test("A long hold is phrased by DurationPhrase, not a second formatter")
+    func usesTheSharedFormatter() {
+        let now = began.addingTimeInterval(4500)
+        #expect(NowPresentation.stateHold(
+            since: began.addingTimeInterval(600), monitoringBeganAt: began, now: now)
+            == "Held \(DurationPhrase.phrase(3900, .compact)) at this state")
+    }
+}

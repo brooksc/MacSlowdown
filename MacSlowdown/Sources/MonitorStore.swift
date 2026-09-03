@@ -125,7 +125,22 @@ final class MonitorStore {
     private(set) var recentIncidents: [Incident] = []
     /// Current sampling cadence, exposed so the user can inspect it (FR-031).
     private(set) var cadence: SamplingCadence?
-    private(set) var memoryPressure: MemoryPressureLevel = .normal
+    private(set) var memoryPressure: MemoryPressureLevel = .normal {
+        didSet {
+            guard memoryPressure != oldValue else { return }
+            memoryPressureHeldSince = Date()
+        }
+    }
+    /// When the pressure level last changed, or when monitoring started — whichever
+    /// is later. Nil until monitoring begins (FR-058).
+    ///
+    /// A categorical state is a claim about a stretch of time, so how long it has
+    /// held is part of reading it: "Normal" that has held for twenty minutes and
+    /// "Normal" reached four seconds ago are different facts, and the second is the
+    /// one worth knowing. Stamped in `didSet` rather than at each assignment because
+    /// there are two — the sampling loop and the kernel's pressure dispatch source —
+    /// and a rule enforced in one of two places is a rule that will drift.
+    private(set) var memoryPressureHeldSince: Date?
     /// Whether the kernel's pressure notifications are reaching this store, rather
     /// than the level only being copied on the sampling loop's next pass.
     ///
@@ -136,7 +151,17 @@ final class MonitorStore {
     /// was never started — pressure is exactly as old as the last sample and the
     /// screen says so.
     private(set) var memoryPressureIsLive = false
-    private(set) var thermalState: ThermalState = .nominal
+    /// When monitoring started, so a hold that covers the whole watch can say so.
+    private(set) var monitoringBeganAt: Date?
+    private(set) var thermalState: ThermalState = .nominal {
+        didSet {
+            guard thermalState != oldValue else { return }
+            thermalStateHeldSince = Date()
+        }
+    }
+    /// When the thermal state last changed, or when monitoring started. See
+    /// `memoryPressureHeldSince`.
+    private(set) var thermalStateHeldSince: Date?
     private(set) var power: PowerContext = PowerSignals.current()
     private(set) var pagingRates: PagingRates = .zero
     /// Swap bytes in use, as the sampling loop last read them (FR-008).
@@ -878,6 +903,13 @@ final class MonitorStore {
             Task { @MainActor in self?.memoryPressure = transition.level }
         }
         memoryPressureIsLive = true
+        // A state that never changes has held since we started watching, and that
+        // is a different claim from "it changed then" — `NowPresentation` keeps the
+        // two apart rather than letting the first read as the second.
+        let began = Date()
+        monitoringBeganAt = began
+        memoryPressureHeldSince = began
+        thermalStateHeldSince = began
         task = Task { [weak self] in await self?.run() }
     }
 

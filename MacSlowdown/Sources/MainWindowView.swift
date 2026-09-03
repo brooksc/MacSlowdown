@@ -309,7 +309,9 @@ struct NowView: View {
                 stateSymbol: symbol(for: store.memoryPressure),
                 value: store.memoryPressure.label,
                 unit: nil,
-                details: memoryDetails,
+                details: memoryDetails + [NowPresentation.stateHold(
+                    since: store.memoryPressureHeldSince,
+                    monitoringBeganAt: store.monitoringBeganAt)].compactMap { $0 },
                 help: store.memoryPressure.explanation,
                 freshness: memoryFreshness)
 
@@ -340,7 +342,9 @@ struct NowView: View {
                 stateSymbol: "thermometer.medium",
                 value: store.thermalState.label,
                 unit: nil,
-                details: [store.power.summary],
+                details: [store.power.summary] + [NowPresentation.stateHold(
+                    since: store.thermalStateHeldSince,
+                    monitoringBeganAt: store.monitoringBeganAt)].compactMap { $0 },
                 help: store.thermalState.explanation,
                 freshness: sampleFreshness)
         }
