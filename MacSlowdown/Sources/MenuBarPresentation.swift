@@ -107,6 +107,19 @@ struct MenuBarIconPresentation: Equatable, Sendable {
     let tint: MenuBarIconTint
     let accessibilityLabel: String
 
+    /// Whether the badge is a filled disc rather than a hollow ring (design 4d).
+    ///
+    /// Severe was the one state separated from an ordinary open incident by
+    /// **colour alone** — same three bars, same ring, red instead of template —
+    /// which is precisely what FR-034 forbids. Filling the badge gives it a shape
+    /// of its own, so the distinction survives a monochrome strip, a colour-blind
+    /// reader, and the increased-contrast treatment that drops the tint.
+    ///
+    /// Derived from `tint` rather than stored, so the fill and the colour cannot
+    /// come apart: the badge fills in exactly the state that earns colour, and
+    /// `MenuBarIcon.tint` stays the single place that decides which state that is.
+    var badgeIsFilled: Bool { tint == .red }
+
     static let normal = MenuBarIconPresentation(
         state: .normal, showsBadge: false, cappedByExpectedWorkload: false,
         tint: .none, accessibilityLabel: MenuBarIcon.name + ", normal")

@@ -257,19 +257,20 @@ struct InventoryTable: View {
                 nameCell(row)
             }
             .width(min: 220, ideal: 420)
-            TableColumn("Now", value: \.cpuSortKey) { row in
-                measurement(row) {
-                    CPUPresentation.percentOfOneCore(row.percentOfOneCore)
-                }
-            }
-            .width(min: 64, ideal: 76, max: 96)
-            // The column the table is **sorted by** by default, which until now was
-            // not on screen at all (TASK-96 finding 13): the list opened ordered by
-            // the trailing minute under a "CPU" header showing the instant, with no
-            // sort indicator anywhere and a footer explaining a different cause —
-            // the 10 s order hold. The Now screen already solved this with two
-            // labelled columns; this is the same pair.
-            TableColumn("Last minute", value: \.trendSortKey) { row in
+            // **One CPU column, and it is the mean** (design 4a, FR-059/FR-060).
+            //
+            // There used to be two: "Now" showing the instant and "Last minute"
+            // showing the trailing mean the table actually sorts by. Both were
+            // honest and each was labelled, but they sat adjacent and were sampled
+            // differently, which invites the reader to subtract one from the other
+            // — a comparison that means nothing. FR-059 wants the sort key visible;
+            // the fix is to make the visible one the only one, not to add a second.
+            //
+            // The instantaneous reading is not lost. It is the live end of the
+            // sparkline beside this column, and it is spoken in the row's
+            // accessibility label, where a reader needs it and cannot mistake it
+            // for a second figure to do arithmetic with.
+            TableColumn("CPU, 60 s mean", value: \.trendSortKey) { row in
                 if let trailing = row.trailing {
                     Text(CPUPresentation.percentOfOneCore(trailing.meanPercentOfOneCore))
                         .monospacedDigit()
@@ -280,29 +281,21 @@ struct InventoryTable: View {
                     Text("—").foregroundStyle(.secondary)
                 }
             }
-            .width(min: 84, ideal: 96, max: 120)
-            TableColumn("Memory", value: \.memorySortKey) { row in
+            .width(min: 104, ideal: 116, max: 140)
+            // The trend, for the rows we retain a series for. A row with no series
+            // draws nothing and says so — never a flat line, which would read as a
+            // quiet application when the truth is that we were not watching it.
+            TableColumn("Last 5 min") { row in
+                trendCell(row)
+            }
+            .width(min: 72, ideal: 88, max: 110)
+            TableColumn("Resident memory", value: \.memorySortKey) { row in
                 measurement(row) {
                     row.residentBytes == 0
                         ? "—" : ByteCountFormatStyle().format(Int64(row.residentBytes))
                 }
             }
-            .width(min: 84, ideal: 96, max: 120)
-            // A family has no PID of its own, and a dash says that better than the
-            // PID of whichever member happened to be first.
-            TableColumn("PID", value: \.pidSortKey) { row in
-                Text(row.pid.map(String.init) ?? "—").monospacedDigit()
-            }
-            .width(min: 56, ideal: 64, max: 80)
-            TableColumn("Started", value: \.startedSortKey) { row in
-                Text(row.startedAt.map { $0.formatted(date: .omitted, time: .shortened) } ?? "—")
-                    .monospacedDigit()
-            }
-            .width(min: 72, ideal: 84, max: 104)
-            TableColumn("Processes", value: \.processCount) { row in
-                Text(row.kind == .member ? "" : "\(row.processCount)").monospacedDigit()
-            }
-            .width(min: 64, ideal: 76, max: 96)
+            .width(min: 108, ideal: 120, max: 150)
         } rows: {
             ForEach(rows) { row in
                 if row.hasChildren {
@@ -330,7 +323,17 @@ struct InventoryTable: View {
                     .accessibilityHidden(true)
             }
 
-            Text(row.name)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.name)
+                // Where the "Processes" column went. A count of members is a
+                // property of the name beside it, not a quantity worth its own
+                // column of the width the design has to spend (4a).
+                if row.kind != .member, row.processCount > 1 {
+                    Text("\(row.processCount) processes")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             if row.isGroupedByGuess {
                 // The chip is a word, not a colour: severity and doubt are never
@@ -361,9 +364,20 @@ struct InventoryTable: View {
         if row.isGroupedByGuess { parts.append("grouped by guess") }
         if let qualification = row.qualification { parts.append(qualification) }
         if row.kind != .member { parts.append("\(row.processCount) processes") }
-        parts.append(row.isMeasurable
-            ? "\(CPUPresentation.percentOfOneCore(row.percentOfOneCore)) of one core"
-            : "usage unavailable")
+        // Both figures are spoken, each saying which it is. The mean is what the
+        // table shows and sorts by; the instant is the sparkline's live end, which
+        // VoiceOver cannot read off the curve (design 4a).
+        if row.isMeasurable {
+            if let trailing = row.trailing {
+                parts.append(
+                    "\(CPUPresentation.percentOfOneCore(trailing.meanPercentOfOneCore)) "
+                    + "of one core, \(TrailingPresentation.caption(trailing))")
+            }
+            parts.append(
+                "\(CPUPresentation.percentOfOneCore(row.percentOfOneCore)) of one core now")
+        } else {
+            parts.append("usage unavailable")
+        }
         if let pid = row.pid { parts.append("PID \(pid)") }
         if let startedAt = row.startedAt {
             parts.append("started \(startedAt.formatted(date: .omitted, time: .shortened))")
@@ -372,6 +386,36 @@ struct InventoryTable: View {
             parts.append(expanded.contains(row.id) ? "expanded" : "collapsed")
         }
         return parts.joined(separator: ", ")
+    }
+
+    /// The row's retained curve, or an honest blank.
+    ///
+    /// Only a bounded set of rows is retained (`FamilyHistory.tracked`), so most
+    /// rows have no series at all — and a row with no series must not draw a flat
+    /// line, which reads as "this application was quiet" when the truth is "we were
+    /// not watching this one". The dash and its help text say which (FR-002,
+    /// FR-057).
+    @ViewBuilder
+    private func trendCell(_ row: InventoryRow) -> some View {
+        let points = store.familyHistory.points(for: row.id)
+            .map { SparklinePoint(at: $0.at, value: $0.percentOfOneCore) }
+        if row.isMeasurable, points.count > 1 {
+            HistorySparkline(
+                points: points,
+                height: 16,
+                summary: SparklinePresentation.accessibilitySummary(
+                    title: "\(row.name), CPU trend",
+                    points: points,
+                    window: .seconds(300),
+                    gapThreshold: SparklinePresentation.gapThreshold(
+                        cadence: MetricsHistory.defaultCadence)))
+        } else {
+            Text("—")
+                .foregroundStyle(.secondary)
+                .help(row.isMeasurable
+                    ? "No trend is retained for this row yet."
+                    : "macOS does not report this process's usage to App Store apps.")
+        }
     }
 
     /// FR-002: a value we were refused reads as unavailable, never as zero.

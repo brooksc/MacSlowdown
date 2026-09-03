@@ -84,6 +84,40 @@ struct MenuBarIconStateTests {
         // …but the incident is not hidden by muting. Only the colour is.
         #expect(presentation.showsBadge)
     }
+
+    /// FR-034, at the one place it was still being broken. Severe and an ordinary
+    /// open incident were the same three bars and the same hollow ring, separated
+    /// by red and nothing else — so under Increase Contrast, on a monochrome
+    /// strip, or for a colour-blind reader, the two were identical. Design 4d
+    /// fills the badge for severe, which is a shape.
+    @Test("Severe differs from an open incident in shape, not only in colour")
+    func severeIsSeparatedByShape() {
+        let severe = MenuBarIcon.presentation(for: incidentInputs(severity: .severe))
+        let ordinary = MenuBarIcon.presentation(for: incidentInputs(severity: .high))
+
+        #expect(severe.state == ordinary.state, "both are the incident glyph")
+        #expect(severe.showsBadge && ordinary.showsBadge)
+        #expect(severe.badgeIsFilled, "severe fills the badge")
+        #expect(!ordinary.badgeIsFilled, "an ordinary incident keeps the ring")
+
+        // The property that matters: strip the colour and they are still different.
+        #expect(severe.tint != ordinary.tint)
+        #expect(severe.badgeIsFilled != ordinary.badgeIsFilled,
+                "with colour removed, nothing would tell these two apart")
+    }
+
+    /// The fill and the tint are one decision, so they cannot drift into
+    /// disagreeing about which state is severe.
+    @Test("Only the state that earns colour fills the badge")
+    func fillAndColourAgree() {
+        for severity in [IncidentSeverity.moderate, .high, .severe] {
+            let shown = MenuBarIcon.presentation(for: incidentInputs(severity: severity))
+            #expect(shown.badgeIsFilled == (shown.tint == .red))
+        }
+        #expect(!MenuBarIcon.presentation(for: MenuBarIconInputs()).badgeIsFilled,
+                "a calm machine has no badge to fill")
+    }
+
 }
 
 @Suite("A workload the user marked expected never turns the icon red")

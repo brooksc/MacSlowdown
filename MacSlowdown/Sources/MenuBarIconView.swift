@@ -66,6 +66,9 @@ extension MenuBarIconTint {
 struct MenuBarIconGlyph: View {
     let state: MenuBarIconState
     let showsBadge: Bool
+    /// A filled disc rather than a hollow ring — severe only (design 4d). See
+    /// `MenuBarIconPresentation.badgeIsFilled` for why shape, not just colour.
+    var badgeIsFilled: Bool = false
     let treatment: MenuBarIconTreatment
     /// Which colour, if any, this presentation is allowed. Most of the time none —
     /// see `MenuBarIcon.tint`.
@@ -138,10 +141,18 @@ struct MenuBarIconGlyph: View {
             // it appears for every open incident — including the ones that are not
             // severe enough for colour. It therefore has to be legible in a template
             // image, so it takes the foreground colour unless the glyph is tinted.
-            Circle()
-                .strokeBorder(colour ?? Color.primary, lineWidth: 1.4)
-                .frame(width: 5.5, height: 5.5)
-                .offset(x: 2, y: -1)
+            // Severe fills the disc; every other open incident is a ring. That is
+            // the only thing separating the two once colour is gone, so it is
+            // shape doing the work rather than the tint (FR-034).
+            Group {
+                if badgeIsFilled {
+                    Circle().fill(colour ?? Color.primary)
+                } else {
+                    Circle().strokeBorder(colour ?? Color.primary, lineWidth: 1.4)
+                }
+            }
+            .frame(width: 5.5, height: 5.5)
+            .offset(x: 2, y: -1)
         }
     }
 }
@@ -215,10 +226,12 @@ struct MenuBarSparkline: View {
 enum MenuBarGlyphRenderer {
     static func image(state: MenuBarIconState, showsBadge: Bool,
                       treatment: MenuBarIconTreatment,
-                      tint: MenuBarIconTint = .none) -> NSImage? {
+                      tint: MenuBarIconTint = .none,
+                      badgeIsFilled: Bool = false) -> NSImage? {
         let renderer = ImageRenderer(
             content: MenuBarIconGlyph(
                 state: state, showsBadge: showsBadge,
+                badgeIsFilled: badgeIsFilled,
                 treatment: treatment, iconTint: tint))
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
         guard let image = renderer.nsImage else { return nil }
@@ -281,7 +294,8 @@ struct MenuBarIconLabel: View {
     private func glyph(_ shown: MenuBarIconPresentation) -> some View {
         if let image = MenuBarGlyphRenderer.image(
             state: shown.state, showsBadge: shown.showsBadge,
-            treatment: treatment, tint: shown.tint) {
+            treatment: treatment, tint: shown.tint,
+            badgeIsFilled: shown.badgeIsFilled) {
             Image(nsImage: image)
         } else {
             // An SF Symbol rather than nothing. An invisible status item is worse
