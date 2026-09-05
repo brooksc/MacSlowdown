@@ -1,8 +1,15 @@
 # MacSlowdown — Product Definition and Functional Requirements
 
 **Document status:** Greenfield product specification  
-**Version:** 1.3  
-**Last updated:** August 31, 2026
+**Version:** 1.4  
+**Last updated:** September 5, 2026
+
+> **Revision note (1.4):** amended after the first three challenges were answered and
+> two of them built. FR-006's run-queue amendment carries the measurement that refutes
+> its proposed numbers and stays *proposed*; §10.1 records which challenges are answered
+> and which three still are not; §10.0's D-01 is now tracked as a spike. No requirement
+> was added or removed. The live-surface requirements FR-057 to FR-062, added in 1.3,
+> are the ones now doing most of the work.
 
 > **Revision note (1.3):** amended after two weeks of running the built app on a
 > real machine, which contradicted several things this document asserted. Changes:
@@ -252,6 +259,32 @@ as well as runnable ones, so a machine waiting on a slow disk can read high whil
 CPU is idle. That is arguably still a slowdown worth reporting, but it means the
 condition must not be described as a CPU condition. Validation against real workloads is
 required before the ratio and duration are fixed.
+
+> **Measured 2026-09-03 (TASK-103): the proposed numbers are refuted, and this
+> amendment remains *proposed*.** On the target machine an ordinary capped, nice'd
+> build sits at a **median of 2.87 runnable threads per core, peaking at 8.68**, and
+> breaches the proposed 2.0 ratio on **59.2% of samples** — a condition that would
+> fire through most of every compile, which is FR-046's false-positive history about
+> to repeat. Two further findings change the shape of the requirement rather than
+> just its numbers. First, the "known risk" above is not a risk but the normal case:
+> **141 of 142** high-queue build samples showed pagein above 1 MB/s, so under load
+> the figure is dominated by I/O wait. Second, `getloadavg` is a **one-minute
+> exponentially weighted average** — it held 7.43 for 16 s at build start while CPU
+> busy swung 62–78% second to second — so it already encodes a minute of history, and
+> a 60 s duration on top counts that history twice. **This falsifies the amendment's
+> stated premise** that run-queue pressure is felt immediately in a way CPU saturation
+> is not: that is true of queue *depth*, and `getloadavg` does not measure depth at an
+> instant.
+>
+> What survives: the founding observation is unchallenged — twelve per core was
+> unusable while CPU read 44–51% and this requirement saw nothing — and the
+> correlation between the two signals *fell* from 0.68 to 0.34 under load, which
+> strengthens the claim that they are different signals. The boundary is real and
+> simply far higher than proposed. Before any number is fixed, a prior question must
+> be answered: **is an unsmoothed queue-depth reading available to a sandboxed build
+> at all?** If not, this condition should be described differently rather than given a
+> threshold that implies a precision the input does not have. Evidence:
+> `probe/FINDINGS.md`, probe at `probe/Sources/loadavg-probe.swift`.
 
 **What "sustained" means (clarified 2026-08-31).** Two readings are possible and only
 one of them describes a real machine.
@@ -1399,8 +1432,20 @@ challenges in §10.1.
 
 Raised after two weeks of running the built product on a real machine. Each is a
 question about whether a requirement still earns its place, not a note that it is
-unimplemented. None has been acted on: they change the product's shape and that is the
-product owner's call.
+unimplemented. They change the product's shape and that is the product owner's call.
+
+**Status as of 2026-09-05.** C-01, C-02 and C-03 have been answered by the product
+owner and acted on; C-04, C-05 and C-06 are **still awaiting an answer** and are the
+live half of this section.
+
+| | Answer | Where it went |
+|---|---|---|
+| C-01 | **Demote**, agreed 2026-08-31 | FR-046 amendment 5. Built: repeated relaunch opens no incident and sends no notification, and remains a record (TASK-102). Design 1o deleted; 4c replaces it |
+| C-02 | **Revise**, agreed 2026-08-31 | Amendment drafted at FR-006 and then **refuted by measurement** — see the boxed note there. Stays proposed (TASK-103) |
+| C-03 | **Accepted in full**, 2026-08-31 | FR-057 to FR-062, §5. The argument is kept in `design/live-surfaces.md` |
+| C-04 | *unanswered* | — |
+| C-05 | *unanswered* | — |
+| C-06 | *unanswered* | — |
 
 **C-01 — FR-046 (repeated application failure) may not be shippable at acceptable
 precision.** In nine days of continuous running it produced ten incidents, every one

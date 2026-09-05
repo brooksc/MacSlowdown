@@ -1,10 +1,10 @@
 ---
 id: TASK-78
 title: 'Decide FR-050: wire post-action verification, or record why it is staged'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 18:52'
-updated_date: '2026-08-10 02:00'
+updated_date: '2026-09-05 17:00'
 labels:
   - core
   - decision
@@ -95,4 +95,10 @@ comment now avoids the token and says why in the comment itself.
   the branch of #5 that keeps it visible.
 
 The TASK-73 audit's last open thread is closed.
+
+**Closed 2026-09-05 as a decision, not an implementation.** The decision was taken by the product owner on 2026-08-09 — FR-050's verifier is *staged*, not wired — and it is recorded in all three places the task required: `probe/seam-allowlist.txt` line 13, the `ActionVerifier` doc comment in `Metrics/Sources/ActionOutcome.swift`, and CLAUDE.md's settled-decisions list.
+
+The task was left In Progress after the decision was made, which is the only thing that was outstanding. Nothing further is owed until a task lifts the FR-020–024 deferral; that task connects the verifier, and nothing sooner.
+
+The reason, restated so it is not re-litigated: every action this build offers is observational — activate, reveal in Finder, open Activity Monitor, copy diagnostics. Calling `verify` after one of them would manufacture a before/after around an action that could not have moved the number, which is exactly the false causal claim FR-050 exists to prevent. An unreachable verifier is honest; a verification of an action that cannot change anything is not.
 <!-- SECTION:NOTES:END -->

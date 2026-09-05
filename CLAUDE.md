@@ -17,7 +17,7 @@ safe actions, export and privacy controls, and the FR-030 overhead harness.
 - Run: `./run-menubar.sh`
 - Test: `nice env TUIST_SKIP_UPDATE_CHECK=1 tuist xcodebuild test -scheme AllTests \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath .build`
-  — currently **1064 passing, 0 failing** (full run, quiet machine, 2026-08-09).
+  — currently **1141 passing** (full run, 2026-09-03).
   Run `tuist generate --no-open` after adding a source or test file, or the new
   file is silently not compiled — that has cost several runs. Two bundles:
   `MetricsTests` (plain) and
@@ -39,6 +39,10 @@ treating it as a regression. Building several things at once will fail them.
 The app-hosted bundle occasionally fails to bootstrap under load
 ("Early unexpected exit"). Re-run before investigating; it is the test runner,
 not the product.
+
+**Reviewing rather than building?** `REVIEW.md` is a reading order that starts at
+the thesis and the scenarios, then the approach, then the implementation, and names
+where the weak joints are. It is a map, not an authority.
 
 ## Working practice
 
@@ -209,6 +213,11 @@ These recur across many FRs and have burned similar products:
   result. (FR-050)
 - **Sustained, not transient.** Detection requires duration thresholds and
   recovery hysteresis; a single spike is not an incident. (FR-006, FR-011)
+- **A smoothed signal must not carry a duration threshold shorter than its own
+  smoothing.** `getloadavg` averages over a minute, so requiring it to hold for
+  60 s counts the same history twice — the same class of error as presenting a
+  cumulative total as a rate. Check what a signal already averages before
+  putting a clock on it. (FR-006, TASK-103)
 - **Label every conclusion** as measured fact / derived calculation / heuristic
   hypothesis / user-provided. (FR-038)
 - **An overhead harness must exercise the path the app actually runs.** Ours
@@ -268,37 +277,106 @@ color alone.**
 Read the Backlog entry before starting any of them — each records what was
 measured and what was deliberately not done.
 
-**A design now exists.** `design/` holds the Claude Design screens (16 app screens,
-menu bar icon states, six app-icon directions) as rendered references, with
-`TASK-65` as the conformance umbrella and one subtask per screen. Treat the mocks
-as **directional**: structure, information hierarchy and copy intent are the
-requirement; the placeholder machine and invented numbers are not.
+**A design exists, and it has been revised once against real use.** `design/`
+holds the Claude Design canvas and 30 rendered artboards, with `TASK-65` as the
+conformance umbrella. Treat the mocks as **directional**: structure, information
+hierarchy and copy intent are the requirement; the placeholder machine and
+invented numbers are not. `design/README.md` is the index — read it before
+touching a screen, because it records which turn supersedes which.
 
-**The largest live risk is unverified UI, and it has grown.** A great deal is
-built and nobody has looked at it. As of 2026-08-09 the implementable backlog is
-essentially empty and **every remaining open criterion needs a person at the
-screen** — the geometry fix, the first-run window, the menu bar icon, the
-Incidents pane, the grouping corrections, the per-metric freshness treatment.
-Do not treat any of those tasks as done. A session that cannot look must leave
-the criterion unchecked and say so; several sessions have now been burned by
-inferring an on-screen fact from a green test.
+**The remote design project is authoritative; `design/` is a reference import.**
+Never push a local canvas over it (a session came within one approval of
+destroying Claude Design's work that way). `DesignSync get_file` **cannot fetch
+the canvas** — it caps at 256 KiB and the document is 298 KB, and it truncates
+without an error. Ask the product owner to export the project instead. Details
+and the project UUID are in `design/README.md`.
+
+Turn 4 (2026-08-31) is the current word: it revised the Now table to four
+columns, gave the state tiles a hold duration, replaced the repeated-quit
+incident with a lifecycle record, endorsed the built menu bar icon over its own
+earlier drawing, and retracted three claims measurement had forbidden — one of
+which ("stored encrypted") this repo had already banned. **4b, the run-queue
+screen, must not be built from its own numbers** — see the run-queue entry
+below.
+
+**The largest live risk is unverified UI.** A great deal is built and very
+little of it has been looked at. Do not treat any of these as done; a session
+that cannot look must leave the criterion unchecked and say so, because several
+sessions have now been burned inferring an on-screen fact from a green test.
+
+The UI work that is blocked on a person at the screen, as of 2026-09-05:
+
+| Task | What needs looking at |
+|---|---|
+| `TASK-65.24` | **Never seen on screen at all**: Settings' four tabs, the mute sheet, the export sheet, All processes |
+| `TASK-65.22` | Apps & Processes — truncated names, a seven-line footer where the design has one, the long tail not aggregated. Partly addressed by the four-column change; needs re-checking against it |
+| `TASK-65.23` | Menu bar icon polish — the glyph sits off-centre in its slot, the badge is illegible at 16 pt |
+| `TASK-65.20` | First run never comes forward under `LSUIElement`, so nobody sees it |
+| `TASK-83` | The Incidents sidebar row is spoken as "1" — the badge has replaced its name |
+| `TASK-97` | The Now and Apps tables may not fit the window's minimum width. The four-column change cut the Apps table's minimum from ~644 pt to ~504 pt, so this may already be resolved — **measure, do not assume** |
+| `TASK-15` | Accessibility baseline (parked, high). Needs a person with VoiceOver; several UI criteria elsewhere wait on it |
+
+Everything built in the 2026-09-03 session — the four-column table, the state
+tiles' hold duration, the severe filled badge — is **tested but unseen**.
 
 - **On-screen verification** is the whole of the critical path. The tasks each
   carry a written, step-by-step check in their notes; TASK-75, TASK-51.1 and
   TASK-65.20 are the ones to do first, in that order, because the other checks
   are only meaningful once the window is the right size.
-- **TASK-78** (decision) — FR-050 post-action verification is built, tested and
-  unreachable. Wire it, or stage it explicitly with a written reason. Every
-  action the app offers is observational, so staging is defensible — but
-  undocumented staging is the exact defect TASK-73 exists to prevent.
+- **TASK-103** (spike, high) — run-queue pressure. Its proposed threshold is
+  **refuted by measurement**; see the run-queue entry under Settled below.
+  Blocked on a deliberately oversubscribed run, which needs the owner's
+  go-ahead because it makes the machine unusable for minutes.
+- **TASK-101** (spike, high) — the six challenges from two weeks of real use.
+  C-01 (demote relaunch), C-02 (run-queue) and C-03 (live surfaces) are
+  answered and acted on. **C-04, C-05 and C-06 are still unanswered.**
+- **TASK-108** — notification volume. The "fewer notifications" dial the owner
+  asked for already exists as `AlertSensitivity.relaxed`; the defect is that
+  nobody can find it. Do not add a second control.
 - **TASK-58** — richer popover over FR-005 history. Large; the user wants to scope
   it in conversation first. **Do not start it unprompted.**
-- **TASK-15** (parked, high) — accessibility baseline. Needs a person with
-  VoiceOver. Several UI criteria elsewhere are parked waiting on it.
+- **TASK-38** — named configuration profiles (FR-025, FR-026). Design 4a argues
+  profiles should be **dropped**: they put a mode switch in the navigation list,
+  so a mis-click silently changes what counts as a slowdown. The build never had
+  them. Needs a decision to close or to keep.
 - **TASK-45** (parked, high) — re-validate every Tier 0 finding on macOS 26.
   Everything measured so far is macOS 27 only, and the spec targets both.
 - **TASK-50** — the Apple DTS question on `sysctl KERN_PROC_ALL`. The user's
   action, not a work item.
+
+Settled on 2026-09-03/05, so nobody re-derives them:
+
+- **The run-queue threshold is refuted.** FR-006's proposed amendment breaches
+  above 2.0 runnable threads per core held for 60 s. Measured: an ordinary
+  capped, nice'd build sits at a **median of 2.87 per core and peaks at 8.68**,
+  breaching 2.0 on 59.2% of samples — a condition that fires whenever you
+  compile. Two further facts outlive the threshold question. **141 of 142**
+  high-queue build samples had pagein above 1 MB/s, so macOS's load average is
+  dominated by uninterruptible I/O waits under load and the condition can never
+  be described as a CPU one. And `getloadavg` is a **1-minute exponentially
+  weighted average** — it held 7.43 for 16 s at build start while CPU busy swung
+  62–78% — so **never put it behind a sub-minute duration threshold**, which
+  counts the same history twice. The founding observation still stands (twelve
+  per core was unusable at 44–51% CPU), so the boundary is real and simply much
+  higher. FR-006's amendment stays **proposed**. `probe/Sources/loadavg-probe.swift`.
+- **Repeated relaunch no longer opens an incident** (FR-046 amendment 5,
+  TASK-102). `IncidentCondition.opensAnIncident` is the rule and the case is
+  the only `false`; `IncidentCondition.opening` is the set the detector
+  watches. The case is **kept, not deleted** — it is in the persisted schema,
+  it still records, and a machine with a genuine crash-loop makes the decision
+  cheap to revisit. Nine days had produced ten of these and no other incident,
+  all ten false.
+- **A notification banner says only what is wrong.** The clause saying what was
+  *not* wrong ("Memory pressure stayed normal") is gone: it spent a banner's
+  last line on a negative finding, and the same clauses are already derived in
+  `IncidentSummary.ruledOut` and shown under "Ruled out" in the incident detail.
+  One fact, one home.
+- **The Apps table is four columns** and the one CPU figure is the 60 s mean,
+  which is also the visible sort key. The instantaneous reading survives as the
+  sparkline's live end and in the accessibility label — never as a second
+  number beside the first, which invites a meaningless subtraction.
+- **Severe fills the menu bar badge.** It was previously separated from an
+  ordinary open incident by colour alone, which FR-034 forbids.
 
 Settled on 2026-08-09, so nobody re-derives them:
 
@@ -352,6 +430,15 @@ Don't build Phase N+1 infrastructure during Phase N.
 Not yet chosen, and not inferable from the repo:
 
 - Whether summaries use an on-device model or deterministic templates (FR-013).
+  The owner is open to it and requires whatever ships in macOS 26/27, so
+  Foundation Models is the candidate. Spike is `TASK-104`, not started.
+- **C-04, C-05 and C-06** of the six challenges (`TASK-101`) are unanswered.
+- Whether run-queue pressure becomes a condition at all, now that its proposed
+  numbers are refuted and its signal turns out to be dominated by I/O wait and
+  smoothed over a minute. The founding observation stands; the mechanism for
+  acting on it does not yet. See `TASK-103`.
+- Whether named configuration profiles (FR-025/FR-026, `TASK-38`) should be
+  dropped, as design 4a argues. The build never had them.
 - Whether to amend the spec for an optional user-installed helper. The Mac App
   Store edition of iStat Menus reaches sensors only through a separately
   downloaded, non-sandboxed binary — the pattern A-03/A-04/FR-037 currently
