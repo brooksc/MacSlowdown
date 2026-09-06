@@ -1,164 +1,125 @@
 # Scenarios
 
-**Status:** draft for product-owner review, 2026-09-05. Not authoritative until folded into `requirements.md`.
+**Status:** draft for product-owner review. Describes what we are trying to accomplish, not how.
 
-Five journeys, written from the user's side: what they are trying to do, what the app does about it, what they see, and how they get to something they can act on. Where a control already exists, it is named. Where one does not, it is marked **not built**.
+Six situations a person is actually in. Each states the issue as they experience it, what they do, what that lets them do next, and what they walk away with. Each also states how it fails — because a monitoring tool is judged as much by an ordinary day as by a bad one, and the ways it loses people are all quiet ones.
 
-Four of the five happened on the owner's machine. The fifth — a healthy Mac, opened anyway — is the most common case by a wide margin and nothing has been designed for it.
-
----
-
-## The interruption contract
-
-The rules the scenarios below assume. Most of this is built; the gaps are named as they arise.
-
-**We interrupt only when all of these hold.** A condition has been breaching for its sustained duration (CPU 180 s by default); the incident's severity is at or above the user's threshold (high, by default); no per-app rule covers the leading contributor; the machine is not in Focus, playing audio, or muted; and we have not already announced this incident.
-
-**One notification per incident**, unless it materially worsens. An episode that runs for an hour interrupts once.
-
-**Confidence gates the interruption; it never appears in it.** A banner that says "we are 60% sure" is worse than silence — it transfers our uncertainty to someone who cannot resolve it. So a low-confidence finding is *recorded and visible in the app*, and does not interrupt. What appears on the banner is only what we measured.
-
-**Never a bare number as an alert.** No load averages, no "CPU 94%" without what it is 94% of.
+No screens, no settings, no thresholds. If a sentence here could only have been written by someone who had seen the code, it does not belong.
 
 ---
 
-## S-1 — Something is wrong and I don't know what
+## S-1 — It's slow right now and I want it to stop
 
-**What the user is trying to do.** Keep working. The Mac has been sluggish for a few minutes and they are about to start closing things at random to see what helps.
+**The issue.** Something is wrong this minute. Typing lags, the fan is up, and the person is about to start quitting things at random to see what helps. They are not curious about their computer; they are trying to get back to work.
 
-**What actually happened.** 2026-08-31: an hour at ~99% of eight cores. The app showed "Your Mac is heavily loaded" directly above "No slowdowns since 11:22 AM" — the sustained clock was being cleared by any single sub-threshold sample (TASK-100, fixed 12:37 that day). Post-fix the same machine opened a 9-minute CPU saturation incident at 100% peak, the first the product ever produced.
+**What they do.** They look, and they expect an answer in a couple of seconds — a name, not a table. If they have to read a chart to find out what is wrong, they have already lost more time than the slowdown was costing them.
 
-**Timeline.**
+**What it enables.** They learn which application is responsible and how sure we are. Then they act on it themselves: switch to it, save their work, quit it, or decide it is worth the wait.
 
-| When | What the app does |
-|---|---|
-| 0:00 | CPU crosses 85% of machine capacity. Nothing is shown. A threshold crossing is not an event. |
-| 0:00–3:00 | Menu bar glyph moves to **elevated** (2 bars). The clock survives dips up to 15 s. |
-| 3:00 | Incident opens. Glyph gains the **ring badge**. One notification. |
-| 3:00+ | Sampling accelerates to ~1 s (FR-031). Evidence is retained before, during and after. |
-| +60 s below threshold | Incident closes. Badge clears. It stays in history for 30 days. |
+**The outcome.** The machine recovers and they know *why* it recovered — so the next time it happens they recognise it in seconds instead of minutes. The lasting value is not the fix; it is that they learned something about their own machine.
 
-**The notification.**
-
-> **CPU saturation for 3 minutes**
-> Severity high. Xcode is the largest measurable contributor.
->
-> `Show details` · `Xcode is usually busy` · `Not now`
-
-The middle action is **not built** — today only *Show details* and *Mute 1 hour* are offered. It matters more than anything else on this page, and S-4 is why.
-
-**Getting to something actionable.** *Show details* opens the incident:
-
-1. **What happened** — the condition, how long, the peak, over what window.
-2. **Who** — contributors as application families, CPU as a 60-second mean, with **"Unattributed system activity — 40% of all busy time, not measurable"** as a first-class row, never a remainder.
-3. **What you can do** — this is the honest part. The app has no process control at all, so the actions are: **Bring Xcode to the front** (so the user can quit it themselves), **Show in Finder**, **Open Activity Monitor**, **Copy diagnostics**. It hands off; it never claims the hand-off worked.
-
-**The actionable step is the user's, and the app should confirm it.** The user quits Xcode. Lifecycle tracking sees the process go, and the app re-measures over a bounded window and reports what it observed — "Total CPU fell from 94% to 31% over the 60 seconds after you quit Xcode. The two line up, but we cannot prove one caused the other."
-
-That closing loop is **not built**. `ActionVerifier` exists, is tested, and is deliberately unwired because every action *the app* offers is observational. But the *user's* action is not, and it is observable. Without this, the product explains and never confirms — and question 5 of §1 ("did that action improve the condition?") is never answered.
+**How it fails.**
+- We name the wrong application, they quit it, and nothing improves. Worse than saying nothing: they lost work and trust at once.
+- We give them a list of five things instead of a leading answer, and they are back to guessing with extra steps.
+- We tell them what is wrong but nothing they can do about it. Informed and powerless is its own frustration.
+- We confirm what they already knew. If they were watching a video export run, we have added nothing.
 
 ---
 
-## S-2 — It's slow and nothing on screen explains it
+## S-2 — It was slow earlier and I don't know if I imagined it
 
-**What the user is trying to do.** Understand why the machine is slow when they aren't running anything heavy. This is where most tools quietly lie by showing the top row of a list that accounts for a third of the activity.
+**The issue.** An hour ago the machine felt wrong. It is fine now. They half-suspect they imagined it, and there is nothing left on screen to check. This is the moment every live gauge fails at, and it is the reason to build this rather than a nicer Activity Monitor.
 
-**Why it happens.** The busy time belongs to processes running as another user — `backupd`, `mds_stores`, `WindowServer`. Measurability is decided by uid exactly: ~40 percentage points of busy CPU are unattributable, and unsandboxing does not fix it. Design `1h` is the screen.
+**What they do.** They open it after the fact and ask what happened while they were not looking.
 
-**The notification.**
+**What it enables.** They see that something did happen — when it started, how long it lasted, what was involved — or that nothing measurable occurred in that window. Both answers are useful. "We watched, and nothing crossed the line" is a real result, not a shrug.
 
-> **CPU saturation for 4 minutes**
-> Severity high. Most of the activity is system processes we cannot identify.
+**The outcome.** Either they stop worrying, or they have a specific thing to watch for. If it turns out to happen every day at the same time, they have found something they could never have caught by looking at a live reading.
 
-**Getting to something actionable.** Here the honest answer is that there is very little the user can do, and saying so plainly is the product's differentiator:
-
-- The unattributed share, named, with **why**: "macOS does not report other users' processes to App Store apps."
-- What we *can* see — likely-benign correlates: a backup running, Spotlight indexing, the disk busy.
-- **Open Activity Monitor**, which runs with privileges we do not have and can name what we cannot.
-
-**The actionable step is "wait, or look in Activity Monitor" — and that is a legitimate answer.** The failure mode to avoid is naming the largest visible contributor as though it were the cause. Users act on that, and they act wrongly.
+**How it fails.**
+- The episode was real but too brief or too mild to have been kept, so we say nothing happened. We have now told them they imagined it, which is worse than silence.
+- We show a record so laden with caveats they cannot tell whether it was serious.
+- The history is full of episodes they never cared about, so the one that mattered is buried among them.
 
 ---
 
-## S-3 — My Mac is thrashing and I have a model loaded
+## S-3 — It's slow and the honest answer is that I can't help
 
-**What the user is trying to do.** Run a local language model on a 24 GB machine and keep working. Two memory-pressure incidents were recorded after the detector fix, at 28 and 13 minutes.
+**The issue.** The machine is genuinely struggling, and the cause is the operating system doing something the user has no control over and we cannot even name — indexing, backing up, syncing. A large share of what makes any busy Mac slow is simply not visible to an app distributed the way this one is, and no amount of cleverness changes that.
 
-**Timeline.** Memory pressure differs from CPU in one way that matters: the kernel pushes transitions to us through a dispatch source, so pressure reaches the interface within ~2 s even when the sampling loop is behind (FR-007). Sustained duration is 90 s.
+**What they do.** They ask what is going on, expecting a culprit.
 
-**The notification.**
+**What it enables.** They learn that the load is real, that it is not one of their applications, and that it will likely end on its own. They also learn, plainly, that some of what is happening cannot be attributed at all — and why.
 
-> **Memory pressure for 2 minutes**
-> Severity high. LM Studio holds the most resident memory.
+**The outcome.** They stop hunting. They stop quitting applications that were never the problem. They wait, or go and get a coffee, and that is a good outcome even though we fixed nothing.
 
-**Getting to something actionable.** This is the one scenario where the user has a genuinely effective move, and the app should make it obvious:
-
-- Pressure level and **how long it has held** — built.
-- Swap and paging as rates from counter deltas, never a cumulative total.
-- Resident memory by family, labelled **resident size** — not the footprint Activity Monitor shows, so our numbers will legitimately differ and we say so.
-- **FR-056** (drafted, awaiting review) is exactly the right action here: name the memory-holding applications the user is *not currently working in*. "You have not used Photos in 3 hours; it holds 1.1 GB." That is a decision the user can make in a second, and it is the only place this product can offer a genuinely useful action rather than an explanation.
-
-**Must never say** memory was "freed", that cached memory is wasted, or that growth is a leak. It is a suspected anomaly with ordinary explanations.
+**How it fails.**
+- We name the largest thing we *can* see as though it were the cause. This is the most dangerous failure in the product: confidently wrong, entirely plausible, and people act on it.
+- We hedge so heavily the answer reads as "we don't know", when in fact we knew something useful — that it was not their fault.
+- We present the unexplained portion as a rounding error rather than as the largest single thing on the screen.
 
 ---
 
-## S-4 — The alert that fires every time I compile
+## S-4 — I'm doing something heavy on purpose
 
-**This is the scenario that decides whether the product survives on this machine.**
+**The issue.** They are compiling, exporting video, or running a model. The machine is flat out and that is entirely intended. Nothing is wrong. From the outside this is indistinguishable from S-1 — same load, same duration, same everything — and the only difference is in the person's head.
 
-**What the user is trying to do.** Build their project, capped at six jobs and `nice`d. CPU busy median 63%, peaking at 100% for four minutes. **The machine is not slow. It is working.** But it is indistinguishable from S-1 by threshold alone.
+**What they do.** Ideally nothing. They should not have to think about us at all.
 
-**What happens today.** The build runs long enough and hot enough to open a CPU saturation incident, and the user gets a banner for something they started deliberately. FR-046 produced ten false positives in nine days and the owner's response was to question the whole feature. That is the pattern to avoid: **people don't tune noisy software, they turn it off.**
+**What it enables.** If we do speak up, one gesture should end that conversation permanently for this kind of work — not quieten us generally, but teach us that *this* is normal.
 
-**The fix is targeted, not global.** Three layers, in the order they should be reached for:
+**The outcome.** They keep the app installed. That is the whole outcome, and it is not a small one.
 
-**1. Per-app rules — the primary control.** `PolicyClassification.expected` already exists and `NotificationPolicy` already suppresses on it: heavy load from that app is recorded but never interrupts. The gap is that it is only reachable from Settings, and nobody goes to Settings to fix a notification. **Offer it in the notification itself** — `Xcode is usually busy` — one tap, at the moment of annoyance. This kills one false-positive class permanently without dulling anything else, which is what a global control cannot do.
-
-**2. The verdict tap — how the product learns.** Every incident carries two buttons: **This was a real slowdown** / **This was fine**. Stored locally as user-provided evidence (FR-038, FR-039). Two purposes, one gesture: it gives the product a true-positive rate it has never had, and it lets the app notice it is being noisy.
-
-**3. The sensitivity setting — the backstop.** `AlertSensitivity` already exists with three options. It should be reachable from the notification and restated in plain words:
-
-| Setting | Alerts when | Sustained for |
-|---|---|---|
-| Only when it's bad | Severe only | 5 min |
-| **Balanced** (default) | High or worse | 3 min |
-| Tell me early | Moderate or worse | 1 min |
-
-**Three named options, not a continuous slider.** A slider's intermediate positions mean nothing the user can predict, and they cannot tell what they will get until they have lived with it. Three options each restate what they do, in a sentence generated from the thresholds themselves so the words cannot drift from the behaviour — `AlertSensitivity.restatement` already does this.
-
-**The app should ask before the user gives up.** After three "This was fine" verdicts in a week:
-
-> **Alerting less often?**
-> You've marked 3 of the last 5 alerts as fine. Alert only when it's bad?
->
-> `Yes, alert less` · `Keep as is`
-
-This is the whole point of layer 2. Reaching for the system notification switch is the failure we are designing against, and the app noticing first is the only thing that prevents it. **All three of these are not built** — the rules and the dial exist, their placement does not, and the verdict does not exist at all.
-
-**Pass for this scenario:** a capped build produces no notification, and after one *Xcode is usually busy* tap it never produces one again.
+**How it fails.**
+- We interrupt them for work they deliberately started. Every such interruption is a withdrawal from an account that is never topped up.
+- The only remedy we offer is a blunt one — be less sensitive overall — so avoiding the annoyance costs them the alerts they actually wanted.
+- The remedy exists but sits somewhere they would have to go looking for it while irritated. Nobody goes looking while irritated. They turn the thing off.
 
 ---
 
-## S-5 — Nothing is wrong and I opened it anyway
+## S-5 — You told me something I didn't need to hear
 
-**What the user is trying to do.** Satisfy a suspicion. They think the fan is loud, or the machine felt off an hour ago, or they are simply curious. **This is the most common scenario by a wide margin and nothing has been designed for it.** `1a` shows a healthy popover; no screen describes what the app is *for* on a good day.
+**The issue.** We interrupted, and we were wrong — or right but pointless. Maybe it was expected work, maybe it passed before they looked, maybe it was never their problem. This will happen. The question is not whether we produce false alarms but what happens on the third one.
 
-**What they should get.**
+**What they do.** They dismiss it, and they form a judgement about whether we are worth listening to. Most people will not go and configure anything. They will start ignoring us, and then silence us.
 
-- **A settled state, with how long it has held** — "Working normally · 22 min at this state" — built this week. A state word alone says nothing about whether it is steady or changed four seconds ago.
-- **What was observed and for how long**, so "nothing found" is distinguishable from "not watching yet".
-- **The recent past.** The single most valuable thing here: "Nothing since 11:22 this morning, when Xcode ran hot for 9 minutes." That answers *"was I imagining it an hour ago?"* — which is the actual question, and the one thing a live gauge like iStat Menus cannot answer.
+**What it enables.** The cheapest possible way to tell us we got it wrong — one gesture, right where the annoyance is. And symmetrically a way to tell us we got it right, so the two are comparable.
 
-**Must not say** that the Mac is fine in absolute terms — only that nothing was observed. Must not invent activity to look useful, or draw a flat line where no series is retained.
+**The outcome.** We interrupt less, and specifically less about the thing they did not care about. Over a couple of weeks the alerts they get are ones they wanted. And we come to know how often we are right, which today nobody knows — including us.
 
-**This is where the product's memory earns its keep**, and it is the weakest screen today. A user who opens the app on a good day and learns nothing stops opening it, and then the incident history has no audience when it finally matters.
+**How it fails.**
+- We never ask, so we never learn, and the only signal we get is the user leaving.
+- We ask too often, and the asking becomes the noise.
+- We treat every correction as "be quieter overall", so someone who did not want to hear about compiles stops hearing about running out of memory too.
+- We wait for them to find a setting. By the time a person opens a preferences window to fix notifications, they have usually already decided against us.
 
 ---
 
-## What these scenarios expose
+## S-6 — Nothing is wrong and I looked anyway
 
-- **The most important missing control is one tap in a notification.** Per-app "expected" rules exist and work; they are reachable only from a screen nobody visits while annoyed. Fixing placement is cheap and addresses S-4 directly.
-- **Nothing records whether an alert was right.** Every "false positive" in this project is one person's after-the-fact judgement, written in a task note. Without the verdict tap there is no true-positive rate, no false-positive budget, and no way to close S-1 versus S-4 with evidence rather than argument.
-- **S-1 and S-4 are the same measurement.** Both are "very busy for minutes". Only the user knows which was which, so the product must ask rather than tune thresholds blind.
-- **The loop never closes.** The user's own action is observable and is never verified, so §1's fifth question is unanswered in every scenario above.
-- **S-5 has no requirement and no screen**, and it is the scenario that decides whether the app is still installed when S-1 happens.
+**The issue.** Nothing is happening. They opened it out of habit, or curiosity, or a vague sense the machine has been off lately. **This is what almost every visit looks like**, and it decides whether the app is still installed on the day it finally matters.
+
+**What they do.** They glance for a few seconds and expect to be told, credibly, that things are fine.
+
+**What it enables.** Reassurance actually worth something — not a green light that would look identical if we had stopped working an hour ago. They should be able to tell "we have been watching and nothing crossed the line" from "we have not been watching". And they should learn one thing they did not know: the machine has been steady all morning, or it was busy over lunch and has settled since.
+
+**The outcome.** A small, repeated deposit of trust. They believe us on a good day, which is the only reason they will believe us on a bad one.
+
+**How it fails.**
+- A flat "everything is fine" with nothing behind it. Indistinguishable from a broken app showing a default state, and worth nothing on the day it says something else.
+- Nothing to look at, so no reason to open it again, so it is not open when it matters.
+- We manufacture interest — dramatic charts of an idle machine — and the reassurance becomes untrustworthy in the other direction.
+
+---
+
+## What runs underneath all six
+
+**Being wrong costs more than being silent.** A missed slowdown is a disappointment; a confident wrong answer sends someone to quit the wrong application. Where we are unsure, the useful move is to narrow the question rather than guess at the answer.
+
+**Part of the truth is that we cannot see.** A significant share of what makes a Mac slow is invisible to us. Saying so clearly is not an apology — it is what separates us from tools that quietly present a partial list as a complete one.
+
+**Interrupting is the only thing we can truly get wrong.** Everything else waits until someone chooses to look. An alert takes attention without asking, so it needs a higher standard than anything on a screen the user opened deliberately.
+
+**We do not know how often we are right.** Every judgement about whether an alert was useful has been made after the fact, from memory, by one person. Until the product can hear "that was useful" and "that was not", every threshold in it is set by argument rather than evidence — and the noise problem cannot be solved, only guessed at.
+
+**The most common experience is that nothing is wrong.** A product designed only for the bad day gets uninstalled before the bad day arrives.
