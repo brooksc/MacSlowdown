@@ -40,6 +40,17 @@ The app-hosted bundle occasionally fails to bootstrap under load
 ("Early unexpected exit"). Re-run before investigating; it is the test runner,
 not the product.
 
+**The governing product decision, 2026-09-06.** Two independent product reviews
+converged: **a measured resource condition is not a slowdown the user
+experienced.** The product measures resources and reports them as slowdowns, and
+no threshold, duration or attribution work closes that gap because the gap is not
+measurement error. A capped build and a real slowdown are the same measurement;
+only the person knows which is which. This governs copy everywhere (FR-063),
+makes sustained CPU load record-but-not-announce by default (FR-014 amendment 1),
+and is why the next substantive feature is the user telling *us* it feels slow
+(FR-064) rather than any further tuning of what we detect. Plan and tasks:
+TASK-109 through TASK-116. **Do not expand scope before TASK-114 reports.**
+
 **Reviewing rather than building?** `REVIEW.md` is a reading order that starts at
 the thesis and the scenarios, then the approach, then the implementation, and names
 where the weak joints are. It is a map, not an authority.

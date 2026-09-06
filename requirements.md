@@ -1,8 +1,10 @@
 # MacSlowdown — Product Definition and Functional Requirements
 
 **Document status:** Greenfield product specification  
-**Version:** 1.4  
-**Last updated:** September 5, 2026
+**Version:** 1.5  
+**Last updated:** September 6, 2026
+
+> **Revision note (1.5):** amended after two independent product reviews. The governing change is that **a measured resource condition is not a slowdown** — §1.2's success definition is rewritten around supporting a decision rather than around reading an incident, and FR-063 to FR-065 are added: the condition/experience distinction, user-reported slowdowns, and the rule that measurement, attribution and impact confidence may not collapse into one claim. FR-011 and FR-014 are amended so sustained CPU load is recorded but does not interrupt by default. FR-016's per-application suppression is narrowed to a condition type. No requirement was removed.
 
 > **Revision note (1.4):** amended after the first three challenges were answered and
 > two of them built. FR-006's run-queue amendment carries the measurement that refutes
@@ -60,7 +62,13 @@ MacSlowdown should continuously and locally observe performance-related conditio
 
 ## 1.2 Product success definition
 
-MacSlowdown succeeds when a user can open an incident and understand, in plain language, what measurable condition occurred, which applications were associated with it, how confident the diagnosis is, and what happened after any user-directed action. It does not need to guarantee that every slowdown can be diagnosed or fixed. Unavailable measurements, ambiguous attribution, and unsupported actions must be stated explicitly.
+**Revised in v1.5.** MacSlowdown succeeds when a user investigating a slowdown can quickly understand the observed conditions and their limits, choose an appropriate next step, and tell whether their experience improved — without unwanted interruptions during work they expected to be heavy.
+
+It does not need to guarantee that every slowdown can be diagnosed or fixed. Unavailable measurements, ambiguous attribution and unsupported actions must be stated explicitly.
+
+> **Why this changed.** The previous definition was *"a user can open an incident and understand what happened."* Two independent reviews found the same fault from different directions: it names an intermediate usability result rather than an outcome. A user who reads an incident and understands it perfectly, and then does nothing differently, has not been helped. It also placed success entirely in the retrospective surface, when the first question a person asks on opening the app is usually whether the problem is still happening.
+>
+> The new definition is deliberately harder to satisfy. It requires a decision to have been supported, and it makes unwanted interruption a *failure of the product*, not a settings problem for the user.
 
 # 2. Purpose and product boundary
 
@@ -443,6 +451,23 @@ deadband so it does not oscillate at a boundary.
 | Open questions or assumptions | Default severity and Focus behavior.                                                                                    |
 | Human-review status           | Approved                                                                                                                |
 
+**Amendment 1 — sustained CPU load is recorded but does not interrupt by default (2026-09-06).**
+
+Under FR-063 a resource condition is not a slowdown, and CPU load is the condition where the two diverge most: on a developer's machine the most common cause of sustained high CPU is work the user started deliberately. Interrupting for it tells the user we have misread their work, and every such interruption spends trust that is never repaid.
+
+So the default interruption policy is:
+
+| Condition | Default |
+|---|---|
+| Sustained CPU load | **Recorded, not announced.** Visible on the live surfaces and in history; the user may opt in to announcements. |
+| Sustained memory pressure | **Announced**, because a plausible decision attaches to it — something can be closed, and the machine's behaviour will change. |
+| Low storage | **Announced.** Actionable and unambiguous. |
+| Thermal pressure | **Recorded, not announced** by default; the machine's own behaviour already signals it. |
+
+The test for whether a condition may interrupt is not its severity but whether **a decision plausibly attaches to it**. A condition the user can do nothing about, or that they caused on purpose, is recorded.
+
+**This is a bet with a known risk.** A product that rarely interrupts may rarely be opened, and "opt-in" and "off" are close to the same thing in practice. FR-064's user-reported slowdowns are what will settle whether the default is right; until then it is deliberately conservative, because a noisy product is uninstalled and a quiet one is merely underused.
+
 ## FR-015 — The system shall allow warnings to be muted for a selected duration and allow automatic controls to be temporarily disabled.
 
 | **Field**                     | **Specification**                                                                                                            |
@@ -476,6 +501,17 @@ deadband so it does not oscillate at a boundary.
 | Design freedom                | Policy model and labels are open.                                                          |
 | Open questions or assumptions | Bundle changes and unsigned executables.                                                   |
 | Human-review status           | Approved                                                                                   |
+
+**Amendment 1 — suppression is scoped to a condition, not to an application (2026-09-06).**
+
+"This application's heavy load is expected" is not the same claim as "this application can never cause a problem", and the product must not treat the first as the second. An application marked expected for CPU load must still be able to appear in a memory-pressure finding.
+
+Two further constraints, both from the same review:
+
+- **Suppression keyed on the leading measurable contributor is unstable.** The ranking it depends on is incomplete by construction (FR-055), so a small change in ranking could decide whether otherwise identical conditions announce. A rule must therefore name what it suppresses — a condition type for an application — and its scope must be visible and reversible wherever it was set.
+- **A session-scoped option is required alongside the permanent one.** "Quiet for this work session" covers the common case, which is a person doing something heavy now rather than always.
+
+**Acceptance criteria (added).** A rule states the condition it suppresses; a rule for one condition never suppresses another; every rule is visible and reversible from a single place; a session-scoped rule expires without the user having to remember it.
 
 ## FR-017 — The system shall provide safe user-directed process actions that are available under the current distribution and permission model.
 
@@ -1332,6 +1368,61 @@ Origin and fuller reasoning: `design/live-surfaces.md`.
 | Design freedom                | How an absence is explained is open. |
 | Open questions or assumptions | "Show fileproviderd" was offered for a daemon that cannot be activated, at three sites, and fixed at one of them twice. |
 | Human-review status           | Approved 2026-08-31 (challenge C-03) |
+
+### The condition/experience distinction (FR-063 to FR-065)
+
+Added in v1.5 after two independent reviews reached the same conclusion by different routes: the product measures resource conditions and reports them as slowdowns, and no amount of threshold, duration or attribution work closes the gap, because the gap is not measurement error.
+
+## FR-063 — A measured resource condition shall not be presented as a slowdown the user experienced
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-063 |
+| Requirement statement | A measured resource condition shall not be presented as a slowdown the user experienced. |
+| User or system objective      | A machine at capacity because someone started a compile and a machine at capacity while someone waits are the same measurement and opposite events. Reporting the first as a problem tells the user we misunderstand their work. |
+| Preconditions                 | A resource condition has been detected. |
+| Trigger                       | Any surface describes that condition to the user. |
+| Expected behavior             | Copy states what was measured and over what interval — "CPU stayed near capacity for 3 minutes" — and does not assert that the machine was slow, that anything was wrong, or that an application was responsible for a degraded experience. Severity describes the measurement, never the impact. Where the user has reported experiencing a slowdown (FR-064), that report may be presented alongside the condition, and the two remain separately labelled. |
+| Expected outcome              | A user doing deliberate heavy work is never told their intended work is a problem. |
+| Acceptance criteria           | No notification, headline or summary asserts impaired responsiveness from resource measurements alone; a condition and a user-reported experience are distinguishable wherever both appear; severity wording is not used as a proxy for user impact. |
+| Confidence level              | High |
+| Design freedom                | Wording and presentation are open, provided the two claims stay distinct. |
+| Open questions or assumptions | Apple's own documentation describes elevated CPU during intensive calculation as expected. The product's five questions in §1 remain the right questions; this requirement governs how their answers may be phrased. |
+| Human-review status           | Approved 2026-09-06 |
+
+## FR-064 — The user shall be able to report a slowdown as they experience it, and evidence shall be preserved regardless of detection
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-064 |
+| Requirement statement | The user shall be able to report a slowdown at the moment they experience it, and the system shall preserve the surrounding evidence whether or not any condition was detected. |
+| User or system objective      | The product cannot currently distinguish a busy machine from a slow one and has no instrument that would let it learn. Detection-side feedback can only measure how often detected events were judged useful; it can never measure events that were missed. A user-initiated report samples the population that matters. |
+| Preconditions                 | Monitoring is running. |
+| Trigger                       | The user reports a slowdown now, or reports that one occurred recently. |
+| Expected behavior             | The report is recorded locally with the evidence surrounding it, on the same footing as an incident, and marked as user-provided under FR-038. A report that coincides with no detected condition is retained and is a first-class result, not an error. The user is not required to classify or explain the slowdown. |
+| Expected outcome              | The product accumulates evidence about slowdowns it did not detect, which is the only route to knowing its recall. |
+| Acceptance criteria           | A report can be made in one gesture from a persistently reachable surface; evidence around the report is retained under the same retention and privacy rules as an incident (FR-029); a report with no matching condition is preserved and shown; nothing about a report is transmitted off the machine. |
+| Confidence level              | High |
+| Design freedom                | Where the control lives, and whether a retrospective report offers a time window, are open. |
+| Open questions or assumptions | Whether a separate "was this alert useful?" judgement is also collected is deliberately left open — it answers a different question from "was this a slowdown?", and a real slowdown can still produce an unhelpful alert. |
+| Human-review status           | Approved 2026-09-06 |
+
+## FR-065 — Confidence in measurement, in attribution and in user impact shall be stated separately
+
+| **Field**                     | **Specification** |
+|-------------------------------|-------------------|
+| Requirement ID                | FR-065 |
+| Requirement statement | Confidence in what was measured, in which application it is attributed to, and in whether the user was affected, shall not be combined into a single claim or a single score. |
+| User or system objective      | "Sustained memory pressure was measured" and "Xcode is slowing your Mac" differ in three independent ways, and a product that collapses them will be confidently wrong in the one direction that costs most — sending someone to quit the wrong application. |
+| Preconditions                 | A statement is being made about a condition, a contributor, or an effect. |
+| Trigger                       | Any surface makes such a statement. |
+| Expected behavior             | The three are expressed independently and may differ: a measurement may be certain while its attribution is a hypothesis and its user impact is unknown. Numerical confidence scores are not shown to the user; the distinction is carried in wording, consistent with FR-038's evidence classes. |
+| Expected outcome              | A reader can tell what we measured from what we inferred from what we are guessing about their experience. |
+| Acceptance criteria           | No single label or score stands for all three; a high-confidence measurement never confers confidence on its attribution; no statement about user impact is made from resource measurements alone (FR-063). |
+| Confidence level              | High |
+| Design freedom                | The vocabulary is open, provided the three remain separable. |
+| Open questions or assumptions | Withholding a numerical score is deliberate and is not the same as withholding uncertainty; the uncertainty that matters is expressed in words. |
+| Human-review status           | Approved 2026-09-06 |
 
 # 6. Conceptual data requirements
 

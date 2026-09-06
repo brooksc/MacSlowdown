@@ -2,7 +2,7 @@
 
 **Status:** draft for product-owner review. Describes what we are trying to accomplish, not how.
 
-Six situations a person is actually in. Each states the issue as they experience it, what they do, what that lets them do next, and what they walk away with. Each also states how it fails — because a monitoring tool is judged as much by an ordinary day as by a bad one, and the ways it loses people are all quiet ones.
+Seven situations a person is actually in. Each states the issue as they experience it, what they do, what that lets them do next, and what they walk away with. Each also states how it fails — because a monitoring tool is judged as much by an ordinary day as by a bad one, and the ways it loses people are all quiet ones.
 
 No screens, no settings, no thresholds. If a sentence here could only have been written by someone who had seen the code, it does not belong.
 
@@ -64,6 +64,8 @@ No screens, no settings, no thresholds. If a sentence here could only have been 
 
 **The issue.** They are compiling, exporting video, or running a model. The machine is flat out and that is entirely intended. Nothing is wrong. From the outside this is indistinguishable from S-1 — same load, same duration, same everything — and the only difference is in the person's head.
 
+**This is not a tuning problem.** It is tempting to read it as one: raise a threshold, lengthen a duration, attribute more carefully. None of that helps, because the two situations are not separated by anything we can measure. If we tell this person their machine has a problem, we have not been too sensitive — we have misunderstood what they were doing, and told them so.
+
 **What they do.** Ideally nothing. They should not have to think about us at all.
 
 **What it enables.** If we do speak up, one gesture should end that conversation permanently for this kind of work — not quieten us generally, but teach us that *this* is normal.
@@ -72,6 +74,7 @@ No screens, no settings, no thresholds. If a sentence here could only have been 
 
 **How it fails.**
 - We interrupt them for work they deliberately started. Every such interruption is a withdrawal from an account that is never topped up.
+- We call their intended work a problem, and then ask *them* to correct our misunderstanding. The apology is the insult.
 - The only remedy we offer is a blunt one — be less sensitive overall — so avoiding the annoyance costs them the alerts they actually wanted.
 - The remedy exists but sits somewhere they would have to go looking for it while irritated. Nobody goes looking while irritated. They turn the thing off.
 
@@ -112,7 +115,25 @@ No screens, no settings, no thresholds. If a sentence here could only have been 
 
 ---
 
-## What runs underneath all six
+## S-7 — It's slow and you're telling me everything is fine
+
+**The issue.** The machine is unmistakably struggling — the beachball, an application that will not respond, everything taking a beat too long — and nothing we watch has crossed a line. Perhaps we cannot see the cause. Perhaps the thing that is slow is not a resource at all. This is the scenario where the user is right and we are wrong, and it is the one we currently have no way to even find out about.
+
+**What they do.** They tell us. Not by configuring anything — by saying, in one gesture, *it's slow now*.
+
+**What it enables.** For them: a marker in the record, so when it happens again there is something to compare against, and so the question stops being "did I imagine it" and becomes "what was different those three times". For us: the only evidence that exists about the slowdowns we miss entirely.
+
+**The outcome.** They feel heard rather than contradicted, which is the difference between a tool that watches the machine and one that argues with its owner. And over weeks, the gap between what people experience and what we detect becomes something we can actually see.
+
+**How it fails.**
+- We ask them to describe or categorise it. They are trying to get back to work; the moment it costs them a form, they stop telling us.
+- We record it and never refer to it again, so the gesture was extractive — we took data and gave nothing back.
+- We respond by insisting nothing was wrong. Everything we measured may well have looked normal; that is a fact about our instruments, not about their afternoon.
+- The control is not there when they need it, because it lives somewhere they have to go and find while frustrated.
+
+---
+
+## What runs underneath all seven
 
 **Being wrong costs more than being silent.** A missed slowdown is a disappointment; a confident wrong answer sends someone to quit the wrong application. Where we are unsure, the useful move is to narrow the question rather than guess at the answer.
 
@@ -120,6 +141,8 @@ No screens, no settings, no thresholds. If a sentence here could only have been 
 
 **Interrupting is the only thing we can truly get wrong.** Everything else waits until someone chooses to look. An alert takes attention without asking, so it needs a higher standard than anything on a screen the user opened deliberately.
 
-**We do not know how often we are right.** Every judgement about whether an alert was useful has been made after the fact, from memory, by one person. Until the product can hear "that was useful" and "that was not", every threshold in it is set by argument rather than evidence — and the noise problem cannot be solved, only guessed at.
+**A busy machine and a slow machine are not the same thing, and we cannot tell them apart.** This is the deepest problem in the product. Every measurement we take is of a resource; every claim a user cares about is about their experience. The two coincide often enough to be tempting and diverge often enough to be dangerous. We should say what we measured and let that stand, rather than translating it into a claim about how their day went.
+
+**We do not know how often we are right, and asking about our own alerts would not tell us.** Judging the alerts we sent can only measure the ones we sent. It says nothing about the afternoons someone lost while we recorded nothing unusual — and those are the failures that lose a user for good. Only the person can tell us about those, and only if telling us is free.
 
 **The most common experience is that nothing is wrong.** A product designed only for the bad day gets uninstalled before the bad day arrives.
