@@ -11,8 +11,8 @@ public enum FamilyMembership: Sendable, Equatable {
     case certain
     /// The executable lives inside the bundle, but the signature does not
     /// corroborate it. Real example from the Tier 0 spike: `node_repl` and
-    /// `codex-code-mode` executing from inside ChatGPT.app. Attributing them to
-    /// ChatGPT is defensible but not certain.
+    /// `assistant-helper` executing from inside AssistantApp.app. Attributing them to
+    /// AssistantApp is defensible but not certain.
     case uncertain(reason: String)
     /// The process was spawned by the application it is grouped under.
     ///
@@ -129,7 +129,7 @@ public enum FamilyGrouper {
             ProcessFamily(
                 id: path,
                 // Prefer the bundle's own declared name over its folder name:
-                // "Helium" rather than a path component that happens to match.
+                // "BrowserApp" rather than a path component that happens to match.
                 //
                 // Only members that live inside the bundle may name it. A process
                 // grouped here because the application started it carries its own

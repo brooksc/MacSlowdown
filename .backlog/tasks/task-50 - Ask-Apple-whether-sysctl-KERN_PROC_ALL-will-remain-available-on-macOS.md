@@ -16,7 +16,7 @@ priority: low
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Follows decision-1, which accepted the risk and proceeded. This gates nothing; it is worth asking only because the answer is cheap and would let us plan rather than react.
 
-Frame it as durability, not permission. The review question found no rejection precedent and is largely settled by iStat Menus 7 and Pulse shipping per-process CPU on the Mac App Store. The sharper question is:
+Frame it as durability, not permission. The review question found no rejection precedent and is largely settled by a third-party menu bar monitor 7 and Pulse shipping per-process CPU on the Mac App Store. The sharper question is:
 
   Apple withdrew sysctl CTL_KERN/KERN_PROC/KERN_PROC_ALL on iOS 9, stating that
   apps are not permitted to see what other apps are running. Is that API expected

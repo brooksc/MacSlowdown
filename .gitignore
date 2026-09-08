@@ -18,3 +18,12 @@ Derived/
 
 # Agent worktrees (isolation dirs, not project content)
 .claude/worktrees/
+
+# Screen captures of a real machine.
+#
+# A screenshot of this app is a process inventory: every application running,
+# with pids and start times. That identifies the machine it came from, and it
+# is the exact thing FR-029 and A-05 forbid the app itself from transmitting.
+# Verification captures stay local; the design renders in design/screens/ show
+# every screen with invented data and are what belongs in the repo.
+screenshots/

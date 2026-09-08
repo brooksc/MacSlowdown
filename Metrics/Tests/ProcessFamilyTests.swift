@@ -40,13 +40,13 @@ private func fixture(
 /// A browser-shaped fixture: one main process plus helpers nested in the bundle.
 private func browserFixtures() -> [(record: ProcessRecord, resolved: ResolvedIdentity)] {
     [
-        fixture("Helium", path: "/Applications/Helium.app/Contents/MacOS/Helium",
+        fixture("BrowserApp", path: "/Applications/BrowserApp.app/Contents/MacOS/BrowserApp",
                 bundleID: "net.imput.helium"),
-        fixture("Helium Helper (Renderer)",
-                path: "/Applications/Helium.app/Contents/Frameworks/Helium Helper.app/Contents/MacOS/Helium Helper",
+        fixture("BrowserApp Helper (Renderer)",
+                path: "/Applications/BrowserApp.app/Contents/Frameworks/BrowserApp Helper.app/Contents/MacOS/BrowserApp Helper",
                 bundleID: "net.imput.helium.helper.renderer"),
-        fixture("Helium Helper (GPU)",
-                path: "/Applications/Helium.app/Contents/Frameworks/Helium Helper.app/Contents/MacOS/Helium Helper",
+        fixture("BrowserApp Helper (GPU)",
+                path: "/Applications/BrowserApp.app/Contents/Frameworks/BrowserApp Helper.app/Contents/MacOS/BrowserApp Helper",
                 bundleID: "net.imput.helium.helper.gpu"),
     ]
 }
@@ -60,10 +60,10 @@ struct FamilyGroupingTests {
     @Test("Browser helpers aggregate under the parent application")
     func browserHelpersAggregate() throws {
         let families = FamilyGrouper.group(browserFixtures())
-        let helium = try #require(families.first { $0.displayName == "Helium" })
+        let helium = try #require(families.first { $0.displayName == "BrowserApp" })
 
         #expect(helium.members.count == 3)
-        #expect(helium.bundlePath == "/Applications/Helium.app")
+        #expect(helium.bundlePath == "/Applications/BrowserApp.app")
         #expect(families.count == 1, "helpers should not form their own families")
     }
 
@@ -112,14 +112,14 @@ struct FamilyGroupingTests {
     @Test("A subprocess signed differently is grouped but labeled uncertain")
     func foreignSubprocessIsLabeled() throws {
         let families = FamilyGrouper.group([
-            fixture("ChatGPT", path: "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT",
-                    bundleID: "com.openai.chat"),
+            fixture("AssistantApp", path: "/Applications/AssistantApp.app/Contents/MacOS/AssistantApp",
+                    bundleID: "com.example.assistant"),
             fixture("node_repl",
-                    path: "/Applications/ChatGPT.app/Contents/Resources/node/bin/node_repl",
+                    path: "/Applications/AssistantApp.app/Contents/Resources/node/bin/node_repl",
                     bundleID: "org.nodejs.node"),
         ])
 
-        let chatGPT = try #require(families.first { $0.displayName == "ChatGPT" })
+        let chatGPT = try #require(families.first { $0.displayName == "AssistantApp" })
         #expect(chatGPT.members.count == 2)
         #expect(chatGPT.hasUncertainMembers)
 
@@ -130,7 +130,7 @@ struct FamilyGroupingTests {
         }
         #expect(reason.contains("org.nodejs.node"))
 
-        let main = try #require(chatGPT.members.first { $0.record.command == "ChatGPT" })
+        let main = try #require(chatGPT.members.first { $0.record.command == "AssistantApp" })
         #expect(main.membership == .certain)
     }
 
@@ -160,10 +160,10 @@ struct FamilyGroupingTests {
     @Test("Processes whose metrics are denied remain visible in the family")
     func deniedMembersStayVisible() throws {
         let families = FamilyGrouper.group([
-            fixture("Helium", path: "/Applications/Helium.app/Contents/MacOS/Helium",
+            fixture("BrowserApp", path: "/Applications/BrowserApp.app/Contents/MacOS/BrowserApp",
                     bundleID: "net.imput.helium"),
-            fixture("Helium Helper",
-                    path: "/Applications/Helium.app/Contents/Frameworks/Helium Helper.app/Contents/MacOS/Helium Helper",
+            fixture("BrowserApp Helper",
+                    path: "/Applications/BrowserApp.app/Contents/Frameworks/BrowserApp Helper.app/Contents/MacOS/BrowserApp Helper",
                     bundleID: "net.imput.helium.helper", measurable: false),
         ])
         let helium = try #require(families.first)
@@ -194,10 +194,10 @@ struct GroupingOverrideTests {
     func mergeInto() throws {
         let daemon = fixture("updater", path: "/usr/local/bin/updater", bundleID: nil, teamID: nil)
         let overrides = GroupingOverrides(
-            attached: [daemon.record.identity: "/Applications/Helium.app"])
+            attached: [daemon.record.identity: "/Applications/BrowserApp.app"])
 
         let families = FamilyGrouper.group(browserFixtures() + [daemon], overrides: overrides)
-        let helium = try #require(families.first { $0.displayName == "Helium" })
+        let helium = try #require(families.first { $0.displayName == "BrowserApp" })
 
         #expect(helium.members.count == 4)
         let merged = try #require(helium.members.first { $0.record.command == "updater" })

@@ -486,7 +486,7 @@ final class MonitorStore {
     /// Served from the identity resolver's cache, so this costs a dictionary
     /// lookup rather than filesystem work. Views call it; nothing computes a name
     /// of its own, or the popover, the table and the notification would drift
-    /// apart — which is exactly how the popover came to show "Spotify Helper (".
+    /// apart — which is exactly how the popover came to show "MediaApp Helper (".
     func displayName(for usage: ProcessCPUUsage) -> String { usage.label }
 
     /// The application's own icon, or nil. Nil means "no icon", never a generic

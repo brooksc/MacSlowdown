@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// Turns a process into a name a person recognises (FR-003, FR-013).
 ///
 /// The kernel's `p_comm` is truncated to 16 bytes, which produces names like
-/// `Spotify Helper (` and `Helium Helper (R` — cut mid-word, with nothing to say
+/// `MediaApp Helper (` and `BrowserApp Helper (R` — cut mid-word, with nothing to say
 /// anything was lost. Presenting that as the name breaks FR-002's rule that a
 /// value we cannot fully report is labelled rather than quietly abbreviated.
 ///
@@ -34,7 +34,7 @@ public enum ProcessNaming {
     /// The command as it should be shown when nothing better exists.
     ///
     /// An ellipsis is how truncation is conventionally signalled, and it is the
-    /// difference between "this process is called `Spotify Helper (`" and "this
+    /// difference between "this process is called `MediaApp Helper (`" and "this
     /// name was cut off".
     ///
     /// Some commands are not names at all — a bare version number, or a reverse-DNS
@@ -270,7 +270,7 @@ public enum ProcessNaming {
 /// and imply we identified something we did not.
 @MainActor
 public final class ProcessIconCache {
-    /// Cached by bundle path rather than by process: every Helium helper shares
+    /// Cached by bundle path rather than by process: every BrowserApp helper shares
     /// one icon, and the table redraws on every sample.
     private var cache: [String: NSImage?] = [:]
     private lazy var generic = ProcessIconCache.fingerprint(

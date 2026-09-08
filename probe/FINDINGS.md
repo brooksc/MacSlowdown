@@ -171,10 +171,15 @@ errno: `100001` = EPERM (231), `100002` = ENOENT (21, exited), `100013` = EACCES
 outermost `.app` in the executable path:
 
 ```
-Helium.app      -> 24 processes    1Password.app -> 4
-ChatGPT.app     -> 15 processes    Xcode-beta.app -> 4
-Dock.app        ->  5 processes    XProtect.app  -> 4
+BrowserApp.app  -> 24 processes    VaultApp.app   -> 4
+AssistantApp.app-> 15 processes    Xcode-beta.app -> 4
+Dock.app        ->  5 processes    XProtect.app   -> 4
 ```
+
+*(Third-party application names are generalised throughout this document. The
+counts are the measured ones; only the names are stand-ins, because a real
+process inventory identifies the machine it came from — which is the same
+reason FR-029 will not transmit one.)*
 
 ### Three consequences for the data model
 
@@ -199,9 +204,10 @@ recorded so a policy can survive one source becoming unavailable.
 
 ### Known false-grouping risk
 
-`ChatGPT.app` absorbed 15 processes including `node_repl` and
-`codex-code-mode-*` — subprocesses whose executables live inside the bundle.
-Attributing them to ChatGPT is arguably correct but not certain. This is exactly
+One assistant application absorbed 15 processes, including a bundled
+JavaScript runtime and several helper executables shipped inside it —
+subprocesses whose executables live in the bundle. Attributing them to the
+application is arguably correct but not certain. This is exactly
 the case FR-003 requires to be "labeled and reversible", and FR-039 to be
 user-correctable.
 
@@ -307,9 +313,9 @@ swiftc -O -o /tmp/probe Sources/main.swift   # unsandboxed control
 
 # Human-meaningful process names (`name-probe.swift`)
 
-Prompted by a real defect: the popover showed `Spotify Helper (` and
-`Helium Helper (R`, which are `p_comm` truncated to 16 bytes by the kernel, and
-by the observation that iStat Menus shows `Cheetah3D` and `Safari` with icons.
+Prompted by a real defect: the popover showed `MediaApp Helper (` and
+`BrowserApp Helper (R`, which are `p_comm` truncated to 16 bytes by the kernel, and
+by the observation that a third-party menu bar monitor shows `Cheetah3D` and `Safari` with icons.
 
 Measured on macOS 27.0 (26A5388g), signed and sandboxed with
 `com.apple.security.app-sandbox` and nothing else. 800 processes.
@@ -389,14 +395,14 @@ codesign --force --sign "$IDENTITY" --entitlements Probe.entitlements \
 ./build/NameProbe.app/Contents/MacOS/NameProbe
 ```
 
-## How iStat Menus actually does it (researched, not measured)
+## How a third-party menu bar monitor actually does it (researched, not measured)
 
 Worth recording, because the reference interface looks like a counter-example to
 several of our conclusions and is not one.
 
-iStat Menus ships in **two editions**. The Mac App Store edition is sandboxed
+a third-party menu bar monitor ships in **two editions**. The Mac App Store edition is sandboxed
 like ours. Bjango's own documentation for it says: *"It can not control fan
-speeds. The iStat Menus Helper is needed to view some stats."*
+speeds. The a third-party menu bar monitor Helper is needed to view some stats."*
 
 That Helper is **downloaded separately from `download.bjango.com`, not from the
 App Store**, and runs outside the sandbox. Temperatures, fan speeds and CPU
@@ -450,13 +456,13 @@ to processes living inside a `.app`:
    the uncertainty marker for it.
 
 2. **Attribution the path misses entirely.** 25 processes live in no bundle but
-   were spawned by an application: 14 `zsh` under Warp, 11 `backlog` under
-   ChatGPT, `chrome-native-ho` under Helium. Today each is a standalone
-   family — a Warp session with fourteen shells appears as fourteen unrelated
+   were spawned by an application: 14 `zsh` under TerminalApp, 11 `backlog` under
+   AssistantApp, `chrome-native-ho` under BrowserApp. Today each is a standalone
+   family — a TerminalApp session with fourteen shells appears as fourteen unrelated
    rows. `ppid` attributes them to the application responsible.
 
-The one disagreement is instructive rather than alarming: `SkyComputerUseSe`
-runs from `Codex Computer Use.app` but was spawned by ChatGPT. Both answers are
+The one disagreement is instructive rather than alarming: `AssistantHelperSv`
+runs from `AssistantHelper.app` but was spawned by AssistantApp. Both answers are
 defensible, which is what "uncertain" is for.
 
 **PID reuse.** `ppid` is a bare pid with no start time, so a recycled parent pid
@@ -561,7 +567,7 @@ instantaneous values.
 
 This is exactly the boundary seen everywhere else: utilisation is public
 registry data; temperature and frequency are SMC-class and need the external
-helper the Mac App Store edition of iStat Menus asks users to install.
+helper the Mac App Store edition of a third-party menu bar monitor asks users to install.
 
 **Cost: 2.54 ms per read**, mean of 20. That is *more than the entire per-process
 metrics sweep* (1.8 ms), because each read matches services afresh and builds a

@@ -119,11 +119,11 @@ struct IdentityCachingTests {
 struct AppBundleTests {
     @Test("Outermost .app wins, so helpers group to their parent application")
     func outermostBundleWins() {
-        let helper = "/Applications/Helium.app/Contents/Frameworks/Helium Helper.app/Contents/MacOS/Helium Helper"
-        #expect(ProcessIdentityResolver.outermostAppBundle(helper) == "/Applications/Helium.app")
+        let helper = "/Applications/BrowserApp.app/Contents/Frameworks/BrowserApp Helper.app/Contents/MacOS/BrowserApp Helper"
+        #expect(ProcessIdentityResolver.outermostAppBundle(helper) == "/Applications/BrowserApp.app")
 
-        let plain = "/Applications/Helium.app/Contents/MacOS/Helium"
-        #expect(ProcessIdentityResolver.outermostAppBundle(plain) == "/Applications/Helium.app")
+        let plain = "/Applications/BrowserApp.app/Contents/MacOS/BrowserApp"
+        #expect(ProcessIdentityResolver.outermostAppBundle(plain) == "/Applications/BrowserApp.app")
     }
 
     @Test("Daemons and command-line tools belong to no bundle")

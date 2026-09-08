@@ -64,7 +64,7 @@ Also worth recording for whoever picks this up: the ordering logic is already co
 
 Attempting to read the table through the accessibility API to avoid screenshot archaeology returned nothing: SwiftUI's Table did not expose rows or static text to System Events traversal. Worth knowing before trying the same shortcut.
 
-NOT A DEFECT. I misdiagnosed this, and the parallel session's screenshot (screenshots/03-apps-processes.png) settles it: the table opens CPU-descending, with the sort chevron on the CPU column — System processes 145%, MacSlowdown 47%, 2.1.220 25%, Warp 6.5%, descending from there.
+NOT A DEFECT. I misdiagnosed this, and the parallel session's screenshot (screenshots/03-apps-processes.png) settles it: the table opens CPU-descending, with the sort chevron on the CPU column — System processes 145%, MacSlowdown 47%, 2.1.220 25%, TerminalApp 6.5%, descending from there.
 
 What I actually saw: the alphabetical tail of a correctly sorted list. Ties break by name, and the great majority of the table sits at 0.0%, so everything below the busy rows is in name order by design. Every screenshot I took had the window scrolled into that tail — the saved window frame put the viewport there and the column headers were above the visible area, so I never saw the chevron that would have told me immediately.
 

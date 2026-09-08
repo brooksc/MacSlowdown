@@ -18,7 +18,7 @@ priority: high
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Two related problems, now with measurements behind them — see probe/FINDINGS.md, "Human-meaningful process names".
 
-**The defect.** The menu bar popover lists contributors by `ProcessRecord.command`, which is `p_comm` truncated to 16 bytes by the kernel. Real rows read "Spotify Helper (" and "Helium Helper (R" — cut mid-word, with nothing to indicate anything was lost. The notification body has the same defect; the verified end-to-end alert read "bash is the largest measurable contributor" and was correct only because "bash" is short.
+**The defect.** The menu bar popover lists contributors by `ProcessRecord.command`, which is `p_comm` truncated to 16 bytes by the kernel. Real rows read "MediaApp Helper (" and "BrowserApp Helper (R" — cut mid-word, with nothing to indicate anything was lost. The notification body has the same defect; the verified end-to-end alert read "bash is the largest measurable contributor" and was correct only because "bash" is short.
 
 **The opportunity.** Measured sandboxed on macOS 27: reading an application's Info.plist from disk is NOT denied. 145 of 151 processes living in a `.app` yield CFBundleDisplayName or CFBundleName. Combined with NSRunningApplication.localizedName, 187 of 800 processes (23%) can carry a real name and 188 a real icon — with no entitlement beyond app-sandbox.
 
@@ -58,7 +58,7 @@ The fix is structural rather than local: the resolved name now travels on Proces
 
 Where nothing resolves, the command carries an ellipsis and VoiceOver hears 'name shortened by the system'. Truncation is measured in BYTES, matching the kernel — a test covers a 16-byte emoji string that is only 4 characters.
 
-Icons: ProcessIconCache, keyed by bundle so Helium's 18 helpers cost one lookup. It compares against the generic unixExecutable icon and returns nil rather than a placeholder — NSWorkspace.icon(forFile:) never returns nil, so a naive non-nil check would have put a fake icon beside three quarters of the table.
+Icons: ProcessIconCache, keyed by bundle so BrowserApp's 18 helpers cost one lookup. It compares against the generic unixExecutable icon and returns nil rather than a placeholder — NSWorkspace.icon(forFile:) never returns nil, so a naive non-nil check would have put a fake icon beside three quarters of the table.
 
 FR-030 re-measured standalone, 300s, sandboxed: CPU 0.963% of one core (budget 1.0%), memory 20.0 MB (budget 100 MB), disk 0.00 MB/hour (budget 10 MB/hour), median sweep 7.12 ms. Inside budget, but see TASK-62 — the CPU headroom is only 4% and the cause is not naming.
 

@@ -43,8 +43,8 @@ Path is the primary anchor, code signature is enrichment:
 - SecCodeCopyGuestWithAttributes: 810/1063 sandboxed (1041 unsandboxed), and
   returns identity for 212/338 other-uid procs -- we can NAME processes whose
   CPU we cannot READ
-- Outermost .app grouping works identically sandboxed: Helium 24 procs,
-  ChatGPT 15, Dock 5, 1Password 4, Xcode 4
+- Outermost .app grouping works identically sandboxed: BrowserApp 24 procs,
+  AssistantApp 15, Dock 5, VaultApp 4, Xcode 4
 
 Three data-model consequences:
 1. Signed bundle ID does NOT group -- helpers report their own identifier
@@ -60,7 +60,7 @@ Three data-model consequences:
 FR-016 policy identity: teamID+bundleID is the stable key across app updates
 where available; outermost .app path is the fallback. Record both.
 
-Known false-grouping risk: ChatGPT.app absorbed node_repl and codex-code-mode
+Known false-grouping risk: AssistantApp.app absorbed node_repl and assistant-helper
 subprocesses whose executables live inside the bundle. Exactly the "labeled and
 reversible" case FR-003 requires and FR-039 makes user-correctable.
 

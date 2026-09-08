@@ -149,17 +149,17 @@ struct GroupingCorrectionTests {
     func correctionChangesGrouping() throws {
         let store = PolicyStore()
         let helper = ProcessIdentity(pid: 200, startTime: 1)
-        let record = ProcessRecord(identity: helper, command: "Helium Helper", uid: 501, ppid: 1,
+        let record = ProcessRecord(identity: helper, command: "BrowserApp Helper", uid: 501, ppid: 1,
                                    metrics: .measured(ProcessMetrics(cpuTicks: 1, residentBytes: 1)))
         let resolved = ResolvedIdentity(
-            executablePath: "/Applications/Helium.app/Contents/Frameworks/H.app/Contents/MacOS/H",
-            appBundlePath: "/Applications/Helium.app",
+            executablePath: "/Applications/BrowserApp.app/Contents/Frameworks/H.app/Contents/MacOS/H",
+            appBundlePath: "/Applications/BrowserApp.app",
             bundleID: "net.imput.helium.helper", teamID: "T")
 
         let grouped = FamilyGrouper.group([(record, resolved)])
-        #expect(grouped.first?.bundlePath == "/Applications/Helium.app")
+        #expect(grouped.first?.bundlePath == "/Applications/BrowserApp.app")
 
-        store.addCorrection(GroupingCorrection(processCommand: "Helium Helper", kind: .split))
+        store.addCorrection(GroupingCorrection(processCommand: "BrowserApp Helper", kind: .split))
         let overrides = GroupingOverrides(detached: [helper])
         let split = FamilyGrouper.group([(record, resolved)], overrides: overrides)
         #expect(split.first?.isStandalone == true)

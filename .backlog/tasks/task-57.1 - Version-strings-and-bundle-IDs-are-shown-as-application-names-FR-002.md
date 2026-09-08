@@ -66,7 +66,7 @@ Measured with `probe/Sources/version-name-probe.swift`, signed and sandboxed, 79
 - `installationName(forExecutablePath:)`: a version-named executable is named after its install directory — `.../claude/versions/2.1.226` -> `claude`. Searches at most **two** levels, skips structural components (`bin`, `versions`, `Contents`, …), and never accepts a directory directly under `/Users` or `/home`, because that is an account name and does not belong on screen (A-05).
 - `resolve` now checks the declared name for non-name shapes, and recovers the untruncated executable file name for identifiers.
 
-`Metrics/Sources/ProcessFamily.swift` — only members that live *inside* a bundle may name their family. Members arrive in the snapshot dictionary's order, so a `.byParent` member (a shell under a terminal, a `claude` under Warp) could name the family on one sweep and not the next. Latent before this task; the fix made it likely enough to matter.
+`Metrics/Sources/ProcessFamily.swift` — only members that live *inside* a bundle may name their family. Members arrive in the snapshot dictionary's order, so a `.byParent` member (a shell under a terminal, a `claude` under TerminalApp) could name the family on one sweep and not the next. Latent before this task; the fix made it likely enough to matter.
 
 ## Verification
 

@@ -47,16 +47,16 @@ struct ParentIndexTests {
 
     @Test("A real parent in a bundle is found, and named")
     func realParentFound() {
-        let warp = record(pid: 100, ppid: 1, startTime: 100, command: "Warp")
+        let warp = record(pid: 100, ppid: 1, startTime: 100, command: "TerminalApp")
         let shell = record(pid: 200, ppid: 100, startTime: 500, command: "zsh")
         let index = ParentIndex([
-            (warp, resolved(bundle: "/Applications/Warp.app")),
+            (warp, resolved(bundle: "/Applications/TerminalApp.app")),
             (shell, resolved(bundle: nil)),
         ])
 
         let parent = index.bundleOfParent(of: shell)
-        #expect(parent?.bundlePath == "/Applications/Warp.app")
-        #expect(parent?.parentCommand == "Warp")
+        #expect(parent?.bundlePath == "/Applications/TerminalApp.app")
+        #expect(parent?.parentCommand == "TerminalApp")
     }
 
     /// The hazard that makes this worth guarding. macOS wraps pid allocation at
@@ -65,10 +65,10 @@ struct ParentIndexTests {
     @Test("A parent that started after its child is rejected")
     func recycledParentRejected() {
         // pid 100 was recycled: the process holding it now started AFTER the child.
-        let impostor = record(pid: 100, ppid: 1, startTime: 900, command: "Warp")
+        let impostor = record(pid: 100, ppid: 1, startTime: 900, command: "TerminalApp")
         let orphan = record(pid: 200, ppid: 100, startTime: 500, command: "zsh")
         let index = ParentIndex([
-            (impostor, resolved(bundle: "/Applications/Warp.app")),
+            (impostor, resolved(bundle: "/Applications/TerminalApp.app")),
             (orphan, resolved(bundle: nil)),
         ])
 
@@ -115,8 +115,8 @@ struct ParentGroupingTests {
     @Test("Shells started by a terminal are grouped under it")
     func shellsGroupUnderTerminal() {
         var inputs: [Input] = [(
-            record(pid: 100, ppid: 1, startTime: 100, command: "Warp"),
-            resolved(bundle: "/Applications/Warp.app", bundleID: "dev.warp.Warp"))]
+            record(pid: 100, ppid: 1, startTime: 100, command: "TerminalApp"),
+            resolved(bundle: "/Applications/TerminalApp.app", bundleID: "com.example.terminal.TerminalApp"))]
         for pid in pid_t(200)..<214 {
             inputs.append((record(pid: pid, ppid: 100, startTime: 500, command: "zsh"),
                            resolved(bundle: nil)))
@@ -134,14 +134,14 @@ struct ParentGroupingTests {
     @Test("Grouped children remain individually visible")
     func childrenStayVisible() {
         let inputs: [Input] = [
-            (record(pid: 100, ppid: 1, startTime: 100, command: "Warp"),
-             resolved(bundle: "/Applications/Warp.app")),
+            (record(pid: 100, ppid: 1, startTime: 100, command: "TerminalApp"),
+             resolved(bundle: "/Applications/TerminalApp.app")),
             (record(pid: 200, ppid: 100, startTime: 500, command: "zsh"),
              resolved(bundle: nil)),
         ]
         let family = FamilyGrouper.group(inputs).first
         let commands = family?.members.map(\.record.command).sorted()
-        #expect(commands == ["Warp", "zsh"])
+        #expect(commands == ["TerminalApp", "zsh"])
     }
 
     /// A child is labelled by the evidence that placed it there, which is lineage,
@@ -150,8 +150,8 @@ struct ParentGroupingTests {
     @Test("A spawned child says which process started it")
     func spawnedChildIsLabelled() {
         let inputs: [Input] = [
-            (record(pid: 100, ppid: 1, startTime: 100, command: "Warp"),
-             resolved(bundle: "/Applications/Warp.app")),
+            (record(pid: 100, ppid: 1, startTime: 100, command: "TerminalApp"),
+             resolved(bundle: "/Applications/TerminalApp.app")),
             (record(pid: 200, ppid: 100, startTime: 500, command: "zsh"),
              resolved(bundle: nil)),
         ]
@@ -161,7 +161,7 @@ struct ParentGroupingTests {
             Issue.record("expected the child to be marked as spawned")
             return
         }
-        #expect(reason.contains("Warp"))
+        #expect(reason.contains("TerminalApp"))
     }
 
     /// A spawned child brings its own name — `claude`, `zsh` — and members arrive in
@@ -170,9 +170,9 @@ struct ParentGroupingTests {
     @Test("A spawned child never supplies the family's name")
     func spawnedChildDoesNotNameTheFamily() {
         let warp = ResolvedIdentity(
-            executablePath: "/Applications/Warp.app/Contents/MacOS/stable",
-            appBundlePath: "/Applications/Warp.app", bundleID: "dev.warp.Warp",
-            teamID: nil, friendlyName: "Warp")
+            executablePath: "/Applications/TerminalApp.app/Contents/MacOS/stable",
+            appBundlePath: "/Applications/TerminalApp.app", bundleID: "com.example.terminal.TerminalApp",
+            teamID: nil, friendlyName: "TerminalApp")
         let child = ResolvedIdentity(
             executablePath: "/Users/someone/.local/share/claude/versions/2.1.226",
             appBundlePath: nil, bundleID: nil, teamID: nil, friendlyName: "claude")
@@ -183,7 +183,7 @@ struct ParentGroupingTests {
             (record(pid: 100, ppid: 1, startTime: 100, command: "stable"), warp),
         ]
         let family = FamilyGrouper.group(inputs).first
-        #expect(family?.displayName == "Warp")
+        #expect(family?.displayName == "TerminalApp")
         #expect(spawnedMemberCount(family) == 1)
     }
 
@@ -192,8 +192,8 @@ struct ParentGroupingTests {
     @Test("A spawned child does not make the family uncertain")
     func spawnedIsNotUncertain() {
         let inputs: [Input] = [
-            (record(pid: 100, ppid: 1, startTime: 100, command: "Warp"),
-             resolved(bundle: "/Applications/Warp.app", bundleID: "dev.warp.Warp")),
+            (record(pid: 100, ppid: 1, startTime: 100, command: "TerminalApp"),
+             resolved(bundle: "/Applications/TerminalApp.app", bundleID: "com.example.terminal.TerminalApp")),
             (record(pid: 200, ppid: 100, startTime: 500, command: "zsh"),
              resolved(bundle: nil)),
         ]
@@ -206,13 +206,13 @@ struct ParentGroupingTests {
     /// signature cannot confirm it, and the parent can.
     @Test("A parent in the same bundle promotes an unsignable member to certain")
     func parentCorroboratesPath() {
-        let bundle = "/Applications/Helium.app"
-        let main = record(pid: 100, ppid: 1, startTime: 100, command: "Helium")
-        let helper = record(pid: 200, ppid: 100, startTime: 500, command: "Helium Helper (R")
+        let bundle = "/Applications/BrowserApp.app"
+        let main = record(pid: 100, ppid: 1, startTime: 100, command: "BrowserApp")
+        let helper = record(pid: 200, ppid: 100, startTime: 500, command: "BrowserApp Helper (R")
 
         let withoutParent: [Input] = [
             (main, resolved(bundle: bundle, bundleID: "net.imput.helium")),
-            (record(pid: 200, ppid: 1, startTime: 500, command: "Helium Helper (R"),
+            (record(pid: 200, ppid: 1, startTime: 500, command: "BrowserApp Helper (R"),
              resolved(bundle: bundle, bundleID: nil)),
         ]
         #expect(FamilyGrouper.group(withoutParent).first?.hasUncertainMembers == true,
@@ -226,8 +226,8 @@ struct ParentGroupingTests {
                 "the parent link confirms what the signature could not")
     }
 
-    /// Real case from the probe: SkyComputerUseSe runs from Codex Computer Use.app
-    /// but was spawned by ChatGPT.
+    /// Real case from the probe: AssistantHelperSv runs from AssistantHelper.app
+    /// but was spawned by AssistantApp.
     ///
     /// A parent in a different bundle is **not** a contradiction when the signature
     /// already confirms the path — it just means another application launched this
@@ -237,14 +237,14 @@ struct ParentGroupingTests {
     @Test("A different parent does not undermine a signature-confirmed grouping")
     func differentParentDoesNotUnsettleAConfirmedGrouping() {
         let inputs: [Input] = [
-            (record(pid: 100, ppid: 1, startTime: 100, command: "ChatGPT"),
-             resolved(bundle: "/Applications/ChatGPT.app", bundleID: "com.openai.chat")),
-            (record(pid: 200, ppid: 100, startTime: 500, command: "SkyComputerUseSe"),
-             resolved(bundle: "/Applications/Codex Computer Use.app",
-                      bundleID: "com.openai.codex")),
+            (record(pid: 100, ppid: 1, startTime: 100, command: "AssistantApp"),
+             resolved(bundle: "/Applications/AssistantApp.app", bundleID: "com.example.assistant")),
+            (record(pid: 200, ppid: 100, startTime: 500, command: "AssistantHelperSv"),
+             resolved(bundle: "/Applications/AssistantHelper.app",
+                      bundleID: "com.example.assistanthelper")),
         ]
         let families = FamilyGrouper.group(inputs)
-        let codex = families.first { $0.bundlePath?.contains("Codex") == true }
+        let codex = families.first { $0.bundlePath?.contains("AssistantHelper") == true }
         #expect(codex?.hasUncertainMembers == false)
         #expect(families.count == 2, "it stays in its own bundle, not its launcher's")
     }
@@ -255,8 +255,8 @@ struct ParentGroupingTests {
     @Test("An unsignable member whose parent is elsewhere stays uncertain")
     func unconfirmedWithForeignParentStaysUncertain() {
         let inputs: [Input] = [
-            (record(pid: 100, ppid: 1, startTime: 100, command: "ChatGPT"),
-             resolved(bundle: "/Applications/ChatGPT.app", bundleID: "com.openai.chat")),
+            (record(pid: 100, ppid: 1, startTime: 100, command: "AssistantApp"),
+             resolved(bundle: "/Applications/AssistantApp.app", bundleID: "com.example.assistant")),
             (record(pid: 200, ppid: 100, startTime: 500, command: "node_repl"),
              resolved(bundle: "/Applications/Other.app", bundleID: nil)),
         ]
@@ -283,8 +283,8 @@ struct ParentGroupingTests {
     func userDetachWins() {
         let child = record(pid: 200, ppid: 100, startTime: 500, command: "zsh")
         let inputs: [Input] = [
-            (record(pid: 100, ppid: 1, startTime: 100, command: "Warp"),
-             resolved(bundle: "/Applications/Warp.app")),
+            (record(pid: 100, ppid: 1, startTime: 100, command: "TerminalApp"),
+             resolved(bundle: "/Applications/TerminalApp.app")),
             (child, resolved(bundle: nil)),
         ]
         let families = FamilyGrouper.group(
@@ -296,8 +296,8 @@ struct ParentGroupingTests {
     @Test("Every input process appears in exactly one family")
     func nothingIsLost() {
         var inputs: [Input] = [
-            (record(pid: 100, ppid: 1, startTime: 100, command: "Warp"),
-             resolved(bundle: "/Applications/Warp.app")),
+            (record(pid: 100, ppid: 1, startTime: 100, command: "TerminalApp"),
+             resolved(bundle: "/Applications/TerminalApp.app")),
             (record(pid: 101, ppid: 1, startTime: 100, command: "notifyd"),
              resolved(bundle: nil)),
         ]

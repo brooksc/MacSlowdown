@@ -26,8 +26,8 @@ public struct ParentIndex: Sendable {
     public init(_ inputs: [(record: ProcessRecord, resolved: ResolvedIdentity)]) {
         var index: [pid_t: (ProcessIdentity, String?, String)] = [:]
         for input in inputs {
-            // The resolved name, not p_comm. Warp's executable is called "stable"
-            // and ChatGPT's is "codex", so "started by stable" would tell a user
+            // The resolved name, not p_comm. TerminalApp's executable is called "stable"
+            // and AssistantApp's is "codex", so "started by stable" would tell a user
             // nothing at all.
             let candidate = (input.record.identity, input.resolved.appBundlePath,
                              input.resolved.displayName(command: input.record.command))

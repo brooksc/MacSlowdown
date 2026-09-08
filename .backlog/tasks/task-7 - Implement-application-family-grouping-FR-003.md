@@ -36,13 +36,13 @@ Settled by the TASK-3 spike:
 - Group by the OUTERMOST .app in the executable path. The signed bundle ID does
   NOT group: helpers report their own identifier (net.imput.helium.helper.renderer),
   not the parent's (net.imput.helium).
-- Verified working sandboxed, identical to unsandboxed: Helium.app -> 24
-  processes, ChatGPT.app -> 15, Dock.app -> 5, 1Password.app -> 4, Xcode -> 4.
+- Verified working sandboxed, identical to unsandboxed: BrowserApp.app -> 24
+  processes, AssistantApp.app -> 15, Dock.app -> 5, VaultApp.app -> 4, Xcode -> 4.
 - IMPORTANT: only ~15% of processes (154/1063) belong to any application family.
   Daemons and CLI tools must be modelled as first-class standalone processes,
   NOT as a family-of-one. This affects the section 6 data model.
-- Known false-grouping case to handle: ChatGPT.app absorbed node_repl and
-  codex-code-mode subprocesses whose executables live inside the bundle.
+- Known false-grouping case to handle: AssistantApp.app absorbed node_repl and
+  assistant-helper subprocesses whose executables live inside the bundle.
   Label as uncertain per FR-003 and make user-correctable per FR-039.
 <!-- SECTION:PLAN:END -->
 
@@ -56,7 +56,7 @@ Verified by test (39 passing overall), using fixtures rather than requiring spec
 - AC#2 Reversible by construction. GroupingOverrides supports split-out and merge-into; tests confirm a detached process becomes standalone, a merged one joins as .userAssigned, and removing the override restores the inferred grouping exactly. Nothing is destroyed.
 - AC#3 Individual PID records are preserved beneath the aggregate; a separate test confirms a member whose metrics are denied stays visible in the family rather than disappearing.
 - AC#4 Daemons and CLI tools become standalone families with bundlePath == nil, not one-member applications. A mixed listing test confirms applications and standalone processes coexist.
-- AC#5 The real Tier 0 false-grouping case is reproduced as a fixture: node_repl executing from inside ChatGPT.app is grouped there but labeled .uncertain with the reason naming its actual signature (org.nodejs.node). Genuine helpers sharing the parent's identifier prefix are .certain. A member with no signature at all is also uncertain, since path alone is weaker evidence.
+- AC#5 The real Tier 0 false-grouping case is reproduced as a fixture: node_repl executing from inside AssistantApp.app is grouped there but labeled .uncertain with the reason naming its actual signature (org.nodejs.node). Genuine helpers sharing the parent's identifier prefix are .certain. A member with no signature at all is also uncertain, since path alone is weaker evidence.
 
 Confidence rule: the family's identifier comes from the executable directly in Contents/MacOS. A member whose signed identifier equals it or extends it with a dot prefix is certain; a member running from inside the bundle but signed otherwise is uncertain and says why.
 

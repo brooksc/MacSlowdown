@@ -19,7 +19,7 @@ type: bug
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Observed on screen by the product owner, 2026-08-31, with an iStat Menus reading alongside as the control.
+Observed on screen by the product owner, 2026-08-31, with an a third-party menu bar monitor reading alongside as the control.
 
 **What they saw.** The popover's headline cycling between "Your Mac is running normally", "working hard" and "heavily loaded" while the machine's load was in fact steady — iStat showing 53% user, 33% system, 14% idle, held over minutes. Their words: it "reduces confidence".
 

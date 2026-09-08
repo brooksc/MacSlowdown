@@ -92,13 +92,13 @@ struct InventoryTreeTests {
     @Test("A child carries the reason it is grouped where it is")
     func childCarriesQualification() {
         let rows = inventory([family(
-            "Warp", bundlePath: "/Warp.app",
+            "TerminalApp", bundlePath: "/TerminalApp.app",
             members: [record(10, command: "zsh", residentBytes: 10),
                       record(11, command: "zsh", residentBytes: 10)],
-            membership: .byParent(reason: "started by Warp"))])
+            membership: .byParent(reason: "started by TerminalApp"))])
 
         #expect(rows[0].children.count == 2)
-        #expect(rows[0].children.allSatisfy { $0.qualification == "started by Warp" })
+        #expect(rows[0].children.allSatisfy { $0.qualification == "started by TerminalApp" })
     }
 
     /// Most applications are a single process. A disclosure triangle opening onto
@@ -119,12 +119,12 @@ struct InventoryTreeTests {
     @Test("A single-process family carries its member's qualification on the row")
     func singleProcessKeepsQualification() {
         let rows = inventory([family(
-            "Warp", bundlePath: "/Warp.app",
+            "TerminalApp", bundlePath: "/TerminalApp.app",
             members: [record(10, command: "zsh", residentBytes: 10)],
-            membership: .byParent(reason: "started by Warp"))])
+            membership: .byParent(reason: "started by TerminalApp"))])
 
         #expect(rows[0].hasChildren == false)
-        #expect(rows[0].qualification == "started by Warp")
+        #expect(rows[0].qualification == "started by TerminalApp")
     }
 
     @Test("A certain member needs no explanation")

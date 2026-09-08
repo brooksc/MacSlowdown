@@ -16,8 +16,8 @@ struct TruncationTests {
         #expect(ProcessNaming.isTruncated(String(repeating: "a", count: 16)))
 
         // The names that prompted this, measured on a real machine.
-        #expect(ProcessNaming.isTruncated("Spotify Helper ("))
-        #expect(ProcessNaming.isTruncated("Helium Helper (R"))
+        #expect(ProcessNaming.isTruncated("MediaApp Helper ("))
+        #expect(ProcessNaming.isTruncated("BrowserApp Helper (R"))
         #expect(!ProcessNaming.isTruncated("bash"))
     }
 
@@ -25,14 +25,14 @@ struct TruncationTests {
     /// it were the complete name (FR-002).
     @Test("A truncated command is shown with an ellipsis, a short one unchanged")
     func labelling() {
-        #expect(ProcessNaming.labelled(command: "Spotify Helper (") == "Spotify Helper (…")
+        #expect(ProcessNaming.labelled(command: "MediaApp Helper (") == "MediaApp Helper (…")
         #expect(ProcessNaming.labelled(command: "bash") == "bash")
     }
 
     /// An ellipsis is silent to VoiceOver, so the spoken form has to say it.
     @Test("VoiceOver is told the name was shortened, not given a bare fragment")
     func spokenForm() {
-        let spoken = ProcessNaming.accessibilityLabel(command: "Spotify Helper (")
+        let spoken = ProcessNaming.accessibilityLabel(command: "MediaApp Helper (")
         #expect(spoken.contains("shortened"))
         #expect(!spoken.hasSuffix("…"))
         #expect(ProcessNaming.accessibilityLabel(command: "bash") == "bash")
@@ -194,9 +194,9 @@ struct NonNameTests {
 struct NamingBundleTests {
     @Test("The outermost .app is the naming bundle, not a nested helper")
     func outermostApp() {
-        let path = "/Applications/Helium.app/Contents/Frameworks/"
-            + "Helium Helper.app/Contents/MacOS/Helium Helper"
-        #expect(ProcessNaming.namingBundle(for: path) == "/Applications/Helium.app")
+        let path = "/Applications/BrowserApp.app/Contents/Frameworks/"
+            + "BrowserApp Helper.app/Contents/MacOS/BrowserApp Helper"
+        #expect(ProcessNaming.namingBundle(for: path) == "/Applications/BrowserApp.app")
     }
 
     /// System Settings panes live in `.appex`, and it is the only reason 38 of
@@ -251,9 +251,9 @@ struct ResolvedNameTests {
 
     @Test("A resolved name wins over the command")
     func resolvedWins() {
-        let resolved = identity(friendlyName: "Spotify")
-        #expect(resolved.displayName(command: "Spotify Helper (") == "Spotify")
-        #expect(!resolved.nameIsTruncatedCommand(command: "Spotify Helper ("))
+        let resolved = identity(friendlyName: "MediaApp")
+        #expect(resolved.displayName(command: "MediaApp Helper (") == "MediaApp")
+        #expect(!resolved.nameIsTruncatedCommand(command: "MediaApp Helper ("))
     }
 
     /// The honest floor: a daemon with no name anywhere gets its command, marked.
@@ -277,7 +277,7 @@ struct ResolvedNameTests {
     @Test("Every naming case produces something showable")
     func everyCaseIsShowable() {
         let cases: [(friendly: String?, command: String)] = [
-            ("Helium", "Helium Helper (R"),
+            ("BrowserApp", "BrowserApp Helper (R"),
             ("Apple Account (System Settings)", "AppleIDSettings"),
             (nil, "notifyd"),
             (nil, "SetStoreUpdateSe"),
@@ -300,16 +300,16 @@ struct ContributorLabelTests {
     }
 
     /// The defect this whole change exists to fix: the popover read
-    /// "Spotify Helper (" because it took the command directly.
+    /// "MediaApp Helper (" because it took the command directly.
     @Test("A contributor's label is the resolved name when there is one")
     func labelPrefersResolved() {
-        #expect(usage(command: "Spotify Helper (", displayName: "Spotify").label == "Spotify")
+        #expect(usage(command: "MediaApp Helper (", displayName: "MediaApp").label == "MediaApp")
     }
 
     @Test("A contributor with no resolved name is labelled as truncated")
     func labelMarksTruncation() {
-        #expect(usage(command: "Spotify Helper (", displayName: nil).label
-                == "Spotify Helper (…")
+        #expect(usage(command: "MediaApp Helper (", displayName: nil).label
+                == "MediaApp Helper (…")
     }
 
     /// Every surface reads `label`, so none of them can drift back to `command`.
@@ -341,7 +341,7 @@ struct IconCacheTests {
         #expect(cache.icon(forExecutablePath: finder) != nil)
     }
 
-    /// The table redraws every sample and Helium has 18 helpers, so resolution has
+    /// The table redraws every sample and BrowserApp has 18 helpers, so resolution has
     /// to be shared by bundle rather than repeated per process.
     @Test("Icons are cached per bundle, not per process")
     func cachedPerBundle() {

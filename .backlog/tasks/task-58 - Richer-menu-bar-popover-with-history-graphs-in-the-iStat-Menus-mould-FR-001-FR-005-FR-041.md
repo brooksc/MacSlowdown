@@ -1,7 +1,7 @@
 ---
 id: TASK-58
 title: >-
-  Richer menu bar popover with history graphs, in the iStat Menus mould (FR-001,
+  Richer menu bar popover with history graphs, in the a third-party menu bar monitor mould (FR-001,
   FR-005, FR-041)
 status: To Do
 assignee: []
@@ -16,7 +16,7 @@ priority: medium
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Reference: iStat Menus' dropdown — CPU graph with recent history and per-core bars, load average, uptime, memory pressure and composition bars, per-disk free space, network graph with peaks and current rates, sensors.
+Reference: a third-party menu bar monitor' dropdown — CPU graph with recent history and per-core bars, load average, uptime, memory pressure and composition bars, per-disk free space, network graph with peaks and current rates, sensors.
 
 Today our popover is a static list: severity, total CPU, three contributors, other applications, unattributed. It answers "what is busy now" and nothing about "what has been happening", even though FR-005 already retains at least 15 minutes of bounded history that nothing currently displays.
 
@@ -28,7 +28,7 @@ Today our popover is a static list: severity, total CPU, three contributors, oth
 - Thermal state over time as a stepped band, since it is a state and not a scalar (FR-010).
 
 **Out of scope, and why — do not build these by copying the reference:**
-- **Sensors and temperatures.** Excluded by A-03 and FR-010: raw sensor values need undocumented SMC keys. iStat Menus can show them; we cannot, and must not fabricate them. Note the reference screenshot itself reads "No Sensors Found".
+- **Sensors and temperatures.** Excluded by A-03 and FR-010: raw sensor values need undocumented SMC keys. a third-party menu bar monitor can show them; we cannot, and must not fabricate them. Note the reference screenshot itself reads "No Sensors Found".
 - **Network graph.** FR-051 is Phase 4 and still unproven under the sandbox. Aggregate network is not specified at all. Needs a spike before it can be designed, not a chart borrowed from the reference.
 - **Load average and uptime.** In no requirement. Load average in particular is widely misread — it is a run-queue length, not a percentage, and a figure of 18.45 on an 8-core machine invites exactly the wrong conclusion. Adding either needs a spec amendment first.
 

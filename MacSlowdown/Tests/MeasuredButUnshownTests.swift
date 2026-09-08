@@ -237,8 +237,8 @@ struct TruncatedNameSurfaceTests {
     /// cut, but we resolved a real name, so there is nothing shortened on display.
     @Test("A resolved friendly name is not a truncated command, however long")
     func resolvedNameIsNotShortened() {
-        let row = rows(member(command: "Spotify Helper (", friendlyName: "Spotify")).first
-        #expect(row?.name == "Spotify")
+        let row = rows(member(command: "MediaApp Helper (", friendlyName: "MediaApp")).first
+        #expect(row?.name == "MediaApp")
         #expect(row?.nameIsShortened == false)
     }
 
