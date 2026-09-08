@@ -129,8 +129,13 @@ struct IncidentCauseTests {
         #expect(conclusion.display.hasPrefix("Likely, moderate confidence."))
     }
 
-    @Test("The sentence names the contributor, its magnitude and the consequence")
-    func causeNamesAllThree() {
+    /// It named a consequence too, until FR-065. "While that continues, other apps
+    /// are likely to feel slower" put an attribution and an impact claim under one
+    /// confidence label, so accepting the first meant accepting the second — and the
+    /// second was never measured. The contributor and its magnitude stay; the
+    /// consequence is gone, and `ConfidenceSeparationTests` holds it gone.
+    @Test("The sentence names the contributor and its magnitude, and stops there")
+    func causeNamesContributorAndMagnitude() {
         let text = PopoverPresentation.cause(
             leaderName: "Xcode", leaderPercentOfOneCore: 412,
             totalBusyPercentOfOneCore: 500, unattributedShare: 0.1,
@@ -138,7 +143,7 @@ struct IncidentCauseTests {
         #expect(text.contains("Xcode"))
         #expect(text.contains("412%"))
         #expect(text.contains("cores"))
-        #expect(text.contains("slower"))
+        #expect(!text.contains("slower"))
     }
 
     @Test("'Most of it' is claimed only when it really is most of it")
@@ -367,7 +372,7 @@ struct PopoverRepeatedQuitSubjectTests {
     func namedHeadlineCarriesAQualifier() throws {
         let named = incident(command: "Final Cut Pro")
         let qualifier = try #require(PopoverPresentation.incidentHeadlineQualifier(named))
-        #expect(qualifier == NowPresentation.heuristicQualifier(.moderate))
+        #expect(qualifier == NowPresentation.attributionQualifier(.moderate))
         // And it is the framework's own label, not a second wording of it.
         #expect(qualifier.contains(Evidence.heuristic.label))
     }

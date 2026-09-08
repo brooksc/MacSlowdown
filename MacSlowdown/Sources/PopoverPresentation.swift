@@ -394,7 +394,7 @@ enum PopoverPresentation {
     /// claim of the two (FR-038).
     static func incidentHeadlineQualifier(_ incident: Incident) -> String? {
         NowPresentation.leadingRelaunchPattern(incident)
-            .map { NowPresentation.heuristicQualifier($0.confidence) }
+            .map { NowPresentation.attributionQualifier($0.confidence) }
     }
 
     /// Coarse on purpose: the popover is read at a glance, and a second-resolution
@@ -410,13 +410,23 @@ enum PopoverPresentation {
 
     // MARK: The one causal sentence
 
-    /// "Most of it is Xcode — 412% CPU, about 4.1 of 10 cores. While that
-    /// continues, other apps are likely to feel slower."
+    /// "Most of it is Xcode — 412% CPU, about 4.1 of 10 cores."
     ///
     /// Returned as a `Conclusion`, not a `String`, so it is impossible to render
     /// without its evidence class and confidence: `Conclusion` forces a confidence
     /// onto anything marked `.heuristic`, and this is the only causal claim the
     /// popover makes (FR-013).
+    ///
+    /// **The sentence makes exactly one kind of claim, and the confidence beside it
+    /// is confidence in that one thing** (FR-065). It used to close with "While that
+    /// continues, other apps are likely to feel slower", which put two independent
+    /// claims under one label: which application the CPU belongs to — a heuristic we
+    /// can be more or less sure of — and whether the user's other applications felt
+    /// slower, which we never measured and have no way to measure. A single
+    /// "moderate confidence" beside the pair reads as covering both, so a reader who
+    /// accepted the attribution inherited the impact claim with it. The attribution
+    /// stays; the impact claim goes, because FR-063 already removed its equivalents
+    /// everywhere else and this was the sentence that survived the sweep.
     ///
     /// The confidence is supplied by the caller rather than computed here, so it
     /// comes from `IncidentSummarizer` — the popover and the incident report must
@@ -440,11 +450,7 @@ enum PopoverPresentation {
             ? "Most of it is \(leaderName)"
             : "The largest contributor we can measure is \(leaderName)"
         text += " — \(CPUPresentation.percentOfOneCore(leaderPercentOfOneCore)) CPU, "
-        text += "\(CPUPresentation.machineRelative(leaderPercentOfOneCore, topology: topology)). "
-        // The consequence in the user's terms. Deliberately not "until it
-        // finishes": we cannot see whether the work is finite, and saying so would
-        // be a prediction we have no measurement for.
-        text += "While that continues, other apps are likely to feel slower."
+        text += "\(CPUPresentation.machineRelative(leaderPercentOfOneCore, topology: topology))."
         if unattributedShare > 0.3 {
             text += " Because a large share of activity is unattributable, it may not be "
             text += "the largest contributor overall — only the largest we can see."

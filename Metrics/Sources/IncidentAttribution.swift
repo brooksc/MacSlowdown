@@ -232,15 +232,38 @@ public struct IncidentAttribution: Sendable, Equatable, Codable {
 
     /// Confidence falls as the unattributable share rises, on the same calibration
     /// the live summariser uses, so an incident does not change its story
-    /// depending on which screen is asking.
+    /// depending on which screen is asking — and is then **capped at moderate when
+    /// the leading application was assembled on uncertain grouping evidence**.
+    ///
+    /// The cap is FR-065's second leg, and without it the collapse it forbids was
+    /// exactly what happened here. Both inputs above — the leader's share and the
+    /// unattributable remainder — describe *the measurement*: how much of the
+    /// machine's busy CPU we were permitted to read, and how concentrated it was.
+    /// Neither says anything about whether the processes we added together are one
+    /// application. So a sweep where we could read nearly everything and one family
+    /// dominated it returned `.high` even when that family was held together by
+    /// nothing better than a shared directory — a certain measurement handing its
+    /// certainty to a naming that had not earned any. The name is what a user acts
+    /// on, and quitting the wrong application is the most expensive mistake this
+    /// product can make.
+    ///
+    /// Capped rather than fixed, following `RelaunchPattern.causeConfidence`: weak
+    /// grouping does not make an attribution worthless, it makes it unable to be the
+    /// strongest thing we say. The prose in `conclusion` still spells the reason out
+    /// in words, because a label a step lower is not by itself an explanation
+    /// (FR-065's fourth criterion).
+    ///
+    /// The live summariser needs no equivalent: its contributors are individual
+    /// processes, so there is no grouping to be uncertain about.
     static func confidence(for sample: AttributionSample) -> Confidence {
         let total = sample.totalBusyPercentOfOneCore
-        let leaderShare = total > 0
-            ? (sample.applications.first?.peakPercentOfOneCore ?? 0) / total
-            : 0
+        let leader = sample.applications.first
+        let leaderShare = total > 0 ? (leader?.peakPercentOfOneCore ?? 0) / total : 0
         let unattributedShare = total > 0 ? sample.unattributedPercentOfOneCore / total : 0
-        return IncidentSummarizer.confidence(
+        let measurementConfidence = IncidentSummarizer.confidence(
             leaderShare: leaderShare, unattributedShare: unattributedShare)
+        guard leader?.hasUncertainMembers == true else { return measurementConfidence }
+        return min(measurementConfidence, .moderate)
     }
 }
 

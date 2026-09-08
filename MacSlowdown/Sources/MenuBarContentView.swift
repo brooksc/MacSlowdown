@@ -375,7 +375,14 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 3) {
             // The evidence class and confidence are shown, not implied. `Conclusion`
             // will not let a heuristic exist without one (FR-013, FR-038).
-            Text("\(conclusion.evidence.label) · \(conclusion.confidence?.label ?? "")")
+            //
+            // Through the shared qualifier, so this caption names the question it
+            // answers exactly as the banner and the incident headline do (FR-065).
+            // `PopoverPresentation.cause` builds one kind of claim — which
+            // application the CPU belongs to — so "in which application" is the
+            // whole of what this confidence covers.
+            Text(conclusion.confidence.map(NowPresentation.attributionQualifier)
+                ?? conclusion.evidence.label)
                 .font(.caption2.weight(.semibold))
                 .textCase(.uppercase)
                 .foregroundStyle(.secondary)
