@@ -27,6 +27,13 @@ public enum MemoryPressureLevel: Int, Sendable, Comparable, CaseIterable, Codabl
     /// Plain-language meaning. Never implies that cached or in-use memory is
     /// waste — FR-007 requires the interface avoid describing cached memory as
     /// inherently wasted, and FR-036 forbids implying memory can be "freed".
+    ///
+    /// It also says nothing about how any of this felt. `.critical` used to end
+    /// "which can make everything feel slower", which is a claim about the user's
+    /// experience made from a kernel pressure level — the one inference FR-063
+    /// removed everywhere else and FR-065 forbids being folded into a statement of
+    /// what was measured. The kernel tells us it is compressing and swapping; it
+    /// does not tell us whether the person noticed, and neither do we.
     public var explanation: String {
         switch self {
         case .normal:
@@ -37,8 +44,8 @@ public enum MemoryPressureLevel: Int, Sendable, Comparable, CaseIterable, Codabl
             "macOS is having to work to find memory, and may be compressing or "
                 + "swapping to keep up."
         case .critical:
-            "macOS is short of memory and is actively compressing or swapping, which "
-                + "can make everything feel slower."
+            "macOS is short of memory and is actively compressing memory and writing "
+                + "it to disk to keep up."
         }
     }
 }

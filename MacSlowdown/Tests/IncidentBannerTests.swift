@@ -121,7 +121,10 @@ struct IncidentBannerHeadlineTests {
         let headline = NowPresentation.bannerHeadline(
             incident: incident, conditionHeadline: "CPU saturation for 6 minutes")
         #expect(headline.text == "Xcode is using most of the CPU")
-        #expect(headline.qualifier == "Likely · high confidence")
+        // FR-065: the qualifier names the question it answers. Without "in which
+        // application" a reader takes it for confidence in the whole headline,
+        // including the CPU figure, which is a measurement and not in doubt.
+        #expect(headline.qualifier == "Likely · high confidence in which application")
         #expect(headline.spoken.contains("high confidence"))
     }
 
@@ -165,7 +168,7 @@ struct IncidentBannerHeadlineTests {
         #expect(headline.text.hasPrefix("BackgroundShortc"))
         #expect(!headline.text.contains("Xcode"))
         #expect(headline.text.contains("keeps quitting and reopening"))
-        #expect(headline.qualifier == "Likely · moderate confidence")
+        #expect(headline.qualifier == "Likely · moderate confidence in which application")
     }
 
     /// FR-002: `p_comm` is 16 bytes, so a name that reached the limit is shown as

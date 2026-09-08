@@ -178,9 +178,24 @@ enum NowPresentation {
     }
 
     /// A heuristic's label, in the framework's own words rather than a second
-    /// wording of them.
-    static func heuristicQualifier(_ confidence: Confidence) -> String {
-        "\(Evidence.heuristic.label) · \(confidence.label)"
+    /// wording of them, **with the question the confidence answers named in it**.
+    ///
+    /// Named because of FR-065. The three confidences this product can hold are
+    /// independent — how sure we are of what we measured, of which application it
+    /// belongs to, and of what any of it did to the person using the Mac — and a
+    /// bare "moderate confidence" printed under a headline naming an application
+    /// does not say which of them is being qualified. A reader is left to assume it
+    /// covers the finding entire, which is never true: the CPU figure in that
+    /// headline is a measurement, and the application's name is the guess.
+    ///
+    /// So the subject is stated. `EvidenceLegend` had this right already — it writes
+    /// "which application led the load (moderate confidence)" — and this is the same
+    /// sentence at the surfaces where a person acts on it rather than reads about
+    /// it. Deliberately not called `heuristicQualifier` any more: both callers ask
+    /// the same question, and a future caller holding a confidence about *why*
+    /// something happened must not reach for a phrase that says "which".
+    static func attributionQualifier(_ confidence: Confidence) -> String {
+        "\(Evidence.heuristic.label) · \(confidence.label) in which application"
     }
 
     static func bannerHeadline(
@@ -196,7 +211,7 @@ enum NowPresentation {
                 // The *association* confidence: whether these exits are one
                 // application rather than unrelated processes sharing a truncated
                 // 16-byte command. Nothing here claims to know why it exited.
-                qualifier: heuristicQualifier(pattern.confidence))
+                qualifier: attributionQualifier(pattern.confidence))
         }
 
         // The recorded attribution, never the live one: for the banner's subject to
@@ -215,7 +230,8 @@ enum NowPresentation {
             let text = share > 0.5
                 ? "\(leader.displayName) is using most of the CPU"
                 : "\(leader.displayName) is the largest measurable use of the CPU"
-            return BannerHeadline(text: text, qualifier: heuristicQualifier(recorded.confidence))
+            return BannerHeadline(
+                text: text, qualifier: attributionQualifier(recorded.confidence))
         }
 
         return BannerHeadline(text: conditionHeadline, qualifier: nil)
