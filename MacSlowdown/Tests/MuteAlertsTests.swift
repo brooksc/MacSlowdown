@@ -171,7 +171,13 @@ struct MutePromiseTests {
         let incident = try #require(opened)
 
         var gateState = NotificationGate.State()
-        let decision = NotificationGate(settings: NotificationSettings(minimumSeverity: .moderate))
+        // CPU is recorded rather than announced by default since FR-014
+        // amendment 1, so it is opted in here: this test is about *muting*
+        // withholding an interruption, and it would otherwise pass because the
+        // condition never announces — which proves nothing about the mute.
+        var settings = NotificationSettings(minimumSeverity: .moderate)
+        settings.announcedConditions = [.cpuSaturation]
+        let decision = NotificationGate(settings: settings)
             .decide(
                 incident: incident, leadingContributor: nil, mute: mute,
                 at: start.addingTimeInterval(seconds), state: &gateState)

@@ -37,7 +37,7 @@ struct NowVerdictTests {
         let verdict = NowPresentation.verdict(
             severity: .normal, attribution: attribution(total: 90, attributed: 60),
             incidentOpen: false)
-        #expect(verdict.headline == "Nothing sustained is slowing this Mac down")
+        #expect(verdict.headline == "No sustained condition right now")
         #expect(verdict.detail.contains("90%"))
     }
 
@@ -46,7 +46,7 @@ struct NowVerdictTests {
         let verdict = NowPresentation.verdict(
             severity: .normal, attribution: attribution(total: 700, attributed: 400),
             incidentOpen: true)
-        #expect(verdict.headline == "A slowdown is in progress")
+        #expect(verdict.headline == "A sustained condition is being recorded")
     }
 
     /// FR-002: before the first interval there is no CPU figure, and the screen

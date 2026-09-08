@@ -29,23 +29,28 @@ enum PopoverPresentation {
         // the condition and how long it has held. This fallback exists so the
         // healthy copy can never sit over an open incident even if a caller
         // reaches for `verdict` during one.
+        // Measurements, not verdicts about the user's experience (FR-063). See
+        // the longer note at `NowPresentation.verdict` for why "Your Mac is
+        // heavily loaded" is a claim we are not entitled to make from a CPU
+        // reading: the same reading is produced by a build somebody started
+        // deliberately, and we cannot tell the two apart.
         if incidentOpen {
             return Verdict(
-                headline: "A slowdown is happening now",
+                headline: "A sustained condition is being recorded",
                 symbolName: "exclamationmark.triangle.fill")
         }
         switch severity {
         case .normal:
             return Verdict(
-                headline: "Your Mac is running normally",
+                headline: "No sustained condition right now",
                 symbolName: "checkmark.circle.fill")
         case .elevated:
             return Verdict(
-                headline: "Your Mac is working hard",
+                headline: "CPU has been high for the last half-minute",
                 symbolName: "gauge.with.dots.needle.67percent")
         case .severe:
             return Verdict(
-                headline: "Your Mac is heavily loaded",
+                headline: "CPU has been near capacity for the last half-minute",
                 symbolName: "gauge.with.dots.needle.100percent")
         }
     }
@@ -343,7 +348,7 @@ enum PopoverPresentation {
             .map { conditionPhrase($0, subject: subject) }
         let joined: String
         switch phrases.count {
-        case 0: joined = "Your Mac has been under strain"
+        case 0: joined = "A sustained condition has been recorded"
         case 1: joined = phrases[0]
         default:
             let rest = phrases.dropFirst().map(lowercasedFirst)

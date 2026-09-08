@@ -56,7 +56,7 @@ private func assertNoOverstatement(_ text: String, _ comment: Comment) {
 
 @Test func verdictHeadlineIsPlainLanguageAndClaimsNoCause() {
     let text = IncidentVerdict.headline(for: incident(), duration: "11 minutes")
-    #expect(text.contains("comfortable memory"))
+    #expect(text.contains("memory pressure"))
     #expect(text.contains("11 minutes"))
     assertNoOverstatement(text, "the headline must restate measurements, not explain them")
 }
@@ -70,7 +70,7 @@ private func assertNoOverstatement(_ text: String, _ comment: Comment) {
 @Test func headlineNamesEveryConditionThatWasSustained() {
     let text = IncidentVerdict.headline(
         for: incident(conditions: [.memoryPressure, .cpuSaturation]), duration: "3 minutes")
-    #expect(text.contains("comfortable memory"))
+    #expect(text.contains("memory pressure"))
     #expect(text.contains("processors"))
 }
 

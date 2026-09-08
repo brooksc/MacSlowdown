@@ -8,7 +8,12 @@ private let origin = Date(timeIntervalSince1970: 1_700_000_000)
 private func incident(
     id: UUID = UUID(),
     severity: IncidentSeverity = .high,
-    conditions: Set<IncidentCondition> = [.cpuSaturation]
+    // **Memory pressure, not CPU saturation.** Since FR-014 amendment 1 a CPU
+    // incident is recorded rather than announced, so a CPU fixture would make
+    // every test below pass for the wrong reason — suppressed as unannounceable
+    // rather than by the muting, Focus or escalation rule each one is about.
+    // Memory pressure announces by default, which is what these tests need.
+    conditions: Set<IncidentCondition> = [.memoryPressure]
 ) -> Incident {
     Incident(id: id, beganAt: origin, triggeredAt: origin.addingTimeInterval(180),
              recoveryStartedAt: nil, closedAt: origin.addingTimeInterval(600),
@@ -190,7 +195,7 @@ struct NotificationCopyTests {
         let (title, body) = NotificationGate.message(
             for: incident(severity: .severe), leadingContributor: "Xcode")
 
-        #expect(title.contains("CPU saturation"))
+        #expect(title.contains("Memory pressure"))
         #expect(title.contains("minute"))
         #expect(body.contains("Xcode"))
         #expect(body.lowercased().contains("largest measurable contributor"),
@@ -210,5 +215,93 @@ struct NotificationCopyTests {
         #expect(title.contains("Memory pressure"))
         #expect(!body.isEmpty)
         #expect(!body.contains("contributor"))
+    }
+}
+
+/// FR-014 amendment 1 — what may interrupt, and what is only recorded.
+///
+/// The rule is not about severity. Severity orders measurements; it says nothing
+/// about whether the user can act, and this product used it as though it did. The
+/// question is whether a decision plausibly attaches to the condition.
+@Suite("Recorded, not announced (FR-014 amendment 1)")
+struct RecordedNotAnnouncedTests {
+    private func gate() -> (NotificationGate, NotificationGate.State) {
+        (NotificationGate(settings: NotificationSettings(
+            announcesIncidents: true, minimumSeverity: .moderate)),
+         NotificationGate.State())
+    }
+
+
+    /// The case the amendment exists for. A capped build produces exactly this
+    /// incident, and interrupting for it tells the user we misread their work.
+    @Test("A CPU incident is recorded and never announced, at any severity")
+    func cpuNeverAnnounces() {
+        for severity in [IncidentSeverity.moderate, .high, .severe] {
+            let (policy, state0) = gate(); var state = state0
+            let decision = policy.decide(
+                incident: incident(severity: severity, conditions: [.cpuSaturation]),
+                state: &state)
+            guard case .suppress(_, let cause) = decision else {
+                Issue.record("a \(severity) CPU incident announced")
+                return
+            }
+            #expect(cause == .recordedNotAnnounced,
+                    "suppressed for the wrong reason at \(severity)")
+        }
+    }
+
+    /// Something can be closed, and the machine's behaviour will change.
+    @Test("Memory pressure and low storage still announce")
+    func actionableConditionsAnnounce() {
+        for condition in [IncidentCondition.memoryPressure, .lowStorage] {
+            let (policy, state0) = gate(); var state = state0
+            let decision = policy.decide(
+                incident: incident(conditions: [condition]), state: &state)
+            #expect(decision.shouldSend, "\(condition.label) stopped announcing")
+        }
+    }
+
+    /// A mixed incident announces on the strength of the condition that can be
+    /// acted on. Suppressing it because CPU happens to be in the set would lose a
+    /// memory warning to an unrelated measurement.
+    @Test("One announceable condition is enough")
+    func mixedIncidentAnnounces() {
+        let (policy, state0) = gate(); var state = state0
+        let decision = policy.decide(
+            incident: incident(conditions: [.cpuSaturation, .memoryPressure]),
+            state: &state)
+        #expect(decision.shouldSend)
+    }
+
+    /// Opting in is the whole reason the CPU default is defensible rather than
+    /// simply quieter.
+    @Test("A user who asks for CPU alerts gets them")
+    func optingInWorks() {
+        var settings = NotificationSettings(
+            announcesIncidents: true, minimumSeverity: .moderate)
+        settings.announcedConditions = [.cpuSaturation]
+        let policy = NotificationGate(settings: settings)
+        var state = NotificationGate.State()
+        #expect(policy.decide(
+            incident: incident(conditions: [.cpuSaturation]), state: &state).shouldSend)
+    }
+
+    /// Recording is unaffected — the incident still exists, is still stored, and is
+    /// still visible. Only the interruption is withheld.
+    @Test("Suppression here is about interrupting, never about recording")
+    func recordingIsUnaffected() {
+        let (policy, state0) = gate(); var state = state0
+        let subject = incident(conditions: [.cpuSaturation])
+        _ = policy.decide(incident: subject, state: &state)
+        #expect(subject.conditions.contains(.cpuSaturation))
+        #expect(subject.isOpen || subject.closedAt != nil)
+    }
+
+    /// Adding a condition must force a decision about this, rather than silently
+    /// inheriting whichever default the enum happens to fall into.
+    @Test("Every condition has an explicit answer")
+    func everyConditionIsDecided() {
+        let announcing = IncidentCondition.allCases.filter(\.announcesByDefault)
+        #expect(Set(announcing) == [.memoryPressure, .lowStorage])
     }
 }

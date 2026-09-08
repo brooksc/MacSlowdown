@@ -35,7 +35,9 @@ private func closedIncident(
         triggeredAt: base.addingTimeInterval(-480),
         recoveryStartedAt: base.addingTimeInterval(-120),
         closedAt: base.addingTimeInterval(-60),
-        conditions: [.cpuSaturation],
+        // Announces by default (FR-014 amendment 1). These tests are about rule,
+        // mute and audio suppression, not about which condition it was.
+        conditions: [.memoryPressure],
         severity: severity,
         peakCPUBusyFraction: 0.93,
         peakMemoryPressure: .normal)
@@ -333,7 +335,7 @@ struct RecordFilePathsTests {
             triggeredAt: base.addingTimeInterval(-60 * 60 * 24 * 30),
             recoveryStartedAt: nil,
             closedAt: base.addingTimeInterval(-60 * 60 * 24 * 30),
-            conditions: [.cpuSaturation],
+            conditions: [.memoryPressure],
             severity: .high,
             peakCPUBusyFraction: 0.9,
             peakMemoryPressure: .normal)

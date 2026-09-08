@@ -13,6 +13,10 @@ public enum SuppressionCause: Sendable, Equatable {
     /// The "tell me about slowdowns" switch is off.
     case alertsOff
     case belowMinimumSeverity
+    /// Every condition in this incident is one we record rather than announce
+    /// (FR-014 amendment 1). Not a severity judgement and not a user setting:
+    /// a statement that nothing here carries a decision the user could act on.
+    case recordedNotAnnounced
     /// A per-application rule (FR-016), naming the application the rule is about.
     case applicationPolicy(application: String)
     /// Muted for a period (FR-015). A rule about *time*, not about an application.
@@ -86,6 +90,46 @@ public struct InterruptionContext: Sendable {
     public static let quiet = InterruptionContext()
 }
 
+/// Which conditions may interrupt, and which are recorded silently
+/// (FR-014 amendment 1, FR-063).
+///
+/// **The test is not severity, it is whether a decision plausibly attaches.**
+/// Severity orders measurements; it says nothing about whether the user can act,
+/// and for a long time this product used it as though it did.
+///
+/// Sustained CPU load is the case that forced the rule. On a developer's machine
+/// the most common cause of it is a build the user started deliberately, and a
+/// build produces the same reading, for the same duration, with the same
+/// attribution as a genuine problem. Interrupting for it is not over-sensitivity —
+/// it tells the user we have misread their work. So it is recorded, stays visible
+/// on every live surface and in history, and the user may opt in to announcements.
+///
+/// Memory pressure and low storage still announce, because something can be
+/// closed or deleted and the machine's behaviour will change. Thermal pressure is
+/// recorded because the machine already signals it by getting hot and slow, and
+/// there is nothing to be done about it that the user is not already doing.
+///
+/// **This is a bet with a known risk**, recorded here so it is revisited on
+/// evidence rather than drifting: a product that rarely interrupts may rarely be
+/// opened, and "opt-in" and "off" are close to the same thing in practice. The
+/// counter is that a noisy product is uninstalled while a quiet one is merely
+/// underused, and that FR-064's user-reported slowdowns are what will settle it.
+extension IncidentCondition {
+    /// Whether this condition may interrupt the user by default.
+    ///
+    /// A switch rather than a set, so a new condition cannot be added without
+    /// someone deciding this question about it.
+    public var announcesByDefault: Bool {
+        switch self {
+        case .memoryPressure, .lowStorage: true
+        case .cpuSaturation, .thermalPressure: false
+        // Already demoted to a record entirely (FR-046 amendment 5); it cannot
+        // open an incident, so this is belt and braces.
+        case .repeatedApplicationQuits: false
+        }
+    }
+}
+
 public struct NotificationSettings: Sendable {
     /// Whether to announce anything at all (FR-014). Off is the "tell me about
     /// slowdowns" switch turned off, and it is a separate fact from
@@ -100,6 +144,9 @@ public struct NotificationSettings: Sendable {
     /// Applications the user marked as expected (FR-016). Suppressed detections
     /// still appear in history, so the audit trail survives.
     public var expectedApplications: Set<String>
+    /// Conditions the user has asked to hear about even though they are recorded
+    /// rather than announced by default. Empty by default (FR-014 amendment 1).
+    public var announcedConditions: Set<IncidentCondition> = []
 
     public init(
         announcesIncidents: Bool = true,
@@ -152,6 +199,23 @@ public struct NotificationGate: Sendable {
         if incident.severity < settings.minimumSeverity {
             return .suppress(reason: "below the severity you asked to hear about",
                              cause: .belowMinimumSeverity)
+        }
+
+        // Nothing here carries a decision the user could act on, so it is
+        // recorded and not announced (FR-014 amendment 1). Checked after severity
+        // so a severe CPU episode is still silent: severity orders the
+        // measurement, it does not make the load actionable.
+        let announceable = incident.conditions.filter {
+            $0.announcesByDefault || settings.announcedConditions.contains($0)
+        }
+        if announceable.isEmpty {
+            let names = incident.conditions.sorted { $0.label < $1.label }
+                .map(\.label).joined(separator: " and ")
+            return .suppress(
+                reason: names.isEmpty
+                    ? "this is recorded rather than announced"
+                    : "\(names) is recorded rather than announced",
+                cause: .recordedNotAnnounced)
         }
 
         if let contributor = leadingContributor,

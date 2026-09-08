@@ -43,25 +43,42 @@ enum NowPresentation {
             attribution.totalBusyPercentOfOneCore, topology: topology)
         let figures = "Total CPU is \(total) of one core — \(relative)."
 
+        // **These headlines describe a measurement, never an experience**
+        // (FR-063). They used to read "A slowdown is in progress", "This Mac is
+        // working hard", "Nothing sustained is slowing this Mac down" — all of
+        // which assert something about how the machine *feels* on the strength of
+        // a CPU reading alone.
+        //
+        // The reason that is wrong is not fussiness. A capped build and a genuine
+        // slowdown produce the same reading, for the same duration, with the same
+        // attribution; the only thing separating them is whether the person
+        // started the work on purpose, which we cannot see. Telling someone
+        // mid-compile that their Mac is heavily loaded is not over-sensitivity —
+        // it is telling them we have misread what they are doing.
+        //
+        // So we say what was measured and stop. A user who wants the other claim
+        // can make it themselves, and they are better placed to.
         if incidentOpen {
             return Verdict(
-                headline: "A slowdown is in progress",
+                headline: "A sustained condition is being recorded",
                 detail: figures)
         }
 
         switch severity {
         case .normal:
             return Verdict(
-                headline: "Nothing sustained is slowing this Mac down",
-                detail: figures + " Nothing has stayed bad long enough to count as an incident.")
+                headline: "No sustained condition right now",
+                detail: figures + " Nothing has stayed above a threshold long enough "
+                    + "to be recorded.")
         case .elevated:
             return Verdict(
-                headline: "This Mac is working hard",
-                detail: figures + " That is a busy machine, not yet a sustained problem.")
+                headline: "CPU has been high for the last half-minute",
+                detail: figures + " Busy is not the same as slow — this is only "
+                    + "recorded if it lasts.")
         case .severe:
             return Verdict(
-                headline: "This Mac is heavily loaded",
-                detail: figures + " If it stays this way it will be recorded as an incident.")
+                headline: "CPU has been near capacity for the last half-minute",
+                detail: figures + " If it stays this way it will be recorded.")
         }
     }
 

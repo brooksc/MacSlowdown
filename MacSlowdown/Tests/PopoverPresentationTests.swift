@@ -41,7 +41,7 @@ struct PopoverVerdictTests {
     @Test("A healthy machine gets a plain-language sentence, not a severity word")
     func healthyVerdictIsASentence() {
         let verdict = PopoverPresentation.verdict(severity: .normal, incidentOpen: false)
-        #expect(verdict.headline == "Your Mac is running normally")
+        #expect(verdict.headline == "No sustained condition right now")
         #expect(verdict.headline != Severity.normal.label)
         #expect(!verdict.symbolName.isEmpty)
     }

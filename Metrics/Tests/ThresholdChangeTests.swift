@@ -275,7 +275,9 @@ struct AnnouncementSwitchTests {
     private func incident(_ severity: IncidentSeverity) -> Incident {
         Incident(
             id: UUID(), beganAt: Date(), triggeredAt: Date(), recoveryStartedAt: nil,
-            closedAt: nil, conditions: [.cpuSaturation], severity: severity,
+            // Memory pressure announces by default (FR-014 amendment 1); what
+            // this suite is about is the severity floor and the on/off switch.
+            closedAt: nil, conditions: [.memoryPressure], severity: severity,
             peakCPUBusyFraction: 0.99, peakMemoryPressure: .normal)
     }
 

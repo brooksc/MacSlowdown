@@ -52,7 +52,8 @@ final class FakeNotificationCentre: NotificationCentre {
 
 private func incident(
     severity: IncidentSeverity = .high,
-    conditions: Set<IncidentCondition> = [.cpuSaturation],
+    // Announces by default since FR-014 amendment 1; see NotificationPolicyTests.
+    conditions: Set<IncidentCondition> = [.memoryPressure],
     minutes: Double = 3
 ) -> Incident {
     let began = Date().addingTimeInterval(-minutes * 60)

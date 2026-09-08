@@ -125,13 +125,16 @@ enum IncidentVerdict {
         let tail = incident.isOpen ? "for \(duration) so far, and it is still going"
                                    : "for \(duration)"
         return joined.isEmpty
-            ? "Your Mac was under sustained load \(tail)"
+            ? "A sustained condition was recorded \(tail)"
             : "\(joined) \(tail)"
     }
 
     private static func phrase(for condition: IncidentCondition) -> String {
         switch condition {
-        case .memoryPressure: "Your Mac ran short of comfortable memory"
+        // The kernel's own pressure signal, reported as such. "Ran short of
+        // comfortable memory" was a judgement about the machine's state dressed
+        // as a reading, and "comfortable" is ours, not measured (FR-063).
+        case .memoryPressure: "macOS reported memory pressure"
         case .cpuSaturation: "Your Mac's processors were close to fully busy"
         case .thermalPressure: "macOS reported raised thermal conditions"
         case .lowStorage: "Free space on the startup disk stayed low"
