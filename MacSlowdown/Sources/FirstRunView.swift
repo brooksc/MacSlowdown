@@ -40,15 +40,21 @@ struct FirstRunView: View {
                         .multilineTextAlignment(.center)
                 }
 
+                // Four statements, two of them limits, before either toggle
+                // (design 6b). The order is the argument: what we do, then the two
+                // things we cannot do, then the one thing only the user can.
+                VStack(alignment: .leading, spacing: 14) {
+                    fact(FirstRunCopy.watchesTitle, FirstRunCopy.watchesDetail)
+                    fact(FirstRunCopy.cannotJudgeTitle, FirstRunCopy.cannotJudgeDetail)
+                    fact(FirstRunCopy.unattributableTitle, FirstRunCopy.unattributable)
+                    fact(FirstRunCopy.reportTitle, FirstRunCopy.reportDetail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 VStack(spacing: 10) {
                     notificationsRow
                     loginItemRow
                 }
-
-                Text(FirstRunCopy.unattributable)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(FirstRunCopy.closing)
                     .font(.footnote)
@@ -86,6 +92,24 @@ struct FirstRunView: View {
     /// The toggle governs whether MacSlowdown announces anything. Saying yes is
     /// also what triggers the system prompt, the first time — so the permission is
     /// requested by an explicit user action, never at launch.
+    /// One statement and its explanation. A heading rather than a bullet, because
+    /// each of these is a complete claim the reader should be able to take away on
+    /// its own — two of them are admissions and they should not read as caveats.
+    @ViewBuilder
+    private func fact(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.callout.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
     private var notificationsRow: some View {
         card(symbol: "bell") {
             Toggle(isOn: Binding(

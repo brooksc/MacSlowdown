@@ -619,6 +619,15 @@ final class MonitorStore {
         IncidentHistoryStore(url: storageURL(named: "incidents.json"))
     }()
 
+    /// Slowdown reports, in their own file beside the incidents (FR-064).
+    ///
+    /// Separate because a report is not an incident and must never be able to
+    /// become one: the whole value of the instrument is that the two sets differ,
+    /// and the interesting number is how often one occurs without the other.
+    static let persistentSlowdownReports: SlowdownReportStore = {
+        SlowdownReportStore(url: storageURL(named: "slowdown-reports.json"))
+    }()
+
     /// A file in the app's own storage, or in a throwaway directory under test.
     ///
     /// **The test case is the point** (TASK-91). The app-hosted bundle runs inside
@@ -642,6 +651,48 @@ final class MonitorStore {
             .first?
             .appendingPathComponent("MacSlowdown", isDirectory: true)
             .appendingPathComponent(name)
+    }
+
+    // MARK: - The two decisions only the user can make (FR-063, FR-064)
+
+    /// "This is expected work" — heavy CPU from this application is normal.
+    ///
+    /// Scoped to CPU load deliberately (FR-016 amendment 1). Marking Xcode's
+    /// compiles expected must not silence a memory-pressure finding about Xcode:
+    /// those are different claims and a person agreeing to the first has not
+    /// agreed to the second. The rule is recorded, reversible from Settings, and
+    /// changes interruption only — the condition is still detected and still
+    /// appears in history.
+    func markExpected(_ row: FamilyRow) {
+        policies.setPolicy(ApplicationPolicy(
+            bundlePath: row.family.bundlePath,
+            displayName: row.family.displayName,
+            classification: .expected))
+    }
+
+    /// "It feels slow right now" — the one thing we cannot measure (FR-064).
+    ///
+    /// Files a report with the readings around this moment attached. No form, no
+    /// category, no severity: someone pressing this is trying to get back to work,
+    /// and the moment it costs them a question they stop telling us.
+    ///
+    /// **A report that matches no detected condition is the point, not a failure.**
+    /// Judging our own alerts can only ever measure the ones we sent; this is the
+    /// only instrument that sees the afternoons we recorded nothing about.
+    @discardableResult
+    func reportSlowdown(timing: SlowdownReportTiming = .now, at date: Date = Date()) -> SlowdownReport {
+        let report = SlowdownReport.make(
+            timing: timing,
+            reportedAt: date,
+            retainedSamples: retainedSamples,
+            incidents: recentIncidents,
+            conditionsInForce: openIncident?.conditions ?? [],
+            liveAttribution: attribution.map {
+                AttributionSample.from(attribution: $0, families: families)
+            })
+        slowdownReports.record(
+            report, settings: alertSettings?.privacySettings ?? .default, now: date)
+        return report
     }
 
     // MARK: - User policies (FR-016)
@@ -743,6 +794,7 @@ final class MonitorStore {
     /// which applies retention before anything reaches disk — there is no path that
     /// stores an incident without pruning first.
     private let incidents: IncidentHistoryStore
+    private let slowdownReports: SlowdownReportStore
 
     /// Where "delete all history" looks for anything else we have written.
     /// Injectable only so a test can delete from a scratch folder rather than from
@@ -768,6 +820,7 @@ final class MonitorStore {
         self.storage = storage
         self.alertSettings = alertSettings
         self.incidents = incidentHistory
+        self.slowdownReports = Self.persistentSlowdownReports
         // Read at construction rather than at `start()`: a window can open before
         // monitoring begins, and showing an empty history for those seconds would
         // look exactly like history that had not survived the restart.

@@ -198,6 +198,30 @@ enum NowPresentation {
         "\(Evidence.heuristic.label) · \(confidence.label) in which application"
     }
 
+    /// The same claim, subject first, for surfaces that are read at a glance
+    /// (design 6a).
+    ///
+    /// **Not a shortening for space.** Measured at the popover's real geometry —
+    /// 340 pt wide, 14 pt padding, `.caption2` at 10 pt uppercased — the long form
+    /// is 294.5 pt against 312 available, so it fits on one line and design's
+    /// premise that it wrapped was wrong. Two reasons to prefer this anyway:
+    ///
+    /// It reads better. "Which app · likely, moderate confidence" says *what* is
+    /// uncertain before *how* uncertain, which is the order a person needs — the
+    /// hedge is meaningless until you know what it hedges.
+    ///
+    /// And it has headroom. The long form clears the popover by 17.5 pt, about 5%,
+    /// with "moderate confidence" already the longest label we have; this one
+    /// clears it by 77 pt. A caption that fits only in English, only at the current
+    /// type size, and only while nobody adds a longer confidence word is a caption
+    /// that will wrap on somebody's machine and not on ours.
+    ///
+    /// The window keeps the long form: it has the width, and it is read rather than
+    /// glanced at.
+    static func attributionQualifierAtAGlance(_ confidence: Confidence) -> String {
+        "Which app · \(Evidence.heuristic.label.lowercased()), \(confidence.label)"
+    }
+
     static func bannerHeadline(
         incident: Incident, conditionHeadline: String
     ) -> BannerHeadline {

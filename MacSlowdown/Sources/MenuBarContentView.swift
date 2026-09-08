@@ -381,7 +381,9 @@ struct MenuBarContentView: View {
             // `PopoverPresentation.cause` builds one kind of claim — which
             // application the CPU belongs to — so "in which application" is the
             // whole of what this confidence covers.
-            Text(conclusion.confidence.map(NowPresentation.attributionQualifier)
+            // Subject first, because the popover is glanced at (design 6a). The
+            // window keeps the long form — see `attributionQualifierAtAGlance`.
+            Text(conclusion.confidence.map(NowPresentation.attributionQualifierAtAGlance)
                 ?? conclusion.evidence.label)
                 .font(.caption2.weight(.semibold))
                 .textCase(.uppercase)
@@ -520,11 +522,55 @@ struct MenuBarContentView: View {
         }
     }
 
+    /// The two things only the user can tell us (design 6a).
+    ///
+    /// These sit above the observational actions, full width, because someone who
+    /// has opened the menu bar during a condition is the single most likely person
+    /// to press either — and because of what used to be here. The popover's cause
+    /// caption ended "While that continues, other apps are likely to feel slower",
+    /// which was doing emotional work: explaining why you should care, which is
+    /// exactly the claim FR-063 says we cannot make. Deleting it left a space, and
+    /// the space was not refilled with a gentler version of the same assertion.
+    ///
+    /// Ending on two decisions says the same thing structurally and asserts
+    /// nothing: here is what we measured, and here are the two facts about it that
+    /// are yours rather than ours. One is "this is normal work" and the other is
+    /// "this is not" — between them they are the only way the product ever learns
+    /// which of the two identical-looking situations it is in (FR-063, FR-064).
+    ///
+    /// Both are one click with no confirmation. A dialog here would cost more
+    /// attention than the report is worth.
+    @ViewBuilder
+    private var decisions: some View {
+        let reportHelp = "Files a report with the readings from the last few "
+            + "minutes attached. Nothing leaves this Mac."
+        VStack(spacing: 6) {
+            if let family = leadingFamily {
+                let expectedHelp = "Stop alerting for CPU load from "
+                    + "\(family.family.displayName). It is still recorded, and "
+                    + "other conditions for it are unaffected."
+                Button("This is expected work") {
+                    store.markExpected(family)
+                }
+                .frame(maxWidth: .infinity)
+                .help(expectedHelp)
+            }
+            Button("It feels slow right now") {
+                store.reportSlowdown()
+            }
+            .frame(maxWidth: .infinity)
+            .help(reportHelp)
+        }
+    }
+
     /// The three actions of design 1b. Every one of them observes, brings forward,
     /// or silences our own alerts. None of them touches how another process runs —
     /// there is no code path here that could (FR-037).
     private var incidentActions: some View {
         VStack(alignment: .leading, spacing: 8) {
+            decisions
+
+
             // Design 1b puts all three on one row, and they fit there because its
             // Show button says "Show Xcode". "Show Google Drive" does not fit, and
             // the row's response was to truncate the two flexible labels while the

@@ -104,9 +104,14 @@ struct FirstRunCopyTests {
     /// server.
     @Test("The local-only guarantee is stated, and no account or server is implied")
     func localOnlyGuarantee() {
-        #expect(FirstRunCopy.promise.contains("stays on this Mac"))
+        // The standing promise moved out of the subtitle when the subtitle became
+        // "worth 30 seconds now" (design 6b); the guarantee itself is unchanged
+        // and still made twice — in the closing paragraph, and in the report
+        // statement, which is the one place a user might wonder where their own
+        // words go.
+        #expect(FirstRunCopy.closing.contains("stays on this Mac"))
         let closing = FirstRunCopy.closing.lowercased()
-        #expect(closing.contains("nothing is uploaded"))
+        #expect(closing.contains("nothing uploaded"))
         #expect(closing.contains("no account"))
         #expect(closing.contains("no server"))
     }
@@ -119,23 +124,34 @@ struct FirstRunCopyTests {
     /// reads as a limit the app was honest about.
     @Test("The unattributable share is explained before the user can encounter it")
     func unattributableExpectationIsSet() {
-        let text = FirstRunCopy.unattributable
+        let text = FirstRunCopy.unattributable.lowercased()
+        // Named, so the limit is concrete rather than a shrug about "system stuff".
         #expect(text.contains("backups"))
         #expect(text.contains("indexing"))
         #expect(text.contains("window server"))
-        #expect(text.lowercased().contains("can't be broken down"))
+        // And the *reason*, which is what stops it reading as an excuse: it is a
+        // uid boundary, not a shortcoming we could code around.
+        #expect(text.contains("another user"))
+        #expect(text.contains("app store"))
         // The promise that goes with the limitation: the share is always shown,
         // never silently dropped, which is what stops contributor lists failing to
         // sum without saying so.
-        #expect(text.lowercased().contains("how much of the load that is"))
+        #expect(text.contains("show you how much that is"))
+        #expect(FirstRunCopy.unattributableTitle.contains("invisible to us"),
+                "stated as a headline, not buried in a caveat")
     }
 
     @Test("Both permissions are named, with the reason each is wanted")
     func bothPermissionsExplained() {
-        #expect(FirstRunCopy.notificationsTitle == "Send notifications")
-        #expect(FirstRunCopy.notificationsDetail.lowercased()
-            .contains("last long enough to matter"),
-            "FR-006: sustained, not transient — said here too")
+        // The toggle now names *which* conditions interrupt rather than promising
+        // notifications in general, because CPU no longer interrupts (FR-014
+        // amendment 1) and a general promise would be one we break by design.
+        #expect(FirstRunCopy.notificationsTitle.lowercased().contains("memory"))
+        #expect(FirstRunCopy.notificationsTitle.lowercased().contains("disk"))
+        #expect(FirstRunCopy.notificationsDetail.contains("Not CPU"),
+                "the sentence that prevents 'why didn't you tell me' later")
+        #expect(FirstRunCopy.notificationsDetail.lowercased().contains("recorded"),
+                "FR-014 amendment 1: not interrupting is not not-watching")
         #expect(FirstRunCopy.loginItemTitle == "Start watching at login")
         #expect(!FirstRunCopy.loginItemDetail.isEmpty)
     }
@@ -166,8 +182,8 @@ struct FirstRunCopyTests {
         for setting in ["sensitivity", "threshold", "retention", "menu bar"] {
             #expect(!all.contains(setting), "\(setting) belongs to Settings")
         }
-        #expect(FirstRunCopy.closing.contains("later in Settings"),
-                "and it says where those live")
+        #expect(FirstRunCopy.closing.lowercased().contains("changeable later"),
+                "and it says the choices are not final")
     }
 }
 

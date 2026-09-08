@@ -3,9 +3,10 @@ id: TASK-110
 title: >-
   "It feels slow now" — let the user report a slowdown, and keep the evidence
   (FR-064)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-06 16:53'
+updated_date: '2026-09-08 17:23'
 labels:
   - core
   - ui
@@ -44,3 +45,19 @@ Blocks TASK-111 (the field trial), which has nothing to measure without it.
 - [ ] #5 Nothing about a report leaves the machine
 - [ ] #6 Reports are visible afterwards, so the gesture returns something to the user
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Model, storage and retention built (2026-09-08).** No UI — deliberately, by instruction: a design revision is in flight and where the control lives is design's decision. Everything behind the gesture now works and is tested.
+
+`Metrics/Sources/SlowdownReport.swift` — `SlowdownReport` (id, reportedAt, timing, experiencedAt, evidence). `SlowdownReportTiming` is `.now` or `.recently(secondsAgo:)` and carries no severity, category or free text, per FR-064. `SlowdownReportEvidence` holds the retained samples spanning the window, a named `SlowdownSampleCoverage` (a report with nothing behind it records *why* rather than inventing an empty series — `.noHistoryRetained`, `.windowOlderThanRetainedHistory`, `.noSamplesInWindow`), the attribution with a `SlowdownAttributionOrigin` saying whether it came from the coincident incident or from one sample at report time, the conditions in force, and the coincident incident's id. `SlowdownReport.make` is a pure function over supplied evidence so it can be called from whatever surface design chooses. `SlowdownDetectionOverlap` counts reports that coincided with detection against reports that did not — counts only, no rate, because the denominator is reports a person happened to make and anything phrased as recall would be a measurement of our instruments dressed as one of the machine.
+
+`Metrics/Sources/SlowdownReportStore.swift` — a second store beside `IncidentHistoryStore`, following its shape exactly: schema version 1, numeric date encoding (TASK-72's ISO-8601 truncation would move a date by up to a second and change which incident a report is said to coincide with), retention enforced on every write, on load, and by `enforceRetention` for the sampling loop, plus a count bound (`defaultLimit` 100, lower than incidents' 200 because each report carries up to 180 samples). Kept a separate file from incidents on purpose: a report is not an incident and must never become one, and a schema step on either would otherwise force one on both. Queries: `reports(in:)` (matched on `experiencedAt`, so a retrospective report filed in the evening belongs to the afternoon) and `reportsWithoutDetection()`.
+
+32 new tests, full suite 1183 passing / 0 failing. The no-coincident-condition case is tested explicitly, including through a real file and a second store. Sample thinning keeps only readings actually taken and records that resolution was lost (`observedSampleCount`); nothing is averaged into a synthetic point.
+
+Six new symbols are staged in `probe/seam-allowlist.txt` awaiting the UI half and TASK-114.
+
+**Still open, for the product owner:** the retrospective offsets the interface should offer (the model takes any); the `SlowdownReportPolicy` defaults (180 s lead-in, 60 s trailing, 180 samples); and whether the reports store should be included in the privacy tab's `storedCategories` list and in "delete all history" — `StoredData.recordedEvidenceFiles` will pick the file up by pattern, but the category list is hand-written and does not yet name reports.
+<!-- SECTION:NOTES:END -->
