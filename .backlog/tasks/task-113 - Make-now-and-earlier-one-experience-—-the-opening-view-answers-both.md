@@ -4,7 +4,7 @@ title: Make "now" and "earlier" one experience — the opening view answers both
 status: In Progress
 assignee: []
 created_date: '2026-09-06 16:54'
-updated_date: '2026-09-09 17:13'
+updated_date: '2026-09-09 17:39'
 labels:
   - ui
 milestone: m-3
@@ -49,4 +49,24 @@ The specification is `design/screens/5a.png` (nothing wrong), `5b.png` (conditio
 5c's three-state grammar is the acceptance criterion in prose: watched-and-nothing-crossed is a real result the headline may state; watched-and-something-crossed puts the episode on the trace; not-watched makes no claim in either direction.
 
 Also settled by the design and worth recording: **the sidebar loses Now and Incidents.** Incidents stop being a destination — the healthy state shows the last one inline and the live state shows the current one. The argument is FR-060: one count, in one place, so a summary and a list cannot disagree about the same episode. That is a bigger structural change than this task originally assumed.
+
+Built on branch `worktree-agent-ad803e36e23de73f4` (not merged).
+
+**What exists now.** A new `Overview` screen is the window's opening section (designs 5a/5b/5c and the 30-day scale of 6c). It carries: a measurement-first headline in three states, a coverage strip over the window, the retained CPU curve on its own axis, a "Right now" card, the last condition recorded inline with links into Incidents, the contributor table (the *same* `ContributorRow` the Now screen uses) while a condition is open, and the two controls only the person can operate — "It feels slow now" (FR-064) and "Heavy load is expected for X" (FR-016).
+
+**The coverage data model.** `Metrics/Sources/Coverage.swift` — a `CoverageLog` of `CoverageInterval`s (`began`, `lastObserved`, `precededBy`), with gaps derived as the complement. Recorded from the sampling pass at the same `sampledAt` the retained series uses, extended while readings arrive within `tolerance(cadence:) = max(cadence*4, 20 s)`, and persisted schema-versioned to `coverage.json` (`CoverageStore`), throttled to one write a minute and forced on stop and on sleep. Retention is pruned on every sample; pruning stamps the truncated interval `.beyondRecord` so the 30-day strip stops at the boundary rather than appearing to begin at a quiet moment.
+
+Gap reasons are established, never guessed: `appNotRunning` (the first observation of a launch follows the gap by construction), `systemAsleep` (only from an observed `NSWorkspace.willSleepNotification`), `noReadings` (the honest fallback), `beyondRecord`. There is deliberately no "relaunched after an update" — 5c's wording is a fact no public API gives us.
+
+A single reading claims **no** stretch of coverage, so a crash between flushes reads back as a gap: the record under-claims rather than over-claims, which is the only tolerable direction for this one.
+
+**The deviation the product owner should confirm.** Designs 5a/5c draw a CPU trace across the whole day. `MetricsHistory` retains ~15 minutes and is deliberately not persisted, so a day-long curve could only be invented. The coverage strip covers the whole window (coverage is a few timestamps a day and is kept for the full retention period); the curve sits in its own panel under it, stating the span it covers. `OverviewPresentation.traceScopeNote` is the sentence.
+
+**Not done.** 6c's "Your reports" panel (reports matched against conditions) is left to TASK-110, which owns `SlowdownReport*`; `OverviewPresentation.Inputs.reportCount` exists and is unused. `Now` and `Incidents` remain sidebar destinations — Overview leads and links into them rather than replacing them, which is a call worth confirming.
+
+**Tests.** 15 in `Metrics/Tests/CoverageTests.swift`, 13 in `MacSlowdown/Tests/OverviewTests.swift`, plus the Overview added to `WindowSizingTests.everyPaneIsBounded`. Full run 1227 passing; the only failure was `CPUWorkloadTests.workloadIsAttributed`, which passes in isolation (machine-measuring test, busy machine).
+
+**Every acceptance criterion is left unchecked: nothing has been seen on screen.** No session looked at this window, and CLAUDE.md is explicit that a UI criterion is not met by a passing test.
+
+**On the sidebar losing Now and Incidents.** The earlier note records that the design settled this. It is *not* done here, deliberately: Now is the only home for the FR-002/FR-032 freshness surfaces (the catching-up banner, per-metric ages, the enumeration-failure banner), and Incidents is the only route to the incident detail. Removing both destinations before the Overview absorbs those surfaces would leave built capability unreachable, which is the defect `probe/seam-reachability.sh` exists to catch. So Overview leads and links into them, and folding them in is the next step rather than something this branch guessed at.
 <!-- SECTION:NOTES:END -->

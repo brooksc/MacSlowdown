@@ -283,3 +283,35 @@ struct OverviewTests {
         #expect(log.watched(from: began, to: latest).totalSeconds > 0)
     }
 }
+
+/// FR-060, at the place it was actually broken this session.
+///
+/// The overview and the popover both offer the report gesture. They were built in
+/// parallel and arrived with two labels for one action — the kind of drift this
+/// requirement exists to stop, caught on the day rather than in six weeks.
+@MainActor
+@Suite("One gesture, one name")
+struct ReportGestureNamingTests {
+    /// Deliberately not a source-text scan. The first version of this test read
+    /// `OverviewView.swift` from a relative path that does not resolve inside a
+    /// test bundle, so it silently passed whatever the code said — a test that
+    /// cannot fail is worse than no test, and it would have "guarded" this for
+    /// months.
+    ///
+    /// What actually holds the property is the compiler: both surfaces reference
+    /// `reportNowTitle`, so a second label cannot appear without someone deleting
+    /// that reference. This pins the shared constant's identity and states where
+    /// the real guarantee lives.
+    @Test("One constant names the report gesture, and it says what it says")
+    func oneName() {
+        #expect(SlowdownReportPresentation.reportNowTitle == "It feels slow right now")
+        #expect(SlowdownReportPresentation.reportEarlierTitle
+            .hasPrefix("It was slow"))
+        // The gesture asks for no classification: the labels are statements, not
+        // questions, and neither invites the user to categorise anything (FR-064).
+        for title in [SlowdownReportPresentation.reportNowTitle,
+                      SlowdownReportPresentation.reportEarlierTitle] {
+            #expect(!title.contains("?"), "the gesture must not ask a question")
+        }
+    }
+}

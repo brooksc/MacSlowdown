@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-09-06 16:53'
-updated_date: '2026-09-08 17:23'
+updated_date: '2026-09-09 17:44'
 labels:
   - core
   - ui
@@ -40,9 +40,9 @@ Blocks TASK-111 (the field trial), which has nothing to measure without it.
 <!-- AC:BEGIN -->
 - [ ] #1 A slowdown can be reported in one gesture from a persistently reachable surface, with no form and no required classification
 - [ ] #2 A retrospective report covering the recent past is possible
-- [ ] #3 Evidence around a report is retained under the same retention and privacy rules as an incident
+- [x] #3 Evidence around a report is retained under the same retention and privacy rules as an incident
 - [ ] #4 A report matching no detected condition is preserved and shown as a result in its own right
-- [ ] #5 Nothing about a report leaves the machine
+- [x] #5 Nothing about a report leaves the machine
 - [ ] #6 Reports are visible afterwards, so the gesture returns something to the user
 <!-- AC:END -->
 
@@ -60,4 +60,20 @@ Blocks TASK-111 (the field trial), which has nothing to measure without it.
 Six new symbols are staged in `probe/seam-allowlist.txt` awaiting the UI half and TASK-114.
 
 **Still open, for the product owner:** the retrospective offsets the interface should offer (the model takes any); the `SlowdownReportPolicy` defaults (180 s lead-in, 60 s trailing, 180 samples); and whether the reports store should be included in the privacy tab's `storedCategories` list and in "delete all history" — `StoredData.recordedEvidenceFiles` will pick the file up by pattern, but the category list is hand-written and does not yet name reports.
+
+**UI half built (2026-09-09), and not yet seen on screen.** Everything below is tested; no criterion involving a person looking at the popover is checked, per the repo rule that a UI criterion is not met by a passing unit test.
+
+`MacSlowdown/Sources/SlowdownReportPresentation.swift` — all the copy, pure and testable. The settled 5d reply for the common case (nothing we watch had crossed a line), a separate acknowledgement for the case where a condition *was* in force which states the reading and keeps it labelled apart from the user's claim (FR-063), one sentence per `SlowdownSampleCoverage` case so a report with nothing behind it says why rather than rendering an empty series, the "What you told us" rows, the 6d picker buckets, and the list copy. The gesture caption reads its span from `SlowdownReportPolicy.leadIn` rather than repeating 5d's "last 15 minutes", which was true of the retained history and not of what a report keeps.
+
+`Metrics/Sources/SlowdownReportPattern.swift` — what the reports have in common, from the second report onwards. Three computable coincidences only, in specificity order: an application recorded in *every* report (a report with no attribution disqualifies the claim rather than being skipped), the same part of the day across at least two different days, and none of them coinciding with anything we watch. At most one is stated; nothing qualifies means nothing is said. Every rendering says it is timing we can see and not a cost we can measure — no public API gives per-process disk or network use, and ~40 points of busy CPU are another user's and unreadable.
+
+`MacSlowdown/Sources/SlowdownReportView.swift` — the reply, the 6d picker and the list, as states of the popover rather than a window: the answer to a one-click gesture must not cost a window to close. Each picker button shows the window the same `SlowdownReportPolicy` will actually keep, so 6d's footer is a computed fact. "Earlier today" lists only hours that have passed and is absent, not empty, just after midnight (FR-062).
+
+`MenuBarContentView` — the gesture now appears in the **calm** popover as well as during an incident, which is the fix that matters: S-7 is precisely the case where nothing has crossed a line, so a control reachable only mid-incident is absent every time it is needed. Prominent when no incident is open, plain when one is, so the popover never shows two primary actions.
+
+`MonitorStore` (additive) — `reportedSlowdowns` is observable and loaded at construction, `deleteReportedSlowdown(id:)` withdraws one, and `deleteRecordedHistory` now clears reports in memory as well. That last one was a latent defect: `StoredData` deletes `slowdown-reports.json` by pattern anyway, so without the in-memory half the user would have watched deleted reports reappear at the next write. `SlowdownReportStore.delete(id:)` added alongside.
+
+Tests: 3 forbidden-sentence sweeps, one per sentence 5d names, plus FR-063/FR-038 separation (only the user's own row may say the Mac felt slow), the "never encrypted" sweep, coverage-case distinctness, the picker's promised windows, and store wiring. Full suite **1229 passing**; the one failure is `EndToEndIncidentTests.realSlowdownProducesOneIncident` at its own "baseline CPU too high" guard, with several agents building on this machine.
+
+**Two things for the product owner.** (1) Design 6d says reports are "kept until you delete it, not for 30 days", which contradicts FR-064's acceptance criterion that evidence be retained under the same rules as an incident, and contradicts the built store. The spec was followed; the mock is directional. (2) The reports store is still not named in the privacy tab's hand-written `storedCategories` list — `SettingsView` is owned by another agent this session, so 6d's right-hand panel is unbuilt.
 <!-- SECTION:NOTES:END -->

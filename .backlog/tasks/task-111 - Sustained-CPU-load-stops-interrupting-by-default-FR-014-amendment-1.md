@@ -4,7 +4,7 @@ title: Sustained CPU load stops interrupting by default (FR-014 amendment 1)
 status: In Progress
 assignee: []
 created_date: '2026-09-06 16:53'
-updated_date: '2026-09-08 16:51'
+updated_date: '2026-09-09 17:40'
 labels:
   - core
 milestone: m-2
@@ -42,7 +42,7 @@ Depends on TASK-109 for the wording it announces with.
 - [x] #1 A sustained CPU condition is recorded and visible but sends no notification by default
 - [x] #2 Memory pressure and low storage still announce
 - [x] #3 CPU announcements can be enabled by the user, and the control says what it does
-- [ ] #4 The sensitivity restatement discloses that the options move the detection threshold, not only the announcement rule
+- [x] #4 The sensitivity restatement discloses that the options move the detection threshold, not only the announcement rule
 - [x] #5 The bet and its risk are recorded so the default is revisited on evidence rather than drifting
 <!-- AC:END -->
 
@@ -72,4 +72,10 @@ Depends on TASK-109 for the wording it announces with.
 **Criterion #4 is not done** — the sensitivity restatement still describes the three options as changing which severities announce, when they also move the CPU threshold (92% / 85% / 75%). That is a Settings copy change and it belongs with the Settings design pass; it is the reason this task is In Progress rather than Done.
 
 1151 passing.
+
+**Criterion 4 done 2026-09-09** (worktree branch, not merged). `AlertSensitivity.restatement` now reads, for each option, "a condition starts once total CPU stays above N% of this Mac's capacity for D, and you hear about the ones rated X or worse" followed by `AlertSensitivity.thresholdCaveat` — "This moves the line itself, not just what gets said about it — a lower line records more conditions and shows more of them in the overview." Both halves are derived from `policy` and `minimumSeverity` rather than written out, so the sentence cannot drift from the thresholds; a test walks all three options and asserts each quotes its own CPU figure and carries the caveat.
+
+Design 5g's other half is built with it: an Alerts-tab section, **Which of these should interrupt you?**, with a switch per resource condition, ordered defaults-first, each carrying `IncidentCondition.interruptionRationale` — including CPU's "usually it's work you started on purpose, and there's nothing for us to suggest. Still recorded, and in the overview." The rationale lives beside `announcesByDefault` in `NotificationPolicy.swift` so copy and behaviour cannot separate.
+
+**Not seen on screen.** The strings are asserted by test; the Alerts tab itself is still on TASK-65.24's never-looked-at list.
 <!-- SECTION:NOTES:END -->

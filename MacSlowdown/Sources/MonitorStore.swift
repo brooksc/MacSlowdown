@@ -1462,12 +1462,6 @@ final class MonitorStore {
         // The live metric series is recorded evidence too (FR-005). Leaving it would
         // make "delete everything" untrue of the sparklines still on screen.
         history.removeAll()
-        // User-reported slowdowns are recorded evidence too (FR-064, FR-029). The
-        // file below is removed either way — `recordedEvidenceFiles` takes
-        // everything but the rules — but the store holds them in memory as well,
-        // and leaving those would let the screen and the disk disagree about what
-        // "delete all history" did.
-        let removedReports = slowdownReports.deleteAll()
         let files = StoredData.deleteRecordedEvidence(in: evidenceDirectory)
         // The coverage record is recorded evidence too, and the sweep above takes
         // its file. Forgetting it in memory as well is what stops the Overview

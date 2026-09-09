@@ -147,7 +147,12 @@ struct OverviewView: View {
     @ViewBuilder
     private var actions: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            Button("It feels slow now") {
+            // The one name for this action, from the one place it is written.
+            // Two agents built this control in the same session and gave it two
+            // labels — "It feels slow now" here, "It feels slow right now" in the
+            // popover — which is FR-060's failure in miniature: one gesture, two
+            // surfaces, drifting apart on the first day of their existence.
+            Button(SlowdownReportPresentation.reportNowTitle) {
                 let report = store.reportSlowdown(at: Date())
                 // Says what was recorded, not that a call returned (FR-017). And a
                 // report matching nothing we detected is stated as the useful case
