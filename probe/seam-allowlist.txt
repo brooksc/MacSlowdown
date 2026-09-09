@@ -35,9 +35,6 @@ cachedCount       Two declarations share this name. ProcessIdentityResolver.cach
 # If they are still here when TASK-114 reports, the feature was never wired and these
 # should go rather than be staged a second time.
 
-isRetrospective         SlowdownReportTiming.isRetrospective. Tells "it's slow now" from "it was slow a few minutes ago" for a surface that lists reports. Staged with the rest of TASK-110's model half.
-hasSamples              SlowdownSampleCoverage.hasSamples. The check a report screen makes before drawing a series, so a report with no retained evidence says why instead of rendering a flat line at zero (FR-002). Staged for the UI half of TASK-110.
-samplesWereThinned      SlowdownReportEvidence.samplesWereThinned. Says a bounded evidence series dropped resolution, so a chart cannot silently present a thinned series as a continuous one. Staged for the UI half of TASK-110.
-evidenceClass           SlowdownReport.evidenceClass, constantly .userProvided. FR-038's labelling of the report itself, read by whatever surface shows one beside our own measurements. Staged for the UI half of TASK-110.
+hasSamples              SlowdownSampleCoverage.hasSamples. The UI half of TASK-110 switches over `coverage` exhaustively instead — each case gets its own sentence, which is stronger than a boolean and is why this has no caller. Kept because a chart drawing a report's series will want the one-line check, and deleting it would invite a second definition of "has anything behind it".
 SlowdownDetectionOverlap  Counts reports that coincided with a detected condition against reports that did not. Built for TASK-114, which is the field trial this instrument exists to feed; it has no caller until that task runs.
 reportsWithoutDetection   SlowdownReportStore.reportsWithoutDetection. The set FR-064 exists to accumulate — slowdowns we missed — given one definition here rather than one per caller. Connected by TASK-114 and by the reports surface.

@@ -30,10 +30,17 @@ struct MenuBarContentView: View {
     /// assumed: the request being accepted is not the window coming forward
     /// (FR-017).
     @State private var showOutcome: String?
+    /// Which part of the report gesture is on screen, if any (design 5d, 6d).
+    ///
+    /// The reply replaces the popover's content rather than opening beside it. The
+    /// gesture costs one click; the answer to it must not cost a window.
+    @State private var reportFlow: SlowdownReportFlow = .none
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let incident = store.openIncident, let attribution = store.attribution {
+            if reportFlow != .none {
+                SlowdownReportPanel(store: store, flow: $reportFlow)
+            } else if let incident = store.openIncident, let attribution = store.attribution {
                 triage(incident: incident, attribution: attribution)
             } else {
                 verdict
@@ -45,9 +52,11 @@ struct MenuBarContentView: View {
                 contributors
             }
 
-            Divider()
+            if reportFlow == .none {
+                Divider()
 
-            actions
+                actions
+            }
         }
         .padding(14)
         .frame(width: 340, alignment: .leading)
@@ -504,6 +513,15 @@ struct MenuBarContentView: View {
             incidentActions
         } else {
             VStack(spacing: 6) {
+                // **The calm popover is where this matters most** (design 5d).
+                // S-7 is precisely the case where nothing we watch has crossed a
+                // line, so a gesture reachable only during an incident would be
+                // absent every time it was needed — and FR-064 requires it from a
+                // persistently reachable surface.
+                decisions
+
+                Divider()
+
                 Button("Open MacSlowdown") {
                     openWindow(id: MainWindow.id)
                     ActivationPolicy.mainWindowOpened()
@@ -542,8 +560,6 @@ struct MenuBarContentView: View {
     /// attention than the report is worth.
     @ViewBuilder
     private var decisions: some View {
-        let reportHelp = "Files a report with the readings from the last few "
-            + "minutes attached. Nothing leaves this Mac."
         VStack(spacing: 6) {
             if let family = leadingFamily {
                 let expectedHelp = "Stop alerting for CPU load from "
@@ -555,11 +571,44 @@ struct MenuBarContentView: View {
                 .frame(maxWidth: .infinity)
                 .help(expectedHelp)
             }
-            Button("It feels slow right now") {
-                store.reportSlowdown()
+            // Prominent because it is the only instrument in the product that can
+            // see what we miss, and because someone reaching for it is already
+            // frustrated. One click, no confirmation, and the reply arrives in
+            // place of this content (design 5d).
+            reportNowButton
+
+            // The second affordance, for the far commoner case: nobody opens a
+            // menu bar while the beachball is spinning. It costs a bucket, not a
+            // form (design 6d).
+            Button(SlowdownReportPresentation.reportEarlierTitle) {
+                reportFlow = .picking
             }
             .frame(maxWidth: .infinity)
-            .help(reportHelp)
+
+            Text(SlowdownReportPresentation.gestureCaption())
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Prominent in the calm popover, plain during an incident.
+    ///
+    /// Not decoration: with an incident open, "See the evidence" is the prominent
+    /// control, and two filled buttons side by side would say the popover has two
+    /// primary actions when it has one.
+    @ViewBuilder
+    private var reportNowButton: some View {
+        let button = Button(SlowdownReportPresentation.reportNowTitle) {
+            reportFlow = .reply(store.reportSlowdown())
+        }
+        .frame(maxWidth: .infinity)
+        .help(SlowdownReportPresentation.gestureHelp)
+
+        if store.openIncident == nil {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button
         }
     }
 
