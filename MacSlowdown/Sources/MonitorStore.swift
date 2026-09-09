@@ -380,6 +380,27 @@ final class MonitorStore {
     private(set) var isRunning = false
     let machine = MachineContext.current()
 
+    // MARK: - Coverage (TASK-113, S-2, S-6)
+
+    /// When monitoring was actually running.
+    ///
+    /// The record that makes a reassurance worth anything: without it, a screen
+    /// saying nothing crossed a line looks the same whether we watched all morning
+    /// or stopped an hour ago. Written only by the sampling loop below, read by the
+    /// Overview screen, and persisted so a gap survives the restart that caused it.
+    let coverage = CoverageRecorder(store: MonitorStore.persistentCoverage)
+
+    /// The single on-disk coverage record, beside the incident history.
+    ///
+    /// Its own file rather than a field in `incidents.json`, because it is written
+    /// on a completely different rhythm — a timestamp every sample against an
+    /// incident every few days — and because a coverage record that could only be
+    /// written when an incident closed would have nothing to say about the machines
+    /// this product is meant to reassure.
+    static let persistentCoverage: CoverageStore = {
+        CoverageStore(url: storageURL(named: "coverage.json"))
+    }()
+
     /// The status word on the Now screen and behind the menu bar glyph.
     ///
     /// **Judged against the user's own threshold** (TASK-96 finding 18). It used
@@ -963,6 +984,10 @@ final class MonitorStore {
         monitoringBeganAt = began
         memoryPressureHeldSince = began
         thermalStateHeldSince = began
+        // Registers for sleep notifications; deliberately records no observation.
+        // Starting the loop is not evidence that it sampled, and the coverage record
+        // may only ever be extended by a reading that actually arrived.
+        coverage.beginWatching(settings: privacySettings)
         task = Task { [weak self] in await self?.run() }
     }
 
@@ -977,6 +1002,9 @@ final class MonitorStore {
     func stop() {
         task?.cancel()
         task = nil
+        // Forced to disk here: whatever stopped us is exactly the event that would
+        // otherwise leave a minute of real watching looking like a gap.
+        coverage.endWatching()
         pressureMonitor.stop()
         memoryPressureIsLive = false
         isRunning = false
@@ -1045,6 +1073,14 @@ final class MonitorStore {
             enumeration = snapshot.enumeration
             freshness = overdue ? .stale(age: elapsed) : .current
             lastUpdate = Date()
+            // A reading arrived, so this moment is covered. Recorded from
+            // `sampledAt` — the wall-clock instant this pass measured — rather than
+            // from a fresh `Date()`, so the coverage record and the retained series
+            // are stamped from the same clock reading and cannot disagree about when
+            // we were watching (FR-060).
+            coverage.observe(
+                at: sampledAt, cadence: self.cadence?.interval ?? baseCadence,
+                settings: privacySettings)
             // Settled over the trailing window rather than read off this sample, so
             // the word on screen describes the machine rather than the instant
             // (TASK-100). Computed here, on the sampling pass, rather than in a
@@ -1376,6 +1412,12 @@ final class MonitorStore {
         // make "delete everything" untrue of the sparklines still on screen.
         history.removeAll()
         let files = StoredData.deleteRecordedEvidence(in: evidenceDirectory)
+        // The coverage record is recorded evidence too, and the sweep above takes
+        // its file. Forgetting it in memory as well is what stops the Overview
+        // claiming coverage whose evidence has just been deleted; the record
+        // restarts from now, because we are still watching. After the sweep, so the
+        // restarted record is the one left on disk rather than being deleted by it.
+        coverage.forgetRecordedHistory()
         return DeletionOutcome(
             incidents: removedIncidents.incidents,
             files: files.files,
