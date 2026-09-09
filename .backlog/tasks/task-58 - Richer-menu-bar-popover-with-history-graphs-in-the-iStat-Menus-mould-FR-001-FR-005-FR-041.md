@@ -3,10 +3,10 @@ id: TASK-58
 title: >-
   Richer menu bar popover with history graphs, in the iStat Menus mould (FR-001,
   FR-005, FR-041)
-status: To Do
+status: Out of Scope
 assignee: []
 created_date: '2026-08-08 19:37'
-updated_date: '2026-08-09 21:32'
+updated_date: '2026-09-09 19:37'
 labels:
   - ui
 dependencies: []
@@ -53,4 +53,18 @@ Today our popover is a static list: severity, total CPU, three contributors, oth
 
 <!-- SECTION:NOTES:BEGIN -->
 **Not started, at the product owner's explicit instruction:** they want to scope this in conversation first. Untouched on 2026-08-09 for that reason and no other — it is large, and the FR-005 history it would draw from is now materially better provisioned than when the task was written (incidents persist for 30 days, `retainedSamples` is reachable, `SparklinePresentation` exists), so the scoping conversation should start from what is now available rather than from the task's original assumptions.
+
+**Closed 2026-09-09: superseded by design 6a, and pointing the wrong way.**
+
+This task asked for a denser popover in the iStat Menus mould — CPU graph with per-core bars, load average, uptime, memory composition bars, per-disk free space, network graph, sensors. It was written before the product knew what it was.
+
+Two things happened since that make it the wrong ask rather than a deferred one.
+
+**The popover now has a design** (6a), and it goes the other way deliberately: a measurement-first headline, one interval, the share of busy time with the unattributable part pinned, and two decisions only the user can make. Adding a wall of gauges would bury the two buttons that are the whole point of that surface.
+
+**The product's thesis moved.** FR-063 says a measured resource condition is not a slowdown; the value is in saying what was measured and admitting what we cannot see. A denser gauge is a different product — and it is a product that already exists and is better at it, which is exactly the second review's point that "monitoring plus history plus alerts" is an occupied feature set.
+
+**What survives.** The FR-005 history idea landed in the Overview's day chart (TASK-113), which is where a trend belongs — a surface someone opened to look at, rather than a glance surface. Sensors were always excluded by A-03 and FR-010 and are unaffected by this closure.
+
+Reopen only if the field trial (TASK-114) says people want a gauge. That would be a finding about the product's shape, not a UI request.
 <!-- SECTION:NOTES:END -->

@@ -1,6 +1,6 @@
 # Reviewing MacSlowdown — a reading order
 
-Written 2026-09-05 for a reviewer coming to this project cold, who has been asked to
+Written 2026-09-05, revised 2026-09-09, for a reviewer coming to this project cold, who has been asked to
 start at the **thesis and the scenarios**, then the **approach**, and only then the
 **implementation**.
 
@@ -36,24 +36,31 @@ in the spec is downstream of them.
 > is revisit §1.2 itself, which still defines success in terms of the surface nobody
 > used. That question is open and nobody has answered it.
 
-### 2. The scenarios — and an honest gap
+### 2. The scenarios
 
-**There is no scenarios document, and this is a real gap rather than an omission from
-this map.** The spec has §1's five questions, §3's users and roles, and per-requirement
-acceptance criteria, but no user journeys or worked scenarios. The closest things:
+`scenarios.md` — **seven situations a person is actually in**, each stating the issue as
+they experience it, what they do, what it enables, what they walk away with, and *how it
+fails*. Read it second; it is short, and it is the closest thing to a statement of what
+this product is for.
+
+It carries no requirement numbers, no thresholds and no screens on purpose: if a sentence
+in it could only have been written by someone who had seen the code, it was describing our
+progress rather than the user's problem. The failure modes are the substantive half — the
+happy paths were never the risk.
+
+Supporting material:
 
 | Read | What it gives you |
 |---|---|
 | `requirements.md` §1 (the five questions) | The intended arc from "my Mac feels slow" to an answer |
 | `requirements.md` §3 | Users and roles |
-| `design/screens/*.png` — especially `1b`, `1e`, `1h`, `4a` | The nearest thing to scenarios that exists: concrete screens for the triage moment, the evidence room, the unattributable case, and the live monitor |
+| `design/screens/*.png` — especially `5a`, `5b`, `5d`, `6a` | The screens those scenarios became |
 | `requirements.md` §9 | Release phasing, which encodes an assumed order of value |
 
-A reviewer may reasonably conclude that writing the scenarios is the first missing
-piece of work. If so, `1h` (the incident we cannot attribute) is the scenario most
-worth writing first, because roughly **40 percentage points of busy CPU are
-unattributable in a Mac App Store build** and that is the hard case the product is
-least equipped for.
+The two scenarios to read first are **S-4** (heavy work started on purpose, which is
+indistinguishable from a real slowdown by any measurement) and **S-7** (the machine is
+struggling and nothing we watch has crossed a line). Between them they contain the
+product's central problem.
 
 ### 3. The approach — what was decided, and what the machine actually allows
 
@@ -91,12 +98,12 @@ this directly.
 | Read | Why |
 |---|---|
 | `CLAUDE.md` — "Where the work stands" | Current state, and the table of UI work blocked on a person at a screen |
-| `design/README.md` | The design index: 30 artboards across four turns, which supersedes which, and where the cloud project lives |
+| `design/README.md` | The design index: 28 artboards across four turns, which supersedes which, and where the cloud project lives |
 | `Metrics/Sources/` | The framework — sampling, identity, grouping, attribution, detection, summarisation |
 | `MacSlowdown/Sources/` | The app — menu bar, windows, presentation rules |
 | `requirements.md` §5 | The functional requirements — 55 present, numbered to FR-062, each with acceptance criteria. The gaps are deliberate: FR-020–024 (process control) are deferred and escalated, FR-048 (wakeups) was dropped as unmeasurable |
 
-Build and test commands are at the top of `CLAUDE.md`. **1141 tests pass.** Three tests
+Build and test commands are at the top of `CLAUDE.md`. **1290 tests pass.** Three tests
 measure the real machine and fail on a busy one — `CLAUDE.md` names them; re-run in
 isolation before treating one as a regression.
 
@@ -104,29 +111,35 @@ isolation before treating one as a regression.
 
 ## Where the weak joints are
 
-Offered so the review can go straight at them, not to pre-empt its conclusions.
+Offered so the review can go straight at them, not to pre-empt its conclusions. Revised
+2026-09-09; four of the original seven have closed and the list is shorter and sharper
+for it.
 
-1. **The success definition may describe the wrong surface** (§1.2 vs
-   `design/live-surfaces.md`). The most consequential open question in the project.
-2. **No scenarios exist.** Requirements were written from a problem statement directly
-   to acceptance criteria.
-3. **One condition has produced every incident ever recorded, and all were false.**
-   Repeated relaunch, now demoted (FR-046 amendment 5). The product has therefore never
-   produced a true positive of any kind on the owner's machine — which is either a
-   thresholds problem, a machine that is genuinely fine, or evidence that the incident
-   model does not fit.
-4. **The proposed fix for #3 was refuted by measurement.** Run-queue pressure was meant
-   to catch what CPU busy misses; its threshold fires through every compile, its signal
-   is dominated by I/O wait, and it is smoothed over a minute (`TASK-103`,
-   `probe/FINDINGS.md`). The founding observation still stands and has no mechanism.
-5. **Most of the UI has never been looked at.** See the blocked-on-screen table in
-   `CLAUDE.md`. A green test is not a seen screen, and several sessions have been burned
-   confusing the two.
-6. **Three of the six challenges are unanswered** — C-04, C-05, C-06 in
-   `requirements.md` §10.1.
-7. **App Review risk is unresolved and untestable** (§10.3). Process enumeration uses a
-   sysctl Apple withdrew on iOS 9; `proc_listpids` is explicitly denied. No Apple
-   statement blesses the alternative.
+1. **Almost nothing has been seen running.** This is now the largest risk by a wide
+   margin. The build has changed substantially — a new opening view, a coverage record,
+   a rewritten first run, new popover states, condition-scoped suppression — and every
+   screen-dependent criterion is unchecked. `CLAUDE.md` carries the table. A green test
+   is not a seen screen and several sessions have been burned confusing the two.
+2. **The product has still never produced a verified true positive.** It has produced
+   incidents since the detector defect was fixed, but nobody has judged whether they were
+   right. The instrument that would settle it — the user reporting a slowdown as they
+   feel it — is now built and has collected nothing yet. Until the field trial
+   (`TASK-114`) runs, every threshold in this product is set by argument.
+3. **The success definition changed and the product has not caught up everywhere.**
+   §1.2 now turns on supporting a *decision*, not on reading an incident. Whether the
+   built product actually supports a decision anywhere except the memory case is an open
+   question and a fair thing to attack.
+4. **A distinct product and a paying audience are unproven.** "Monitoring plus history
+   plus alerts" is an occupied feature set; the claim is that the reduction in
+   interpretation effort is the product, and nothing measures that yet.
+5. **App Review risk is unresolved and untestable** (§10.3). Process enumeration uses a
+   sysctl Apple withdrew on iOS 9. `TASK-50` asks the question and has never been sent —
+   it gates no code, which is exactly why it keeps slipping.
+
+Closed since the first version of this list, and worth knowing were once open: the
+missing scenarios document (now `scenarios.md`), the run-queue threshold (refuted by
+measurement, resolved as a displayed figure rather than a condition), and the three
+unanswered challenges C-04/C-05/C-06 (all closed in spec v1.6).
 
 ## Conventions worth knowing before you judge the code
 
@@ -143,12 +156,13 @@ Offered so the review can go straight at them, not to pre-empt its conclusions.
 
 | Path | What it is |
 |---|---|
-| `requirements.md` | **Authoritative** for scope and behaviour (see its §11). v1.4 |
+| `requirements.md` | **Authoritative** for scope and behaviour (see its §11). v1.6 |
 | `CLAUDE.md` | Operating rules, verified platform facts, current state, UI blockers |
+| `scenarios.md` | Seven user situations and how each one fails. Read second |
 | `REVIEW.md` | This file |
 | `design/README.md` | Design index, turn-by-turn, plus the cloud project details |
-| `design/live-surfaces.md` | The argument behind FR-057–FR-062. Key for a thesis review |
-| `design/screens/*.png` | 30 rendered artboards |
+| `design/live-surfaces.md` | The argument behind FR-057–FR-062. Historical: it has been folded into the spec, and is kept because it carries the reasoning the requirements table does not |
+| `design/screens/*.png` | 28 rendered artboards |
 | `design/icons/README.md` | App-icon directions |
 | `probe/FINDINGS.md` | Measured platform capability — the empirical base |
 | `probe/SEAM-AUDIT.md` | Built-but-unwired capabilities and their staging reasons |

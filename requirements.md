@@ -1,8 +1,10 @@
 # MacSlowdown — Product Definition and Functional Requirements
 
 **Document status:** Greenfield product specification  
-**Version:** 1.5  
-**Last updated:** September 6, 2026
+**Version:** 1.6  
+**Last updated:** September 9, 2026
+
+> **Revision note (1.6):** the three remaining challenges are closed. **C-06 applied**: FR-051 is narrowed to aggregate-only, because a specification that commits the product to something measurement has shown impossible is a defect rather than a pending decision. **C-05 applied**: FR-053, FR-025 and FR-026 are deferred, each with the reason recorded at the requirement — in two of the three cases the design reached for the same feature independently and then argued itself out of it. **C-04 closed as already answered**: §1.2's v1.5 rewrite says success includes understanding the observed conditions *and their limits*, which is what C-04 asked for. FR-064 gains amendment 1: a user's report is kept until they delete it, because a report is scarce where an incident is plentiful.
 
 > **Revision note (1.5):** amended after two independent product reviews. The governing change is that **a measured resource condition is not a slowdown** — §1.2's success definition is rewritten around supporting a decision rather than around reading an incident, and FR-063 to FR-065 are added: the condition/experience distinction, user-reported slowdowns, and the rule that measurement, attribution and impact confidence may not collapse into one claim. FR-011 and FR-014 are amended so sustained CPU load is recorded but does not interrupt by default. FR-016's per-application suppression is narrowed to a condition type. No requirement was removed.
 
@@ -664,6 +666,7 @@ Two further constraints, both from the same review:
 | Confidence level              | High                                                                                               |
 | Design freedom                | Profile UI and naming open.                                                                        |
 | Open questions or assumptions | Conflict resolution between manual and automatic selection.                                        |
+| Deferral status | **Deferred 2026-09-09 (challenge C-05).** Returns only on user evidence. The build never had profiles, nobody has asked for them, and the design's argument against them is independent and good: a profile puts a mode switch in the same list as navigation, so a mis-click silently changes what counts as a condition — a setting disguised as a place. Per-application rules (FR-016) already cover the case profiles were invented for, and they say what they do. |
 | Human-review status           | Approved                                                                                           |
 
 ## FR-026 — The system may activate profiles using public contextual signals.
@@ -681,6 +684,7 @@ Two further constraints, both from the same review:
 | Confidence level              | High                                                                                                   |
 | Design freedom                | Signals may include time, idle, power, battery, active app, process presence, Focus and thermal state. |
 | Open questions or assumptions | Privacy and precedence.                                                                                |
+| Deferral status | **Deferred 2026-09-09 (challenge C-05).** Returns with FR-025, and not before. Contextual activation is a refinement of a feature that is itself unevidenced. |
 | Human-review status           | Approved                                                                                               |
 
 ## FR-027 — The system shall provide search, filtering and sorting over current processes and retained incidents.
@@ -1155,24 +1159,24 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 | Open questions or assumptions | Default verification duration by action and incident category. |
 | Human-review status           | Approved |
 
-## FR-051 — The system may monitor aggregate and per-application network activity where permitted.
+## FR-051 — The system may monitor aggregate network activity where permitted.
 
 | **Field**                     | **Specification** |
 |-------------------------------|-------------------|
 | Requirement ID                | FR-051 |
-| Requirement statement | The system may record aggregate network throughput and, where supported, application-level network deltas as supporting incident evidence. |
-| User or system objective      | Identify sync or transfer workloads that coincide with CPU, disk, memory, or responsiveness problems. |
+| Requirement statement | The system may record **aggregate, machine-wide** network throughput as supporting incident evidence. Per-application network attribution is out of scope: it is measured unavailable, not deferred. |
+| User or system objective      | Show whether sustained transfer coincided with a condition, without implying we can say which application was transferring. |
 | Preconditions                 | Public and distribution-compatible counters are available. |
 | Trigger                       | Sampling interval or investigation mode. |
-| Expected behavior             | Compute rates from counter deltas, distinguish local from unavailable attribution where possible, and avoid diagnosing network latency from throughput alone. |
+| Expected behavior             | Compute rates from counter deltas. Report loopback separately from external interfaces. State that per-application attribution is unavailable wherever throughput is shown beside per-application figures, so the absence is not read as zero. Never diagnose network latency from throughput. |
 | Expected outcome              | User can see whether sustained transfers coincided with a slowdown. |
-| Acceptance criteria           | Cumulative counters are not mislabeled as current rates; feature can be disabled; unavailable per-process attribution is explicit. |
+| Acceptance criteria           | Cumulative counters are never presented as current rates; counter wrap is handled (see the measurement below); loopback is not summed into external throughput; the feature can be disabled; no surface offers or implies a per-application network figure. |
 | Confidence level              | Medium |
 | Design freedom                | Supporting context rather than a primary incident category in the initial release. |
 | Open questions or assumptions | Sandbox feasibility and privacy implications. |
 | Measured 2026-08-09 (TASK-40) | **Per-application network attribution is not merely hard, it is unavailable.** No public API returns a per-process byte counter: `libproc` FD enumeration reads 445/447 own-uid processes unsandboxed and **1/447 sandboxed** — one of the few places the sandbox itself, rather than uid, is the binding limit — the PCB tables return zero entries either way, and `socket_info` carries queue occupancy rather than a differenceable counter. `nettop` reaches it only through a private framework. Aggregate, machine-wide throughput **is** available with no extra entitlement. Two rules came out of the same work: `lo0`'s counters wrap at 2^32 even through the 64-bit `if_data64` field (measured mid-transfer, where naive subtraction produced 1.8×10^19), and loopback must be reported separately or one local file copy reads as a WAN transfer. |
-| Narrowing status | **Proposed and not applied.** The requirement should be narrowed to aggregate-only exactly as FR-009 was, and this document currently promises a capability that cannot be built. The product owner elected on 2026-08-23 to defer the decision rather than act on it, so the promise stands unamended and is flagged here rather than quietly honoured. |
-| Human-review status           | Review required — and now overdue, since the requirement as written is known to be unimplementable. |
+| Narrowing status | **Applied 2026-09-09 (challenge C-06).** Narrowed to aggregate-only, exactly as FR-009 was, on the measurement recorded above. Proposed 2026-08-09, deferred once on 2026-08-23, and applied now because a specification that commits the product to something measurement has shown impossible is a defect in the specification, not a pending decision. Nothing was lost: the aggregate half was always the deliverable half. |
+| Human-review status           | Approved 2026-09-09 (challenge C-06). |
 
 ## FR-052 — The system may monitor GPU activity where supported by public interfaces.
 
@@ -1206,6 +1210,7 @@ pattern accounted for most of it. See TASK-55.1 and TASK-55.2.
 | Confidence level              | High |
 | Design freedom                | Robust statistics, categorized workload baselines, or another explainable method. |
 | Open questions or assumptions | Minimum learning period and treatment of seasonal workloads. |
+| Deferral status | **Deferred 2026-09-09 (challenge C-05).** Returns only on user evidence. Nothing in a month of real use has asked for it, and when the design reached for baselines independently it made the case and then defeated it: a learned normal is a *second, invisible line*, so a condition that crosses it but not the fixed one is one the settings screen cannot explain (FR-060), and the period during which it is still learning is a period the coverage record has no way to describe. If it returns it should return as its own idea — "this is unusual for your Mac", with the comparison shown — never as a switch that quietly moves the line. |
 | Human-review status           | Review required |
 
 ## FR-054 — The system shall support a guided investigation workflow.
@@ -1407,6 +1412,16 @@ Added in v1.5 after two independent reviews reached the same conclusion by diffe
 | Open questions or assumptions | Whether a separate "was this alert useful?" judgement is also collected is deliberately left open — it answers a different question from "was this a slowdown?", and a real slowdown can still produce an unhelpful alert. |
 | Human-review status           | Approved 2026-09-06 |
 
+**Amendment 1 — a report is kept until the user deletes it (2026-09-09).**
+
+FR-064 originally required reports to follow the same retention as incidents, and the build did that. Design 6d disagreed, and it is right.
+
+The reason is scarcity. An incident is machine-generated and plentiful; a report is a deliberate human gesture, likely a handful a month. Ageing one out at thirty days destroys precisely the signal the feature exists to produce — *"this is the fourth time, and all four were within ten minutes of a backup starting"* — which is the one finding no other instrument in this product can reach. Uniform retention is simpler to explain and would quietly delete the evidence we most need.
+
+So reports are kept until deleted. The count bound still applies, so nothing is unbounded; the user can still delete one or all; and the privacy disclosure must state the difference rather than implying reports follow the retention setting shown above them.
+
+**Acceptance criteria (revised).** A report is not removed by the retention setting; the count bound is still enforced; the privacy screen states that reports are kept until deleted and why; deleting all history still removes them.
+
 ## FR-065 — Confidence in measurement, in attribution and in user impact shall be stated separately
 
 | **Field**                     | **Specification** |
@@ -1525,18 +1540,17 @@ Raised after two weeks of running the built product on a real machine. Each is a
 question about whether a requirement still earns its place, not a note that it is
 unimplemented. They change the product's shape and that is the product owner's call.
 
-**Status as of 2026-09-05.** C-01, C-02 and C-03 have been answered by the product
-owner and acted on; C-04, C-05 and C-06 are **still awaiting an answer** and are the
-live half of this section.
+**Status as of 2026-09-09: all six are closed.** This section is now a record rather
+than a queue.
 
 | | Answer | Where it went |
 |---|---|---|
 | C-01 | **Demote**, agreed 2026-08-31 | FR-046 amendment 5. Built: repeated relaunch opens no incident and sends no notification, and remains a record (TASK-102). Design 1o deleted; 4c replaces it |
 | C-02 | **Revise**, agreed 2026-08-31 | Amendment drafted at FR-006 and then **refuted by measurement** — see the boxed note there. Stays proposed (TASK-103) |
 | C-03 | **Accepted in full**, 2026-08-31 | FR-057 to FR-062, §5. The argument is kept in `design/live-surfaces.md` |
-| C-04 | *unanswered* | — |
-| C-05 | *unanswered* | — |
-| C-06 | *unanswered* | — |
+| C-04 | **Already answered**, 2026-09-09 | §1.2's v1.5 rewrite makes success "understand the observed conditions *and their limits*" — which is what C-04 asked for. No further change needed |
+| C-05 | **Deferred**, 2026-09-09 | FR-053, FR-025 and FR-026 each carry a deferral note with its reason. Two of the three were independently argued against by the design |
+| C-06 | **Applied**, 2026-09-09 | FR-051 narrowed to aggregate-only. Proposed 2026-08-09, deferred once, applied now |
 
 **C-01 — FR-046 (repeated application failure) may not be shippable at acceptable
 precision.** In nine days of continuous running it produced ten incidents, every one

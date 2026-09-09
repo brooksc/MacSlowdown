@@ -17,7 +17,7 @@ safe actions, export and privacy controls, and the FR-030 overhead harness.
 - Run: `./run-menubar.sh`
 - Test: `nice env TUIST_SKIP_UPDATE_CHECK=1 tuist xcodebuild test -scheme AllTests \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath .build`
-  — currently **1141 passing** (full run, 2026-09-03).
+  — currently **1290 passing** (full run, 2026-09-09).
   Run `tuist generate --no-open` after adding a source or test file, or the new
   file is silently not compiled — that has cost several runs. Two bundles:
   `MetricsTests` (plain) and
@@ -289,7 +289,7 @@ Read the Backlog entry before starting any of them — each records what was
 measured and what was deliberately not done.
 
 **A design exists, and it has been revised once against real use.** `design/`
-holds the Claude Design canvas and 30 rendered artboards, with `TASK-65` as the
+holds the Claude Design canvas and 28 rendered artboards, with `TASK-65` as the
 conformance umbrella. Treat the mocks as **directional**: structure, information
 hierarchy and copy intent are the requirement; the placeholder machine and
 invented numbers are not. `design/README.md` is the index — read it before
@@ -302,7 +302,13 @@ the canvas** — it caps at 256 KiB and the document is 298 KB, and it truncates
 without an error. Ask the product owner to export the project instead. Details
 and the project UUID are in `design/README.md`.
 
-Turn 4 (2026-08-31) is the current word: it revised the Now table to four
+**The design is closed as of 2026-09-09.** Turns 5 and 6 answered everything
+outstanding and the commentary was then stripped, leaving screens and the rules
+that are specifications rather than argument — 4b's allowed/never list for the
+run-queue quantity, and 5c's watched/crossed/not-watched grammar. Do not expect
+further design turns without a new question.
+
+Turn 4 (2026-08-31) was superseded in part by turn 5, but its surviving word: it revised the Now table to four
 columns, gave the state tiles a hold duration, replaced the repeated-quit
 incident with a lifecycle record, endorsed the built menu bar icon over its own
 earlier drawing, and retracted three claims measurement had forbidden — one of

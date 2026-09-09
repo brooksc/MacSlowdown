@@ -3,9 +3,10 @@ id: TASK-98
 title: >-
   Decide whether the Now contributor list should visibly sum, as the popover's
   does
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-31 16:46'
+updated_date: '2026-09-09 19:36'
 labels:
   - ui
   - decision
@@ -42,3 +43,17 @@ Design references 1c (Now) and 1a/1b (popover) are the inputs. No code changes u
 - [ ] #3 If the lists are to match, the Now table sums to 100 with largest-remainder rounding exactly as the popover does
 - [ ] #4 FR-055's rule that the remainder is not de-emphasised into insignificance holds in whichever is chosen
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Answered by the design, 2026-09-09: yes, it sums, and it says so.**
+
+Design 5b's contributor table ends in a pinned footer reading "Everything above accounts for all of it · percentages are of one core, and this Mac has 8", with the arithmetic shown — 760% = 95% of 8. The unattributable share is a row in that sum, not a remainder left implicit.
+
+So the answer to "should the list visibly sum" is yes, and the reason is the one FR-055 already gives: a contributor list that does not sum invites the reader to believe the top row is most of the story, which on this machine it frequently is not. Making the total explicit is what stops the 40% disappearing quietly.
+
+Two details worth keeping from the design's treatment. The unattributable row is **pinned to the footer band rather than sorted into the list**, so it cannot migrate up and down as ranking changes — it is a property of the whole measurement, not a competitor to the applications above it. And the sum is stated in both units, because "760%" and "95% of 8 cores" are the same fact and a reader will reach for whichever they think in.
+
+Built in TASK-113's Overview. Nothing further to decide.
+<!-- SECTION:NOTES:END -->

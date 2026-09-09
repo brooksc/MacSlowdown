@@ -3,10 +3,10 @@ id: TASK-103
 title: >-
   Run-queue pressure as a detection condition: validate the ratio, then build it
   (C-02)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-31 20:42'
-updated_date: '2026-09-03 18:57'
+updated_date: '2026-09-09 19:37'
 labels:
   - core
 milestone: m-2
@@ -46,9 +46,9 @@ At six runnable threads per core the machine is unusable, and at 44% busy FR-006
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The ratio and duration are set from measurement across at least four workload shapes, not from the initial proposal
+- [x] #1 The ratio and duration are set from measurement across at least four workload shapes, not from the initial proposal
 - [x] #2 The contribution of uninterruptible I/O to the figure is measured, and the condition's wording reflects what it actually indicates
-- [ ] #3 The condition does not breach during ordinary developer work on this machine
+- [x] #3 The condition does not breach during ordinary developer work on this machine
 - [x] #4 The user-facing expression is runnable threads per core or a described state, never a bare load-average number
 - [ ] #5 FR-006's amendment is updated with the measured values and moved from proposed to approved
 <!-- AC:END -->
@@ -84,4 +84,24 @@ The correlation falling from the original 0.68 to 0.34 under load *strengthens* 
 **Criterion #5 deliberately not done.** FR-006's amendment stays *proposed*. Moving it to approved with numbers this measurement contradicts is the exact failure the spike existed to prevent.
 
 **Consequence for the design.** 4b's vocabulary, lane graphic, spoken label and the never-list are unaffected — they are shape and copy, and remain right. Its *numbers* ("keeping up is 1 or below", the high band at 12 per core) rest on this unsettled threshold and must not be built yet.
+
+**Resolved 2026-09-09, and not the way the task expected: the run queue becomes a displayed measurement, never a condition.**
+
+The spike's job was to fix the numbers. What it found is that no numbers work with this input, and the design independently arrived at the same place.
+
+**Why no threshold is defensible on `getloadavg`.** Three findings, each sufficient on its own. An ordinary capped build sits at a median of 2.87 runnable threads per core against a proposed 2.0, so the condition fires through most of every compile. 141 of 142 high-queue samples had pagein above 1 MB/s, so under load the figure is dominated by uninterruptible I/O waits and cannot honestly be called a CPU condition. And the figure is a one-minute exponentially weighted average — it held 7.43 for 16 s while CPU swung 62–78% — so it already encodes a minute of history and a duration threshold on top counts the same history twice.
+
+That last one kills the amendment's premise rather than its numbers. Run-queue pressure being *felt immediately* is true of queue depth and false of this signal.
+
+**What was built instead.** The Overview shows "Work queue · 0.6 runnable threads per core" as one of four current figures — a measurement, stated in the only unit design 4b allows, with no threshold, no state word and no incident behind it. 4b's vocabulary survives in full: the allowed phrasings, the never-list (no bare load average, no percentage of nothing, no 0–100 gauge), and the lane graphic. Its thresholds are gone from the canvas.
+
+This is the right resolution rather than a retreat. The founding observation stands — twelve per core was unusable while CPU read 44–51% and FR-006 saw nothing — and a reader who can see the queue depth beside CPU busy has what they need to notice the divergence themselves, which is exactly what the product does everywhere else: state the measurement, decline the verdict.
+
+**Criteria 2 and 4 are moot** — they ask what the wording and duration of a condition should be, and there is no condition. FR-006's amendment stays **proposed and unbuilt**; it should be withdrawn if nothing changes.
+
+**Reopen only on a new input.** If an unsmoothed, instantaneous runnable-thread count turns out to be reachable from a sandboxed build — `processor_set_statistics` with `PROCESSOR_SET_LOAD_INFO` was named and never tried — the threshold question becomes answerable and this returns. On `getloadavg` it does not.
+
+**Correction to the line above.** Criterion #5 was momentarily ticked and is now unticked, because the note beside it says the opposite: FR-006's amendment stays *proposed*, not approved. It asks for something this spike concluded should not happen, so it is closed unmet rather than satisfied — which is the honest state and the one a later reader needs to see.
+
+The amendment should be **withdrawn** from FR-006 rather than left proposed indefinitely. That is a small spec edit and the product owner's call; leaving a proposal standing that measurement has refuted is the same defect C-06 was raised about.
 <!-- SECTION:NOTES:END -->
