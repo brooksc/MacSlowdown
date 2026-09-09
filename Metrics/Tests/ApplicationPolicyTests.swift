@@ -214,3 +214,72 @@ struct PolicyPersistenceTests {
         #expect(store.policies.isEmpty)
     }
 }
+
+/// FR-016 amendment 1. A rule now names one condition, and rules written before it
+/// could have to be given a scope on the way in rather than being left
+/// application-wide — which would preserve exactly the defect the amendment
+/// removes.
+@Suite("A rule names its condition, including one stored before it could")
+struct ScopedApplicationPolicyTests {
+    private func decoded(_ json: String) throws -> ApplicationPolicy {
+        try JSONDecoder().decode(ApplicationPolicy.self, from: Data(json.utf8))
+    }
+
+    /// "Heavy load is expected" was always the CPU claim — its only writer said so
+    /// in a comment — so it migrates to CPU alone and stops silencing memory.
+    @Test("An expected rule stored without a condition migrates to CPU load")
+    func expectedMigratesToCPU() throws {
+        let policy = try decoded(
+            #"{"displayName":"Xcode","classification":"expected","createdAt":0}"#)
+        #expect(policy.conditions == [.cpuSaturation])
+        #expect(!policy.applies(to: .memoryPressure))
+    }
+
+    /// "Never alert me" was deliberately unconditional. Narrowing it would silently
+    /// start alerting someone who asked not to be, which is the opposite failure
+    /// and just as bad.
+    @Test("An ignored rule stored without a condition keeps every condition")
+    func ignoredKeepsEverything() throws {
+        let policy = try decoded(
+            #"{"displayName":"HandBrake","classification":"ignored","createdAt":0}"#)
+        #expect(policy.conditions == Set(IncidentCondition.allCases))
+    }
+
+    @Test("A stored condition set is decoded as written")
+    func storedConditionsSurvive() throws {
+        let original = ApplicationPolicy(
+            displayName: "Chrome", classification: .expected,
+            conditions: [.memoryPressure])
+        let round = try JSONDecoder().decode(
+            ApplicationPolicy.self, from: JSONEncoder().encode(original))
+        #expect(round.conditions == [.memoryPressure])
+    }
+
+    /// A rule naming nothing would either suppress everything or nothing, and which
+    /// it did would depend on the reader.
+    @Test("A rule can never name no condition")
+    func aRuleAlwaysNamesSomething() throws {
+        #expect(ApplicationPolicy(
+            displayName: "Empty", classification: .expected, conditions: []).conditions
+            == [.cpuSaturation])
+        let stored = try decoded(
+            #"{"displayName":"E","classification":"expected","conditions":[],"createdAt":0}"#)
+        #expect(!stored.conditions.isEmpty)
+    }
+
+    /// The audit trail has to say which condition a rule hid, or "Xcode, not
+    /// alerted" leaves the reader unable to see that the memory finding would still
+    /// have reached them.
+    @Test("A suppression records the condition its rule was about")
+    func theTrailNamesTheCondition() {
+        let detection = SuppressedDetection(
+            application: "Xcode", classification: .expected,
+            severity: .high, condition: .cpuSaturation)
+        #expect(detection.summary.contains("CPU saturation"))
+        #expect(detection.linked(to: UUID()).condition == .cpuSaturation)
+        // A trail entry written before rules named a condition still reads.
+        #expect(SuppressedDetection(
+            application: "Xcode", classification: .expected, severity: .high)
+            .summary.contains("not alerted"))
+    }
+}

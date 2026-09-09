@@ -23,7 +23,11 @@ struct SettingsView: View {
             Tab("Alerts", systemImage: "bell") {
                 AlertsSettingsTab()
             }
-            Tab("Apps", systemImage: "square.grid.2x2") {
+            // "Rules" rather than "Apps" since FR-016 amendment 1: what lives here
+            // is no longer a list of applications but a list of rules, each naming
+            // an application *and* a condition, plus the session-scoped one that
+            // names no application at all.
+            Tab("Rules", systemImage: "list.bullet") {
                 AppRulesSettingsTab()
             }
             Tab("Privacy", systemImage: "hand.raised") {
@@ -134,6 +138,20 @@ private struct AlertsSettingsTab: View {
     @Bindable private var settings = AlertSettings.shared
     @State private var showsThresholds = false
 
+    /// The conditions a switch here can act on: the resource ones.
+    ///
+    /// Repeated quits is deliberately absent. It cannot open an incident at all
+    /// (FR-046 amendment 5), so a switch for it would be a control with nothing to
+    /// govern — and a settings screen that offers one teaches the reader that the
+    /// others might be the same.
+    /// Ordered by the default rather than hand-written, so the ones that interrupt
+    /// out of the box read first and a condition added later cannot be forgotten.
+    static let interruptibleConditions: [IncidentCondition] = {
+        let resource = IncidentCondition.allCases.filter(\.isResourceCondition)
+        return resource.filter(\.announcesByDefault)
+            + resource.filter { !$0.announcesByDefault }
+    }()
+
     var body: some View {
         Form {
             if !settings.isAppliedToMonitoring {
@@ -195,6 +213,29 @@ private struct AlertsSettingsTab: View {
                     Text("Don't interrupt during calls or playback")
                     Text("Holds notifications while an app is playing audio or "
                          + "using the microphone. The slowdown is still recorded.")
+                }
+            }
+
+            // Design 5g. Detection and interruption are separated on screen because
+            // they are separate in the code: the section above moves where the line
+            // sits, this one decides whether crossing it interrupts. Everything is
+            // recorded either way, and the caption says so at the top rather than
+            // leaving the reader to infer it from four repetitions below.
+            Section("Which of these should interrupt you?") {
+                Text("Everything is recorded either way. The test we apply is "
+                     + "whether there is something you could decide.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(AlertsSettingsTab.interruptibleConditions, id: \.self) { condition in
+                    Toggle(isOn: Binding(
+                        get: { settings.interrupts(condition) },
+                        set: { settings.setInterrupts(condition, $0) }
+                    )) {
+                        Text(condition.label)
+                        Text(condition.interruptionRationale)
+                    }
                 }
             }
 
@@ -314,19 +355,41 @@ private struct AppRulesSettingsTab: View {
     @State private var rules: [ApplicationPolicy] = []
     @State private var corrections: [GroupingCorrection] = []
     @State private var showsSuppressed = false
+    @State private var showsOffer = false
+    @Bindable private var settings = AlertSettings.shared
+    @Bindable private var session = SessionQuiet.shared
 
     var body: some View {
         Form {
+            // Design 5f: silent to set and silent to expire, but visible while it
+            // runs. A suppression nobody can see is indistinguishable from a broken
+            // detector, and this one has no end time for the user to look up.
+            if session.isActive {
+                Section("Active this session") {
+                    LabeledContent {
+                        Button("End now") { session.end() }
+                    } label: {
+                        Text(SessionQuiet.title)
+                        if let detail = session.statusDetail() {
+                            Text(detail)
+                        }
+                    }
+                }
+            }
+
             Section {
-                Text("Rules you've set. These change what gets flagged — "
-                     + "they never change what's recorded.")
+                Text("Rules you've set. These change what interrupts you — "
+                     + "they never change what's recorded, kept, or shown in the "
+                     + "overview.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if rules.isEmpty {
-                    Text("No rules yet. Add an application whose heavy use is normal, "
-                         + "and MacSlowdown will keep recording it without interrupting you.")
+                    Text("No rules yet. Add an application and the one condition "
+                         + "whose alerts you don't want from it — MacSlowdown will "
+                         + "keep recording it, and will still tell you about that "
+                         + "application's other conditions.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -336,23 +399,70 @@ private struct AppRulesSettingsTab: View {
                     ruleRow(rule)
                 }
 
-                Menu("Add an app…") {
+                // Application *then* condition, in one gesture. A rule names both,
+                // so a control that could add one without the other would be able
+                // to produce the application-wide rule the amendment removed.
+                Menu("Add a rule…") {
                     if addableApplications.isEmpty {
                         Text("No other applications are running")
                     }
                     ForEach(addableApplications, id: \.identifier) { candidate in
-                        Button(candidate.name) { add(candidate) }
+                        Menu(candidate.name) {
+                            ForEach(
+                                AlertsSettingsTab.interruptibleConditions, id: \.self
+                            ) { condition in
+                                Button(condition.label) { add(candidate, condition) }
+                            }
+                        }
                     }
+                }
+
+                // The sheet's real home is the moment of annoyance — the
+                // notification, the condition in the overview, the incident detail.
+                // This is the Settings-side entry, and it is honest about needing a
+                // subject: with nothing under way there is nothing for the three
+                // sentences to be about, and inventing one would put the user back
+                // in front of the pickers 5f exists to remove.
+                LabeledContent {
+                    Button("Stop telling me…") { showsOffer = true }
+                        .disabled(liveOffer == nil)
+                } label: {
+                    Text("Something happening right now")
+                    Text(liveOffer.map(\.subtitle)
+                         ?? "Nothing is under way, so there is nothing to silence "
+                            + "from here. This offer also appears with the slowdown "
+                            + "itself, which is where it is usually wanted.")
                 }
             }
 
             Section {
-                Text("Suppressed slowdowns still appear in Incidents, marked "
-                     + "\"not alerted\".")
+                Text("Every rule names one condition, and no rule silences another. "
+                     + "A rule about an application's CPU load leaves its memory "
+                     + "pressure alone. Suppressed slowdowns still appear in "
+                     + "Incidents, marked \"not alerted\".")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Review what these rules hid…") { showsSuppressed = true }
+            }
+
+            // The conditions switched off for every application live on the Alerts
+            // tab, and a rules list that did not mention them would be incomplete —
+            // which is the same defect, one screen along.
+            if !silencedEverywhere.isEmpty {
+                Section("Silenced for every application") {
+                    ForEach(silencedEverywhere, id: \.self) { condition in
+                        LabeledContent {
+                            Button("Turn back on") {
+                                settings.setInterrupts(condition, true)
+                            }
+                        } label: {
+                            Text(condition.label)
+                            Text("Set on the Alerts tab. Still detected, still "
+                                 + "recorded, still in the overview.")
+                        }
+                    }
+                }
             }
 
             // FR-039: every correction the user has made, in one place, undoable.
@@ -389,6 +499,37 @@ private struct AppRulesSettingsTab: View {
             corrections = MonitorStore.shared.groupingCorrections
         }
         .sheet(isPresented: $showsSuppressed) { SuppressedDetectionsSheet() }
+        .sheet(isPresented: $showsOffer) {
+            if let offer = liveOffer {
+                SuppressionOfferView(offer: offer) { _ in
+                    rules = MonitorStore.shared.policies.policies
+                }
+            }
+        }
+    }
+
+    /// The conditions switched off for every application, in the order the Alerts
+    /// tab lists them.
+    private var silencedEverywhere: [IncidentCondition] {
+        AlertsSettingsTab.interruptibleConditions.filter {
+            settings.hasDecided(about: $0) && !settings.interrupts($0)
+        }
+    }
+
+    /// The offer for whatever is under way, or nil when nothing is.
+    ///
+    /// The application comes from the incident's own recorded attribution and may
+    /// legitimately be absent — FR-055's unattributable share is frequently the
+    /// largest part of a reading — in which case the sheet drops its
+    /// application-scoped sentence rather than guessing at a subject.
+    private var liveOffer: SuppressionOffer? {
+        guard let incident = MonitorStore.shared.openIncident,
+              let condition = incident.conditions
+                  .sorted(by: { $0.label < $1.label }).first
+        else { return nil }
+        return SuppressionOffer(
+            application: incident.attribution?.applications.first?.displayName,
+            condition: condition)
     }
 
     @ViewBuilder private func correctionRow(_ correction: GroupingCorrection) -> some View {
@@ -414,6 +555,13 @@ private struct AppRulesSettingsTab: View {
         }
     }
 
+    /// Design 5f's two columns — application, then condition — with what the rule
+    /// *does* kept as the picker it always was.
+    ///
+    /// The condition is a caption rather than a third control: a rule's subject is
+    /// chosen when it is made, and offering to re-point an existing rule at another
+    /// condition would be a way to silence something the user never looked at.
+    /// Removing it and making another says the same thing out loud.
     @ViewBuilder private func ruleRow(_ rule: ApplicationPolicy) -> some View {
         LabeledContent {
             HStack(spacing: 8) {
@@ -436,15 +584,22 @@ private struct AppRulesSettingsTab: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Remove this rule")
-                .accessibilityLabel("Remove the rule for \(rule.displayName)")
+                .accessibilityLabel("Remove the rule: \(rule.summary)")
             }
         } label: {
-            HStack(spacing: 6) {
-                if let icon = icon(for: rule) {
-                    Image(nsImage: icon).resizable().frame(width: 16, height: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    if let icon = icon(for: rule) {
+                        Image(nsImage: icon).resizable().frame(width: 16, height: 16)
+                    }
+                    Text(rule.displayName)
                 }
-                Text(rule.displayName)
+                Text(rule.conditions.map(\.label).sorted().joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(rule.summary)
         }
     }
 
@@ -470,8 +625,11 @@ private struct AppRulesSettingsTab: View {
         var identifier: String { bundleID ?? bundlePath ?? name }
     }
 
+    /// Applications with a rule are **not** filtered out. A rule is one condition,
+    /// so an application that already has one is a perfectly ordinary subject for a
+    /// second — and removing it from the menu is how the old application-wide shape
+    /// would quietly reassert itself.
     private var addableApplications: [Candidate] {
-        let existing = Set(rules.map(\.id))
         var seen = Set<String>()
         return NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
@@ -482,16 +640,22 @@ private struct AppRulesSettingsTab: View {
                     bundleID: application.bundleIdentifier,
                     bundlePath: application.bundleURL?.path)
             }
-            .filter { !existing.contains($0.identifier) && seen.insert($0.identifier).inserted }
+            .filter { seen.insert($0.identifier).inserted }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private func add(_ candidate: Candidate) {
+    /// Adding a condition to an application that already has a rule *merges*: two
+    /// statements about the same application are two statements, and replacing the
+    /// first would silently revoke a decision the user never revisited.
+    private func add(_ candidate: Candidate, _ condition: IncidentCondition) {
+        let existing = MonitorStore.shared.policies.policies
+            .first { $0.id == candidate.identifier }
         MonitorStore.shared.policies.setPolicy(ApplicationPolicy(
             bundleID: candidate.bundleID,
             bundlePath: candidate.bundlePath,
             displayName: candidate.name,
-            classification: .expected))
+            classification: existing?.classification ?? .expected,
+            conditions: (existing?.conditions ?? []).union([condition])))
         rules = MonitorStore.shared.policies.policies
     }
 }

@@ -96,15 +96,21 @@ struct AlertSettingsWiringTests {
                                    storage: StorageScreenModel(history: StorageHistory()),
                                    alertSettings: settings)
         // `notificationSettings` reads the app's shared policy store, which is what
-        // the Apps tab writes to.
+        // the Rules tab writes to.
         MonitorStore.shared.policies.setPolicy(ApplicationPolicy(
             bundleID: "com.example.task69", displayName: "TASK-69 Example",
-            classification: .expected))
+            classification: .expected, conditions: [.cpuSaturation]))
         defer { MonitorStore.shared.policies.removePolicy(id: "com.example.task69") }
 
         monitor.applyAlertSettings()
-        #expect(monitor.notificationSettingsInForce.expectedApplications
-            .contains("TASK-69 Example"))
+        // One rule, naming both halves of what it suppresses (FR-016 amendment 1).
+        // Asserting on the pair is the point: an assertion on the application alone
+        // would still pass for the application-wide rule the amendment removed.
+        #expect(monitor.notificationSettingsInForce.rules
+            .contains(SuppressionRule(
+                application: "TASK-69 Example", condition: .cpuSaturation)))
+        #expect(!monitor.notificationSettingsInForce.rules
+            .contains { $0.condition == .memoryPressure })
     }
 
     /// Criterion #2. The notice is not dismissed by the interface; it retires

@@ -135,13 +135,140 @@ struct InterruptionSuppressionTests {
     /// reason names it so the rule is discoverable rather than mysterious.
     @Test("An expected application suppresses the alert by name")
     func expectedApplicationSuppresses() {
-        let gate = NotificationGate(
-            settings: NotificationSettings(expectedApplications: ["HandBrake"]))
+        let gate = NotificationGate(settings: NotificationSettings(
+            rules: [SuppressionRule(
+                application: "HandBrake", condition: .memoryPressure)]))
         var state = NotificationGate.State()
-        let decision = gate.decide(incident: incident(), leadingContributor: "HandBrake",
+        let decision = gate.decide(incident: incident(), contributors: ["HandBrake"],
                                    at: origin, state: &state)
         #expect(!decision.shouldSend)
         #expect(decision.reason.contains("HandBrake"))
+        #expect(decision.suppressionCause == .applicationPolicy(
+            application: "HandBrake", condition: .memoryPressure))
+    }
+}
+
+/// FR-016 amendment 1. "This application's heavy load is expected" is not "this
+/// application can never cause a problem", and until the amendment the product
+/// could not tell the two apart.
+@Suite("Suppression names one application and one condition")
+struct ScopedSuppressionTests {
+    private static let rule = SuppressionRule(
+        application: "Xcode", condition: .cpuSaturation)
+
+    /// The defect, stated as a test: a rule about CPU load must leave a
+    /// memory-pressure finding about the same application alone.
+    @Test("A rule about one condition does not silence another")
+    func aRuleDoesNotSilenceAnotherCondition() {
+        var settings = NotificationSettings(rules: [Self.rule])
+        settings.announcedConditions = [.cpuSaturation]
+        let gate = NotificationGate(settings: settings)
+        var state = NotificationGate.State()
+
+        let cpu = gate.decide(
+            incident: incident(conditions: [.cpuSaturation]),
+            contributors: ["Xcode"], at: origin, state: &state)
+        #expect(!cpu.shouldSend)
+
+        let memory = gate.decide(
+            incident: incident(conditions: [.memoryPressure]),
+            contributors: ["Xcode"], at: origin, state: &state)
+        #expect(memory.shouldSend)
+    }
+
+    /// An incident carrying both conditions still announces: only one of them is
+    /// ruled, and the other is exactly the finding the user did not silence.
+    @Test("An incident announces while any of its conditions is unruled")
+    func aPartiallyRuledIncidentStillAnnounces() {
+        var settings = NotificationSettings(rules: [Self.rule])
+        settings.announcedConditions = [.cpuSaturation]
+        let gate = NotificationGate(settings: settings)
+        var state = NotificationGate.State()
+
+        #expect(gate.decide(
+            incident: incident(conditions: [.cpuSaturation, .memoryPressure]),
+            contributors: ["Xcode"], at: origin, state: &state).shouldSend)
+    }
+
+    /// Criterion #5. The ranking a rule used to be keyed on is incomplete by
+    /// construction (FR-055), so two orderings of the same contributors must
+    /// produce the same decision.
+    @Test("Rank among contributors does not change the decision")
+    func rankDoesNotDecide() {
+        var settings = NotificationSettings(rules: [Self.rule])
+        settings.announcedConditions = [.cpuSaturation]
+        let gate = NotificationGate(settings: settings)
+        var leading = NotificationGate.State()
+        var trailing = NotificationGate.State()
+
+        let first = gate.decide(
+            incident: incident(conditions: [.cpuSaturation]),
+            contributors: ["Xcode", "Safari"], at: origin, state: &leading)
+        let second = gate.decide(
+            incident: incident(conditions: [.cpuSaturation]),
+            contributors: ["Safari", "Xcode"], at: origin, state: &trailing)
+        #expect(first.shouldSend == second.shouldSend)
+        #expect(first.suppressionCause == second.suppressionCause)
+    }
+
+    /// A rule about an application that contributed nothing measurable to this
+    /// incident says nothing about it.
+    @Test("A rule only applies to an incident its application contributed to")
+    func anAbsentApplicationDoesNotSuppress() {
+        var settings = NotificationSettings(rules: [Self.rule])
+        settings.announcedConditions = [.cpuSaturation]
+        let gate = NotificationGate(settings: settings)
+        var state = NotificationGate.State()
+
+        #expect(gate.decide(
+            incident: incident(conditions: [.cpuSaturation]),
+            contributors: ["Safari"], at: origin, state: &state).shouldSend)
+    }
+
+    /// Design 5f's third sentence, and 5g's switches: a condition turned off for
+    /// every application, answered with the user's own decision rather than with
+    /// our default.
+    @Test("A condition silenced everywhere reports the user's decision, not ours")
+    func silencedConditionNamesTheUser() {
+        var settings = NotificationSettings()
+        settings.silencedConditions = [.memoryPressure]
+        let gate = NotificationGate(settings: settings)
+        var state = NotificationGate.State()
+
+        let decision = gate.decide(incident: incident(), at: origin, state: &state)
+        #expect(!decision.shouldSend)
+        #expect(decision.suppressionCause == .conditionSilenced(condition: .memoryPressure))
+        #expect(decision.reason.contains("you asked"))
+    }
+
+    /// The session-scoped option. It is a blanket, so it suppresses a condition no
+    /// rule names — and it never touches recording, which is asserted where the
+    /// incident is stored rather than here.
+    @Test("Quiet for this work session suppresses, and says so")
+    func sessionQuietSuppresses() {
+        var settings = NotificationSettings()
+        settings.sessionQuiet = true
+        let gate = NotificationGate(settings: settings)
+        var state = NotificationGate.State()
+
+        let decision = gate.decide(incident: incident(), at: origin, state: &state)
+        #expect(!decision.shouldSend)
+        #expect(decision.suppressionCause == .sessionQuiet)
+        #expect(decision.reason.contains("work session"))
+    }
+
+    /// A condition nobody has had an opinion about follows the default, and the
+    /// switch wins in both directions when they have.
+    @Test("The user's switch beats the default both ways")
+    func switchesBeatDefaults() {
+        var settings = NotificationSettings()
+        #expect(settings.interrupts(.memoryPressure))
+        #expect(!settings.interrupts(.cpuSaturation))
+
+        settings.silencedConditions = [.memoryPressure]
+        settings.announcedConditions = [.cpuSaturation]
+        #expect(!settings.interrupts(.memoryPressure))
+        #expect(settings.interrupts(.cpuSaturation))
     }
 }
 
