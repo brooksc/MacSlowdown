@@ -1,9 +1,10 @@
 ---
 id: TASK-113
 title: Make "now" and "earlier" one experience — the opening view answers both
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-06 16:54'
+updated_date: '2026-09-09 17:13'
 labels:
   - ui
 milestone: m-3
@@ -35,3 +36,17 @@ Supersedes the framing in `design/live-surfaces.md`, which argued the same point
 - [ ] #3 Recent history is reachable even where no condition was ever detected
 - [ ] #4 No surface claims the machine is fine in absolute terms
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Started 2026-09-09**, in a worktree, against the finished design.
+
+The specification is `design/screens/5a.png` (nothing wrong), `5b.png` (condition present), `5c.png` (coverage gap) and `6c.png` (30-day scale). Turn 5 answered the two things the task could not: what the healthy state should contain, and how coverage should be drawn.
+
+**Coverage is the new and genuinely hard part**, and the design settled its shape: a strip under the chart rather than a badge, because "we were watching" is a claim about a *period* and a period needs a length — a badge can only say yes, which is the useless green light. A gap does not heal, and sleep, shutdown and the retention boundary are all drawn as gaps with their reason.
+
+5c's three-state grammar is the acceptance criterion in prose: watched-and-nothing-crossed is a real result the headline may state; watched-and-something-crossed puts the episode on the trace; not-watched makes no claim in either direction.
+
+Also settled by the design and worth recording: **the sidebar loses Now and Incidents.** Incidents stop being a destination — the healthy state shows the last one inline and the live state shows the current one. The argument is FR-060: one count, in one place, so a summary and a list cannot disagree about the same episode. That is a bigger structural change than this task originally assumed.
+<!-- SECTION:NOTES:END -->
