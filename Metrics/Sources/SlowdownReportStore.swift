@@ -188,6 +188,30 @@ public final class SlowdownReportStore: Sendable {
         return removed
     }
 
+    /// Withdraws one report, in memory and on disk.
+    ///
+    /// A report is the one thing in this product that is the user's own statement
+    /// rather than our measurement, so they get to take it back — and taking it
+    /// back has to reach the file, not only the screen, or the next launch would
+    /// show them a record they had deleted.
+    ///
+    /// Returns what remains, so a caller updates from what was actually kept.
+    @discardableResult
+    public func delete(id: UUID, settings: PrivacySettings,
+                       now: Date = Date()) -> [SlowdownReport] {
+        let (changed, kept) = state.withLock { state -> (Bool, [SlowdownReport]) in
+            let remaining = state.reports.filter { $0.id != id }
+            guard remaining.count != state.reports.count else { return (false, state.reports) }
+            state.reports = remaining
+            return (true, remaining)
+        }
+        guard changed else { return kept }
+        // Written even when nothing remains: an empty document is what says the
+        // reports were withdrawn, where leaving the old file would restore them.
+        write(kept, settings: settings, now: now)
+        return kept
+    }
+
     /// Deletes the stored reports and forgets them in memory.
     ///
     /// Returns how many reports and how many bytes went, because a "delete

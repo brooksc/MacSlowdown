@@ -123,6 +123,12 @@ final class MonitorStore {
     private(set) var openIncident: Incident?
     /// Incidents that have closed, most recent first. Bounded.
     private(set) var recentIncidents: [Incident] = []
+    /// Slowdowns the user reported, most recent first (FR-064).
+    ///
+    /// Held beside the incidents and never merged into them: an incident is
+    /// something we detected and a report is something a person told us, and the
+    /// only reason this instrument is worth anything is that the two sets differ.
+    private(set) var reportedSlowdowns: [SlowdownReport] = []
     /// Current sampling cadence, exposed so the user can inspect it (FR-031).
     private(set) var cadence: SamplingCadence?
     private(set) var memoryPressure: MemoryPressureLevel = .normal {
@@ -728,9 +734,22 @@ final class MonitorStore {
             liveAttribution: attribution.map {
                 AttributionSample.from(attribution: $0, families: families)
             })
-        slowdownReports.record(
+        // What the store returns is what it actually kept, after both bounds — the
+        // same rule the incident history follows, so the screen and the disk cannot
+        // disagree.
+        reportedSlowdowns = slowdownReports.record(
             report, settings: alertSettings?.privacySettings ?? .default, now: date)
         return report
+    }
+
+    /// Withdraws a report (FR-064, design 5d's "Delete this report").
+    ///
+    /// The record is the user's own statement, not our measurement, so they can take
+    /// it back — and the deletion reaches the file, or the next launch would show
+    /// them something they had deleted.
+    func deleteReportedSlowdown(id: UUID, at date: Date = Date()) {
+        reportedSlowdowns = slowdownReports.delete(
+            id: id, settings: alertSettings?.privacySettings ?? .default, now: date)
     }
 
     // MARK: - User policies (FR-016)
@@ -866,6 +885,10 @@ final class MonitorStore {
         // Retention is applied by `load` itself, so a machine that was off for two
         // months never displays expired incidents even briefly.
         recentIncidents = incidentHistory.load(
+            settings: alertSettings?.privacySettings ?? .default)
+        // For the same reason, and because a reply that says "third time this week"
+        // must count the times before this launch as well.
+        reportedSlowdowns = slowdownReports.load(
             settings: alertSettings?.privacySettings ?? .default)
     }
 
@@ -1430,6 +1453,12 @@ final class MonitorStore {
     func deleteRecordedHistory() -> DeletionOutcome {
         let removedIncidents = incidents.deleteAll()
         recentIncidents = []
+        // Reports go the same way, and the in-memory half matters as much as the
+        // file: `StoredData` deletes `slowdown-reports.json` by pattern anyway, so
+        // without this the reports would survive in memory and be written straight
+        // back by the next one — the user would watch deleted records reappear.
+        let removedReports = slowdownReports.deleteAll()
+        reportedSlowdowns = []
         // The live metric series is recorded evidence too (FR-005). Leaving it would
         // make "delete everything" untrue of the sparklines still on screen.
         history.removeAll()
@@ -1449,8 +1478,8 @@ final class MonitorStore {
         return DeletionOutcome(
             incidents: removedIncidents.incidents,
             files: files.files,
-            // Summed, not maxed: the incident file is deleted first, so the second
-            // pass no longer sees it and the two figures cover disjoint sets.
+            // Summed, not maxed: the incident and report files are deleted first,
+            // so the sweep no longer sees them and the figures cover disjoint sets.
             bytes: files.bytes + removedIncidents.bytes + removedReports.bytes)
     }
 }
