@@ -128,6 +128,28 @@ enum OverviewPresentation {
             + "\(reason.sentence.lowercasedFirst) We can't answer for any of them."
     }
 
+    /// Where our record itself begins, when the window reaches back past it.
+    ///
+    /// Nil when the record covers the whole window, because then there is nothing to
+    /// say. When it is not nil it is the difference between "we watched none of that
+    /// morning" and "that morning is outside what we keep" — two facts a strip full
+    /// of hatching cannot tell apart on its own (design 5c's retention boundary).
+    static func recordBeginsNote(
+        log: CoverageLog, scale: Scale, now: Date, calendar: Calendar = .current
+    ) -> String? {
+        guard let earliest = log.earliestRecord,
+              earliest > scale.start(now: now, calendar: calendar)
+        else { return nil }
+        let latest = log.latestObservation.map {
+            // The right-hand edge of the strip is the last reading, not this instant.
+            // Saying "now" over a stretch we have not sampled would claim coverage of
+            // the seconds since (FR-002).
+            " The last reading was \(clock($0))."
+        } ?? ""
+        return "Our record begins \(day(earliest)) \(clock(earliest)); anything before "
+            + "that is outside the period we keep.\(latest)"
+    }
+
     /// A gap as a clock range: "1:40 to 2:25 this afternoon".
     static func clockRange(_ span: CoverageSpan, calendar: Calendar = .current) -> String {
         let sameDay = calendar.isDate(span.from, inSameDayAs: span.to)

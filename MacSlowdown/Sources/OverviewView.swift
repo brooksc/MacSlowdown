@@ -229,6 +229,13 @@ struct OverviewView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let note = OverviewPresentation.recordBeginsNote(
+                    log: log, scale: scale, now: now, calendar: calendar) {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if scale == .thirtyDays {
                     Text(OverviewPresentation.dayScaleNote(dayCells))
                         .font(.caption)

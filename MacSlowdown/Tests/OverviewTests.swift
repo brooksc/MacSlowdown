@@ -218,6 +218,25 @@ struct OverviewTests {
         #expect(note.contains("part of that day is missing"))
     }
 
+    /// A strip full of hatching cannot say on its own whether we failed to watch
+    /// that morning or whether that morning is simply outside what we keep.
+    @Test("Where the record begins is stated when the window reaches past it")
+    func recordBoundaryIsStated() {
+        let start = calendar.startOfDay(for: noon)
+        let began = start.addingTimeInterval(3600 * 8)
+        let log = watching(from: began, to: noon)
+        let note = OverviewPresentation.recordBeginsNote(
+            log: log, scale: .today, now: noon, calendar: calendar)
+        #expect(note?.contains("Our record begins") == true)
+        #expect(note?.contains("outside the period we keep") == true)
+        #expect(note?.contains(OverviewPresentation.clock(noon)) == true)
+
+        // Nothing to say when the record covers the window.
+        #expect(OverviewPresentation.recordBeginsNote(
+            log: watching(from: start, to: noon), scale: .today, now: noon,
+            calendar: calendar) == nil)
+    }
+
     // MARK: - The trace
 
     /// The design draws a day-long CPU curve. We retain about fifteen minutes and do
