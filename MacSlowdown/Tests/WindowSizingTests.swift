@@ -329,6 +329,10 @@ struct WindowSizingTests {
     func everyPaneIsBounded() {
         let store = MonitorStore()
         let heights: [(String, HeightDemand)] = [
+            // The window now opens on this one, so it is the pane most able to
+            // reproduce TASK-75 — and it is built from wrapping caption paragraphs
+            // under `fixedSize`, which is the exact construct that asked for 3599 pt.
+            ("Overview", demandedSize(OverviewView(store: store))),
             ("Now", demandedSize(NowView(store: store))),
             ("Apps", demandedSize(ProcessInventoryView(store: store))),
             ("Incidents", demandedSize(IncidentsView(store: store))),

@@ -3,9 +3,18 @@ import SwiftUI
 
 struct MainWindowView: View {
     let store: MonitorStore
-    @State private var selection: Section = .now
+    /// The window opens on the Overview (TASK-113).
+    ///
+    /// "Is it still happening?" and "what happened earlier?" are the two questions
+    /// people actually arrive with, and they used to be two destinations joined by
+    /// navigation — so the second one, which is the whole reason to build this
+    /// rather than a nicer Activity Monitor (S-2), was reachable only by someone who
+    /// already suspected there was something to find. Now and Incidents remain, as
+    /// the detail behind the summary.
+    @State private var selection: Section = .overview
 
     enum Section: String, CaseIterable, Identifiable {
+        case overview = "Overview"
         case now = "Now"
         case apps = "Apps & Processes"
         case incidents = "Incidents"
@@ -14,6 +23,7 @@ struct MainWindowView: View {
         var id: String { rawValue }
         var symbol: String {
             switch self {
+            case .overview: "chart.bar.doc.horizontal"
             case .now: "gauge.with.dots.needle.33percent"
             case .apps: "square.grid.2x2"
             case .incidents: "list.bullet.rectangle"
@@ -71,6 +81,8 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detailPane: some View {
         switch selection {
+        case .overview:
+            OverviewView(store: store, showIncidents: { selection = .incidents })
         case .now: NowView(store: store, showIncidents: { selection = .incidents })
         case .apps: ProcessInventoryView(store: store)
         case .incidents: IncidentsView(store: store)
