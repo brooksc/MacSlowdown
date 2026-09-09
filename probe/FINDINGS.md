@@ -315,7 +315,7 @@ swiftc -O -o /tmp/probe Sources/main.swift   # unsandboxed control
 
 Prompted by a real defect: the popover showed `MediaApp Helper (` and
 `BrowserApp Helper (R`, which are `p_comm` truncated to 16 bytes by the kernel, and
-by the observation that a third-party menu bar monitor shows `Cheetah3D` and `Safari` with icons.
+by the observation that iStat Menus shows `Cheetah3D` and `Safari` with icons.
 
 Measured on macOS 27.0 (26A5388g), signed and sandboxed with
 `com.apple.security.app-sandbox` and nothing else. 800 processes.
@@ -395,14 +395,14 @@ codesign --force --sign "$IDENTITY" --entitlements Probe.entitlements \
 ./build/NameProbe.app/Contents/MacOS/NameProbe
 ```
 
-## How a third-party menu bar monitor actually does it (researched, not measured)
+## How iStat Menus actually does it (researched, not measured)
 
 Worth recording, because the reference interface looks like a counter-example to
 several of our conclusions and is not one.
 
-a third-party menu bar monitor ships in **two editions**. The Mac App Store edition is sandboxed
+iStat Menus ships in **two editions**. The Mac App Store edition is sandboxed
 like ours. Bjango's own documentation for it says: *"It can not control fan
-speeds. The a third-party menu bar monitor Helper is needed to view some stats."*
+speeds. The iStat Menus Helper is needed to view some stats."*
 
 That Helper is **downloaded separately from `download.bjango.com`, not from the
 App Store**, and runs outside the sandbox. Temperatures, fan speeds and CPU
@@ -567,7 +567,7 @@ instantaneous values.
 
 This is exactly the boundary seen everywhere else: utilisation is public
 registry data; temperature and frequency are SMC-class and need the external
-helper the Mac App Store edition of a third-party menu bar monitor asks users to install.
+helper the Mac App Store edition of iStat Menus asks users to install.
 
 **Cost: 2.54 ms per read**, mean of 20. That is *more than the entire per-process
 metrics sweep* (1.8 ms), because each read matches services afresh and builds a

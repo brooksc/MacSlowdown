@@ -451,7 +451,7 @@ Not yet chosen, and not inferable from the repo:
 - Whether named configuration profiles (FR-025/FR-026, `TASK-38`) should be
   dropped, as design 4a argues. The build never had them.
 - Whether to amend the spec for an optional user-installed helper. The Mac App
-  Store edition of a third-party menu bar monitor reaches sensors only through a separately
+  Store edition of iStat Menus reaches sensors only through a separately
   downloaded, non-sandboxed binary — the pattern A-03/A-04/FR-037 currently
   forbid. Raised and **set aside by the user**; do not act on it.
 

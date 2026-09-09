@@ -18,7 +18,7 @@ Two risks were identified before deciding:
    alternative, and a reviewer could read "enumerate the process table after the
    designated API was denied" as working around the sandbox. Research found **no
    precedent of any app being rejected for this**, and rejections in this area
-   cluster around entitlement requests, of which we make none. a third-party menu bar monitor 7 and
+   cluster around entitlement requests, of which we make none. iStat Menus 7 and
    Pulse both ship per-process CPU on the Mac App Store, though neither confirms
    the mechanism — iStat's MAS build uses a separately installed Helper for some
    stats.

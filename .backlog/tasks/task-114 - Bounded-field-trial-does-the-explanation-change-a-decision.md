@@ -17,7 +17,7 @@ type: spike
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Both reviews independently said: stop expanding features and go and find out. The second put it hardest — the problem is real, but **a distinct product and a paying audience are unproven**, and "monitoring plus history plus alerts" is already a feature set that Activity Monitor, a third-party menu bar monitor and EtreCheck cover between them. The potential standalone product is the reduction in *interpretation and decision effort*, and nothing measures that yet.
+Both reviews independently said: stop expanding features and go and find out. The second put it hardest — the problem is real, but **a distinct product and a paying audience are unproven**, and "monitoring plus history plus alerts" is already a feature set that Activity Monitor, iStat Menus and EtreCheck cover between them. The potential standalone product is the reduction in *interpretation and decision effort*, and nothing measures that yet.
 
 **Preconditions.** TASK-110 must be built — without user-reported slowdowns there is nothing to compare detections against, and the trial would measure only what we already detect. TASK-109 and TASK-111 should land too, or the trial measures copy nobody intends to ship.
 

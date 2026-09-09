@@ -58,11 +58,11 @@ Still worth asking, because it is cheap. No longer treated as a gate on m-2.
 WEB RESEARCH, 2026-08-01. Two findings, pulling in opposite directions.
 
 EVIDENCE THE CAPABILITY SHIPS ON MAS:
-- a third-party menu bar monitor 7 is on the Mac App Store and its listing advertises 'a list of the apps using the most CPU'. Bjango's documented MAS limitations (v6-era) are weather, fan control, CPU frequency and helper-required sensors -- per-process CPU is NOT among them.
+- iStat Menus 7 is on the Mac App Store and its listing advertises 'a list of the apps using the most CPU'. Bjango's documented MAS limitations (v6-era) are weather, fan control, CPU frequency and helper-required sensors -- per-process CPU is NOT among them.
 - Pulse (paid, MAS) lists 'top processes' among its metrics.
 So per-process CPU visibility demonstrably passes App Review in some form.
 
-BUT neither confirms the MECHANISM. a third-party menu bar monitor' MAS build requires a separately downloaded Helper app for some stats, so its process list may come from the helper rather than from a sandboxed sysctl call. This is an existence proof for the feature, not for our implementation.
+BUT neither confirms the MECHANISM. iStat Menus' MAS build requires a separately downloaded Helper app for some stats, so its process list may come from the helper rather than from a sandboxed sysctl call. This is an existence proof for the feature, not for our implementation.
 
 Counterpoint: Better Resource Monitor is MAS, open source (MIT), explicitly 'fully sandboxed, no privileged helper, no private APIs' -- and offers aggregate metrics only, no per-process list. Absence of a feature is not proof it is blocked, but it is the one app whose sandbox posture matches ours exactly, and it does not do what we do.
 

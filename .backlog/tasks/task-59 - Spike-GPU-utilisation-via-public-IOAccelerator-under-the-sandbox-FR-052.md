@@ -14,7 +14,7 @@ priority: medium
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-FR-052 (GPU) is currently listed as unproven and was heading toward being dropped alongside the other sensor-class signals. Research into how a third-party menu bar monitor 7 works suggests GPU *utilisation* may be separable from GPU *temperature and frequency*, and obtainable with no entitlement.
+FR-052 (GPU) is currently listed as unproven and was heading toward being dropped alongside the other sensor-class signals. Research into how iStat Menus 7 works suggests GPU *utilisation* may be separable from GPU *temperature and frequency*, and obtainable with no entitlement.
 
 A competing Mac App Store monitor states it "reads device utilization from Apple Silicon GPUs through Apple's public IOAccelerator API", working in both App Store and direct builds "without requiring private APIs or elevated privileges" — and that same vendor explicitly omits temperature and fan data, which is consistent with the boundary we have measured everywhere else.
 

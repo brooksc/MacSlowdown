@@ -23,7 +23,7 @@ Found on 2026-08-31 in the product owner's own `incidents.json`, not by reasonin
 | When | Subject | Exits | Cause |
 |---|---|---|---|
 | Aug 23 | `swift-frontend`, `clang` | 419, 141 | fixed by TASK-86 |
-| Aug 24 (×3) | `VaultApp-Browse…`, `Brave Browser He…` | 8–22 | fixed by TASK-86's strict revision |
+| Aug 24 (×3) | `VaultApp-Browse…`, `BrowserApp2 He…` | 8–22 | fixed by TASK-86's strict revision |
 | Aug 24 | `git` | 4 | fixed by TASK-86 |
 | Aug 25, Aug 27 | `XProtectRemediat…` | 4, 34 | **this task** |
 | Aug 26 | `MacSlowdown`, `Signal` | 6, 3 | our own rebuilds; genuine sessions |
