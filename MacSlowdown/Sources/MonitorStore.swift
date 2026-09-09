@@ -319,16 +319,26 @@ final class MonitorStore {
     /// decided rather than on whether a notification appeared, which is a separate
     /// fact macOS owns.
     @discardableResult
+    /// - Parameters:
+    ///   - leadingContributor: named in the notification's own text, because "the
+    ///     largest measurable contributor" is a measurement and stating it is
+    ///     honest. It is **not** what rules are evaluated against — see
+    ///     `contributors`.
+    ///   - contributors: every measurable contributor, in any order. Rules test
+    ///     membership of this rather than a rank, so a re-ordering cannot decide
+    ///     whether an incident announces (FR-016 amendment 1, FR-055).
     func announce(
         incident: Incident,
         leadingContributor: String?,
+        contributors: [String] = [],
         context: InterruptionContext,
         at date: Date = Date()
     ) -> NotificationDecision {
         // The gate decides; delivery only carries out an approved decision.
         let decision = notificationGate.decide(
             incident: incident,
-            leadingContributor: leadingContributor,
+            contributors: contributors.isEmpty
+                ? [leadingContributor].compactMap { $0 } : contributors,
             mute: mute,
             context: context,
             at: date,
@@ -338,8 +348,11 @@ final class MonitorStore {
         // audio deferral withheld the alert too, but neither is a rule about an
         // application, and listing them under "what your rules hid" would be the
         // misattribution FR-016's trail exists to prevent.
-        if case .applicationPolicy(let application) = decision.suppressionCause {
-            recordPolicySuppression(application: application, incident: incident, at: date)
+        if case .applicationPolicy(let application, let condition) =
+            decision.suppressionCause {
+            recordPolicySuppression(
+                application: application, condition: condition,
+                incident: incident, at: date)
         }
 
         Task { [notifications] in
@@ -362,7 +375,8 @@ final class MonitorStore {
     /// the user's decision. If no rule is found nothing is recorded, and the gate's
     /// own reason string still explains the suppression.
     private func recordPolicySuppression(
-        application: String, incident: Incident, at date: Date
+        application: String, condition: IncidentCondition,
+        incident: Incident, at date: Date
     ) {
         guard let rule = policies.policies.first(where: { $0.displayName == application })
         else { return }
@@ -371,7 +385,8 @@ final class MonitorStore {
             classification: rule.classification,
             at: date,
             severity: incident.severity,
-            incidentID: incident.id)
+            incidentID: incident.id,
+            condition: condition)
         policies.recordSuppression(detection)
         record(suppression: detection)
     }
@@ -657,17 +672,19 @@ final class MonitorStore {
 
     /// "This is expected work" — heavy CPU from this application is normal.
     ///
-    /// Scoped to CPU load deliberately (FR-016 amendment 1). Marking Xcode's
-    /// compiles expected must not silence a memory-pressure finding about Xcode:
-    /// those are different claims and a person agreeing to the first has not
-    /// agreed to the second. The rule is recorded, reversible from Settings, and
-    /// changes interruption only — the condition is still detected and still
-    /// appears in history.
-    func markExpected(_ row: FamilyRow) {
+    /// Scoped to CPU load deliberately (FR-016 amendment 1), and now scoped in the
+    /// stored rule rather than only in this comment. Marking Xcode's compiles
+    /// expected must not silence a memory-pressure finding about Xcode: those are
+    /// different claims and a person agreeing to the first has not agreed to the
+    /// second. The rule is recorded, reversible from Settings, and changes
+    /// interruption only — the condition is still detected and still appears in
+    /// history.
+    func markExpected(_ row: FamilyRow, condition: IncidentCondition = .cpuSaturation) {
         policies.setPolicy(ApplicationPolicy(
             bundlePath: row.family.bundlePath,
             displayName: row.family.displayName,
-            classification: .expected))
+            classification: .expected,
+            conditions: [condition]))
     }
 
     /// "It feels slow right now" — the one thing we cannot measure (FR-064).
@@ -1132,6 +1149,11 @@ final class MonitorStore {
                 announce(
                     incident: incident,
                     leadingContributor: result.contributors.first?.label,
+                    // Every contributor, not just the first. A rule names what it
+                    // suppresses and is matched by membership, so a change of rank
+                    // among an incomplete ranking cannot decide whether otherwise
+                    // identical conditions announce (FR-016 amendment 1).
+                    contributors: result.contributors.map(\.label),
                     // `focusActive` is deliberately left at its default. No public
                     // API reports the current Focus mode to a sandboxed app, and
                     // guessing would be a fabricated measurement. Focus is still
@@ -1375,12 +1397,18 @@ final class MonitorStore {
         // The live metric series is recorded evidence too (FR-005). Leaving it would
         // make "delete everything" untrue of the sparklines still on screen.
         history.removeAll()
+        // User-reported slowdowns are recorded evidence too (FR-064, FR-029). The
+        // file below is removed either way — `recordedEvidenceFiles` takes
+        // everything but the rules — but the store holds them in memory as well,
+        // and leaving those would let the screen and the disk disagree about what
+        // "delete all history" did.
+        let removedReports = slowdownReports.deleteAll()
         let files = StoredData.deleteRecordedEvidence(in: evidenceDirectory)
         return DeletionOutcome(
             incidents: removedIncidents.incidents,
             files: files.files,
             // Summed, not maxed: the incident file is deleted first, so the second
             // pass no longer sees it and the two figures cover disjoint sets.
-            bytes: files.bytes + removedIncidents.bytes)
+            bytes: files.bytes + removedIncidents.bytes + removedReports.bytes)
     }
 }

@@ -60,6 +60,13 @@ public struct PrivacySettings: Sendable, Codable, Equatable {
 
     /// Categories of data held, for the "see exactly what is stored" disclosure
     /// FR-029 requires.
+    ///
+    /// **Hand-written, and therefore the thing most likely to go stale.** It did:
+    /// user-reported slowdowns became a stored category when
+    /// `SlowdownReportStore` started writing `slowdown-reports.json`, and this list
+    /// did not mention them for a while. An incomplete disclosure is worse than no
+    /// disclosure — it reads as a complete one — so anything that writes to the
+    /// container gets a row here in the same change that makes it write.
     public static let storedCategories: [(category: String, detail: String)] = [
         ("Resource measurements",
          "CPU, memory, swap, disk and storage figures sampled every few seconds."),
@@ -67,8 +74,21 @@ public struct PrivacySettings: Sendable, Codable, Equatable {
          "The names, process IDs and signing identifiers of running applications."),
         ("Incidents",
          "Periods of sustained degradation, with the measurements behind them."),
+        // The one row that is the user's own words rather than our measurements,
+        // and it says so. What it does *not* say is that reports are kept longer
+        // than everything else: design 6d proposed "kept until you delete it", and
+        // the build applies the same retention period and count bound to reports as
+        // to incidents. Describing the design's intention rather than the code's
+        // behaviour is the failure this whole disclosure exists to avoid.
+        ("Slowdowns you reported",
+         "The moment you told MacSlowdown it felt slow, and the readings it had "
+            + "already kept from around then. This is the one thing here that is "
+            + "yours rather than ours. Kept for the same period as incidents, and "
+            + "removed by the same \"Delete all history\"."),
         ("Your rules",
-         "Applications you marked expected or ignored, and grouping corrections."),
+         "The applications and conditions you set rules for, and grouping "
+            + "corrections. Kept when history is deleted, because they are your "
+            + "decisions rather than recorded evidence."),
         ("Machine context",
          "Model, chip, core count, memory size and macOS version. No serial number."),
     ]

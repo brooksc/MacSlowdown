@@ -22,7 +22,13 @@ public enum PolicyClassification: String, Sendable, Codable, CaseIterable {
     public var suppressesNotification: Bool { self != .watched }
 }
 
-/// A user's rule for one application.
+/// A user's rule for one application (FR-016, amendment 1).
+///
+/// **A rule is one application *and* one condition.** "Xcode's heavy load is
+/// expected" is not "Xcode can never cause a problem", and until amendment 1 this
+/// type could only express the second: a rule set because compiles are normal
+/// silenced a memory-pressure finding about the same application, which is a claim
+/// the person never made. `conditions` is what makes the narrower claim sayable.
 public struct ApplicationPolicy: Sendable, Codable, Equatable, Identifiable {
     /// Keyed on the stable identity where available. TASK-3 established that
     /// teamID+bundleID survives app updates and path changes, while the bundle
@@ -31,6 +37,10 @@ public struct ApplicationPolicy: Sendable, Codable, Equatable, Identifiable {
     public let bundlePath: String?
     public let displayName: String
     public var classification: PolicyClassification
+    /// The conditions this rule is about. Never empty — a rule that named nothing
+    /// would either suppress everything or nothing, and which of those it did would
+    /// depend on the reader.
+    public var conditions: Set<IncidentCondition>
     public let createdAt: Date
 
     public var id: String { bundleID ?? bundlePath ?? displayName }
@@ -38,13 +48,45 @@ public struct ApplicationPolicy: Sendable, Codable, Equatable, Identifiable {
     public init(
         bundleID: String? = nil, bundlePath: String? = nil,
         displayName: String, classification: PolicyClassification,
+        conditions: Set<IncidentCondition> = [.cpuSaturation],
         createdAt: Date = Date()
     ) {
         self.bundleID = bundleID
         self.bundlePath = bundlePath
         self.displayName = displayName
         self.classification = classification
+        self.conditions = conditions.isEmpty ? [.cpuSaturation] : conditions
         self.createdAt = createdAt
+    }
+
+    /// Decoding, with the amendment-1 migration written out rather than defaulted.
+    ///
+    /// A rule stored before `conditions` existed was application-wide, and carrying
+    /// it forward as application-wide would preserve exactly the defect the
+    /// amendment removes. So the scope is reconstructed from what the rule *said*:
+    ///
+    /// - `.expected` — "heavy load is expected" — was always the CPU claim, and the
+    ///   only writer of it (`MonitorStore.markExpected`) had already commented that
+    ///   it meant CPU. It migrates to CPU alone.
+    /// - `.ignored` — "never alert me" — was deliberately unconditional, so it keeps
+    ///   every condition. Narrowing it would silently start alerting someone who
+    ///   asked not to be.
+    /// - `.watched` suppresses nothing either way; every condition is the harmless
+    ///   answer.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bundleID = try container.decodeIfPresent(String.self, forKey: .bundleID)
+        bundlePath = try container.decodeIfPresent(String.self, forKey: .bundlePath)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        classification = try container.decode(PolicyClassification.self, forKey: .classification)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        let stored = try container.decodeIfPresent(
+            Set<IncidentCondition>.self, forKey: .conditions)
+        conditions = switch (stored, classification) {
+        case (let decoded?, _) where !decoded.isEmpty: decoded
+        case (_, .expected): [.cpuSaturation]
+        case (_, .ignored), (_, .watched): Set(IncidentCondition.allCases)
+        }
     }
 
     /// Whether this policy applies to a resolved process identity.
@@ -54,6 +96,17 @@ public struct ApplicationPolicy: Sendable, Codable, Equatable, Identifiable {
             return true
         }
         return bundleID == nil && bundlePath == nil && displayName == name
+    }
+
+    /// Whether this rule has anything to say about one condition.
+    public func applies(to condition: IncidentCondition) -> Bool {
+        conditions.contains(condition)
+    }
+
+    /// The rule read back as a sentence, for a list and for VoiceOver.
+    public var summary: String {
+        let named = conditions.map(\.label).sorted().joined(separator: ", ")
+        return "\(displayName) — \(classification.label), for \(named)"
     }
 }
 
@@ -75,27 +128,39 @@ public struct SuppressedDetection: Sendable, Codable, Equatable, Identifiable {
     /// history are the same event seen from two directions, and a screen can say
     /// *why* a particular slowdown never interrupted the user.
     public let incidentID: UUID?
+    /// Which condition the rule was about (FR-016 amendment 1).
+    ///
+    /// Optional, and nil for a trail entry written before rules named a condition.
+    /// The trail's whole job is to say what a rule hid, and after the amendment
+    /// "Xcode, not alerted" is no longer a complete answer — the reader has to be
+    /// able to see that the memory finding would still have reached them.
+    public let condition: IncidentCondition?
 
     public init(id: UUID = UUID(), application: String,
                 classification: PolicyClassification, at: Date = Date(),
-                severity: IncidentSeverity, incidentID: UUID? = nil) {
+                severity: IncidentSeverity, incidentID: UUID? = nil,
+                condition: IncidentCondition? = nil) {
         self.id = id
         self.application = application
         self.classification = classification
         self.at = at
         self.severity = severity
         self.incidentID = incidentID
+        self.condition = condition
     }
 
     public var summary: String {
-        "\(application) — \(classification.label), not alerted"
+        guard let condition else {
+            return "\(application) — \(classification.label), not alerted"
+        }
+        return "\(application) — \(classification.label) for \(condition.label), not alerted"
     }
 
     /// A copy keyed to the incident it suppressed.
     public func linked(to incidentID: UUID) -> SuppressedDetection {
         SuppressedDetection(
             id: id, application: application, classification: classification,
-            at: at, severity: severity, incidentID: incidentID)
+            at: at, severity: severity, incidentID: incidentID, condition: condition)
     }
 }
 

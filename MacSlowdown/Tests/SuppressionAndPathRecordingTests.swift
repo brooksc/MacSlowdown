@@ -88,8 +88,13 @@ struct SuppressionAuditTrailTests {
     private static let application = "TASK-76 Example"
 
     private static var rule: ApplicationPolicy {
+        // Named for memory pressure, because that is what `closedIncident()`
+        // records. Since FR-016 amendment 1 a rule names its condition, so a rule
+        // about CPU load would correctly decline to suppress this and the test
+        // would be asserting nothing.
         ApplicationPolicy(
-            bundleID: ruleID, displayName: application, classification: .expected)
+            bundleID: ruleID, displayName: application, classification: .expected,
+            conditions: [.memoryPressure])
     }
 
     /// Criterion #1 and #3. The gate already suppressed correctly; what was missing
@@ -100,8 +105,8 @@ struct SuppressionAuditTrailTests {
         let settings = isolatedSettings()
         let policies = PolicyStore()
         policies.setPolicy(Self.rule)
-        // `AlertSettings.notificationSettings` builds `expectedApplications` from
-        // the app's shared policy store, which is what the Apps tab writes to.
+        // `AlertSettings.notificationSettings` builds its suppression rules from
+        // the app's shared policy store, which is what the Rules tab writes to.
         MonitorStore.shared.policies.setPolicy(Self.rule)
         defer { MonitorStore.shared.policies.removePolicy(id: Self.ruleID) }
 
@@ -118,7 +123,8 @@ struct SuppressionAuditTrailTests {
 
         #expect(!decision.shouldSend)
         #expect(decision.suppressionCause
-            == .applicationPolicy(application: Self.application))
+            == .applicationPolicy(
+                application: Self.application, condition: .memoryPressure))
 
         let recorded = policies.suppressedDetections
         #expect(recorded.count == 1)
@@ -220,7 +226,8 @@ struct SuppressionAuditTrailTests {
             context: .quiet, at: base.addingTimeInterval(-300))
 
         #expect(decision.suppressionCause
-            == .applicationPolicy(application: Self.application))
+            == .applicationPolicy(
+                application: Self.application, condition: .memoryPressure))
         #expect(policies.suppressedDetections.isEmpty)
     }
 }

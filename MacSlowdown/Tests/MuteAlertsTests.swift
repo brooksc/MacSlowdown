@@ -179,7 +179,7 @@ struct MutePromiseTests {
         settings.announcedConditions = [.cpuSaturation]
         let decision = NotificationGate(settings: settings)
             .decide(
-                incident: incident, leadingContributor: nil, mute: mute,
+                incident: incident, mute: mute,
                 at: start.addingTimeInterval(seconds), state: &gateState)
 
         #expect(!decision.shouldSend, "the interruption is withheld")

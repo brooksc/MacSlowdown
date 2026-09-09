@@ -96,7 +96,11 @@ struct NotificationDeliveryTests {
             ("Focus is on", .focus),
             ("already announced this incident", .alreadyAnnounced),
             ("audio is playing", .audio),
-            ("you marked Xcode as expected", .applicationPolicy(application: "Xcode")),
+            ("you asked not to be told about cpu saturation from Xcode",
+             .applicationPolicy(application: "Xcode", condition: .cpuSaturation)),
+            ("you asked not to be told about memory pressure",
+             .conditionSilenced(condition: .memoryPressure)),
+            ("quiet for this work session", .sessionQuiet),
         ]
         for (reason, cause) in suppressions {
             let sent = await delivery.deliver(

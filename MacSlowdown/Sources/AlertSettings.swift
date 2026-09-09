@@ -58,11 +58,28 @@ enum AlertSensitivity: String, CaseIterable, Identifiable, Sendable {
 
     /// The behaviour, restated in words. Derived from `policy` rather than
     /// written out, so the sentence cannot contradict the thresholds it describes.
+    ///
+    /// **It says that the choice moves the detection threshold** (TASK-111
+    /// criterion 4, design 5g). The three options were described as changing which
+    /// severities announce, and they do — but they also move the CPU line, 92% /
+    /// 85% / 75%, so "Tell me early" changes what *counts* as a condition and not
+    /// merely what is said about one. A restatement that mentioned only the second
+    /// half understated the control: someone choosing it to hear more would also,
+    /// unannounced, have changed what their history records.
     var restatement: String {
-        "\(label): alert after \(AlertSettings.spell(policy.cpuSustainedDuration)) "
-            + "of sustained trouble, and only for slowdowns rated "
-            + "\(minimumSeverity.label.lowercased()) or worse."
+        "\(label): a condition starts once total CPU stays above "
+            + "\(AlertSettings.spellCPU(fraction: policy.cpuBusyFractionThreshold)) "
+            + "for \(AlertSettings.spell(policy.cpuSustainedDuration)), and you hear "
+            + "about the ones rated \(minimumSeverity.label.lowercased()) or worse. "
+            + AlertSensitivity.thresholdCaveat
     }
+
+    /// The half of the restatement that is the same whichever option is chosen, and
+    /// the half that was missing. Separated so a test can assert it is present
+    /// without repeating the whole sentence for all three options.
+    static let thresholdCaveat =
+        "This moves the line itself, not just what gets said about it — a lower "
+        + "line records more conditions and shows more of them in the overview."
 }
 
 /// Alert and privacy preferences, persisted in `UserDefaults`.
@@ -96,6 +113,8 @@ final class AlertSettings {
             ?? chosenPolicy.cpuSustainedDuration.totalSeconds
         memorySustainedSeconds = defaults.object(forKey: Key.memorySeconds) as? Double
             ?? chosenPolicy.memoryPressureSustainedDuration.totalSeconds
+        conditionOverrides = (defaults.dictionary(forKey: Key.conditionOverrides)
+            as? [String: Bool]) ?? [:]
         recordFilePaths = defaults.bool(forKey: Key.recordFilePaths)
         retention = (defaults.string(forKey: Key.retention)
             .flatMap(PrivacySettings.Retention.init(rawValue:))) ?? PrivacySettings.default.retention
@@ -109,6 +128,7 @@ final class AlertSettings {
         static let cpuFraction = "alerts.cpuBusyFractionThreshold"
         static let cpuSeconds = "alerts.cpuSustainedSeconds"
         static let memorySeconds = "alerts.memorySustainedSeconds"
+        static let conditionOverrides = "alerts.conditionInterrupts"
         static let recordFilePaths = "privacy.recordFilePaths"
         static let retention = "privacy.retention"
     }
@@ -136,6 +156,35 @@ final class AlertSettings {
     /// monitoring loop — see `AudioSignals`, measured available under the sandbox.
     var deferDuringAudio: Bool {
         didSet { defaults.set(deferDuringAudio, forKey: Key.deferDuringAudio) }
+    }
+
+    /// Which conditions the user has decided about, keyed by raw value (design
+    /// 5g's switches).
+    ///
+    /// **A dictionary rather than a "these interrupt" set**, because a condition
+    /// the user has never had an opinion about is a third state, not an off. A set
+    /// would freeze today's `announcesByDefault` answers into every installation
+    /// the moment anyone opened this screen, and a later change to a default would
+    /// silently fail to reach them.
+    private var conditionOverrides: [String: Bool] {
+        didSet { defaults.set(conditionOverrides, forKey: Key.conditionOverrides) }
+    }
+
+    /// Whether one condition may interrupt: the user's switch if they set one, our
+    /// default otherwise.
+    func interrupts(_ condition: IncidentCondition) -> Bool {
+        conditionOverrides[condition.rawValue] ?? condition.announcesByDefault
+    }
+
+    /// Whether the user has decided about this condition, as opposed to leaving it
+    /// at our default. Shown rather than hidden: a screen that cannot distinguish
+    /// the two cannot offer to put one back.
+    func hasDecided(about condition: IncidentCondition) -> Bool {
+        conditionOverrides[condition.rawValue] != nil
+    }
+
+    func setInterrupts(_ condition: IncidentCondition, _ interrupts: Bool) {
+        conditionOverrides[condition.rawValue] = interrupts
     }
 
     /// Whether the exact figures have been edited away from the chosen word.
@@ -204,7 +253,7 @@ final class AlertSettings {
     /// current Focus to a sandboxed app, so our own gate can never see it — macOS
     /// holds the banner instead. A toggle would claim a decision we do not make.
     var notificationSettings: NotificationSettings {
-        NotificationSettings(
+        var settings = NotificationSettings(
             // Both, not either. The floor is what the chosen word means; the switch
             // is whether anything is announced at all. Raising the floor alone still
             // announced severe incidents to someone who turned alerts off.
@@ -212,10 +261,29 @@ final class AlertSettings {
             minimumSeverity: announceIncidents ? sensitivity.minimumSeverity : .severe,
             respectFocus: true,
             deferDuringAudio: deferDuringAudio,
-            expectedApplications: Set(
-                MonitorStore.shared.policies.policies
-                    .filter { $0.classification.suppressesNotification }
-                    .map(\.displayName)))
+            // One rule per application *and* condition (FR-016 amendment 1). A
+            // policy carrying two conditions becomes two rules rather than one
+            // wildcard, so what the gate evaluates is exactly what the Rules list
+            // shows, row for row.
+            rules: MonitorStore.shared.policies.policies
+                .filter { $0.classification.suppressesNotification }
+                .flatMap { policy in
+                    policy.conditions.map {
+                        SuppressionRule(application: policy.displayName, condition: $0)
+                    }
+                })
+        settings.announcedConditions = decided(interrupting: true)
+        settings.silencedConditions = decided(interrupting: false)
+        // Read here rather than stored, so ending the session takes effect on the
+        // next sample without anything having to remember to push it.
+        settings.sessionQuiet = SessionQuiet.shared.isActive
+        return settings
+    }
+
+    private func decided(interrupting: Bool) -> Set<IncidentCondition> {
+        Set(conditionOverrides
+            .filter { $0.value == interrupting }
+            .keys.compactMap(IncidentCondition.init(rawValue:)))
     }
 
     /// The privacy settings these describe.
