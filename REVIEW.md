@@ -23,18 +23,23 @@ spec wins.
 **The five questions in §1 are the thesis in its most compact form.** Everything else
 in the spec is downstream of them.
 
-> **Start your review at the tension in §1.2.** The success definition is
-> incident-centred: the product succeeds when "a user can open an incident and
-> understand what happened." After two weeks of real use, **every piece of product-owner
-> feedback concerned something else** — what the popover says right now, whether a
-> number is an instant or a trend, whether a status word holds still, whether an
-> ordering can be trusted. There was no legitimate incident to read; the ten recorded
-> were all false positives from one condition, since demoted.
+> **§1.2 was rewritten, and the new one is the thing to attack.** It used to be
+> incident-centred — success meant a user could open an incident afterwards and
+> understand it. Two independent reviews found the same fault: that names an
+> intermediate usability result, not an outcome. Someone who reads an incident,
+> understands it perfectly, and then does nothing differently has not been helped.
 >
-> `design/live-surfaces.md` makes this argument in full and is the single most useful
-> document for a thesis-level review. It led to FR-057–FR-062. What it did **not** do
-> is revisit §1.2 itself, which still defines success in terms of the surface nobody
-> used. That question is open and nobody has answered it.
+> Success now turns on **supporting a decision**: understanding the observed conditions
+> *and their limits*, choosing a next step, and telling whether things improved — without
+> unwanted interruption during work the user expected to be heavy. That last clause makes
+> interrupting wrongly a failure of the product rather than a settings problem for the
+> user.
+>
+> The fair attack on the new definition is that it is much harder to satisfy and the
+> product may not satisfy it anywhere except the memory case, where there is genuinely
+> something to close. Whether any other scenario supports a *decision* rather than
+> merely an explanation is open, and it is the question this project most needs
+> answered. `design/live-surfaces.md` carries the argument that got us here.
 
 ### 2. The scenarios
 
@@ -101,7 +106,7 @@ this directly.
 | `design/README.md` | The design index: 28 artboards across four turns, which supersedes which, and where the cloud project lives |
 | `Metrics/Sources/` | The framework — sampling, identity, grouping, attribution, detection, summarisation |
 | `MacSlowdown/Sources/` | The app — menu bar, windows, presentation rules |
-| `requirements.md` §5 | The functional requirements — 55 present, numbered to FR-062, each with acceptance criteria. The gaps are deliberate: FR-020–024 (process control) are deferred and escalated, FR-048 (wakeups) was dropped as unmeasurable |
+| `requirements.md` §5 | The functional requirements — 58 present, numbered to FR-065, each with acceptance criteria. The gaps are deliberate: FR-020–024 (process control) are deferred and escalated, FR-048 (wakeups) was dropped as unmeasurable. FR-063–065 are the newest and the most load-bearing: a measurement is not an experience, the user may report a slowdown, and three kinds of confidence stay apart |
 
 Build and test commands are at the top of `CLAUDE.md`. **1290 tests pass.** Three tests
 measure the real machine and fail on a busy one — `CLAUDE.md` names them; re-run in
