@@ -66,6 +66,20 @@ jobs:
         # They stay in the suite on a real machine; CLAUDE.md names them and says
         # to re-run any failure in isolation. Verified locally that these flags
         # match the real identifiers: 1284 passing with them skipped, 1290 with.
+        #
+        # **Code signing is off, and that has a consequence worth stating.** The
+        # runner holds no Apple Development certificate, so the first attempt
+        # failed before compiling. Ad-hoc signing (CODE_SIGN_IDENTITY="-") was
+        # tried and is worse: the app-hosted MacSlowdownTests bundle hangs before
+        # the test runner connects, because the entitlements apply and the
+        # sandbox then blocks the host app from launching as a test host.
+        #
+        # So CI builds unsigned, which means **CI does not exercise the sandbox**.
+        # Every sandbox fact in probe/FINDINGS.md was measured with
+        # probe/build-sandboxed.sh against a signed .app, and that remains the
+        # only thing that can verify sandbox behaviour. What this job verifies is
+        # that the code compiles on the stable toolchain and that the logic holds
+        # — which is what the suite tests anyway.
         run: |
           xcodebuild test \
             -scheme AllTests \
@@ -74,7 +88,12 @@ jobs:
             -derivedDataPath .build \
             -resultBundlePath TestResults.xcresult \
             -skip-testing:MetricsTests/CPUWorkloadTests \
-            -skip-testing:MetricsTests/EndToEndIncidentTests
+            -skip-testing:MetricsTests/EndToEndIncidentTests \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
 
       - name: Upload results
         # Failure only, retained one day. Actions storage is an account-wide
