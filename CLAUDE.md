@@ -17,7 +17,7 @@ safe actions, export and privacy controls, and the FR-030 overhead harness.
 - Run: `./run-menubar.sh`
 - Test: `nice env TUIST_SKIP_UPDATE_CHECK=1 tuist xcodebuild test -scheme AllTests \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath .build`
-  — currently **1290 passing** (full run, 2026-09-09).
+  — currently **1317 passing** (full run, 2026-09-14).
   Run `tuist generate --no-open` after adding a source or test file, or the new
   file is silently not compiled — that has cost several runs. Two bundles:
   `MetricsTests` (plain) and

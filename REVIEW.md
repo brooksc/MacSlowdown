@@ -108,7 +108,7 @@ this directly.
 | `MacSlowdown/Sources/` | The app — menu bar, windows, presentation rules |
 | `requirements.md` §5 | The functional requirements — 58 present, numbered to FR-065, each with acceptance criteria. The gaps are deliberate: FR-020–024 (process control) are deferred and escalated, FR-048 (wakeups) was dropped as unmeasurable. FR-063–065 are the newest and the most load-bearing: a measurement is not an experience, the user may report a slowdown, and three kinds of confidence stay apart |
 
-Build and test commands are at the top of `CLAUDE.md`. **1290 tests pass.** Three tests
+Build and test commands are at the top of `CLAUDE.md`. **1317 tests pass.** Three tests
 measure the real machine and fail on a busy one — `CLAUDE.md` names them; re-run in
 isolation before treating one as a regression.
 
