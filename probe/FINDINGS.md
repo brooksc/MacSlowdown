@@ -1574,3 +1574,44 @@ exceptions in either direction.
 
 macOS 26 remains unmeasured *for the sandbox*; `.github/workflows/sandbox-probe.yml`
 runs this same probe on a `macos-26` runner and asserts these four answers.
+
+### macOS 26: every Tier 0 answer matches macOS 27 (TASK-45)
+
+**2026-09-14, macOS 26.6.2 (25G83), Swift 6.3.3, a 3-core GitHub Actions runner,
+ad-hoc signed.** The question A-01 has carried since 2026-08-02 — everything was
+measured on 27, and the app must ship on 26 — answered by
+`.github/workflows/sandbox-probe.yml`:
+
+```
+sandboxed (heuristic): true
+euid: 501  cores: 3
+sysctl KERN_PROC_ALL: 545 pids returned
+proc_listpids       : 0 pids  [DENIED: EPERM(denied)]
+PROC_PIDTBSDINFO   :  298/ 545 ( 54.7%)  errors: EPERM(denied)×247
+PROC_PIDTASKINFO   :  298/ 545 ( 54.7%)  errors: EPERM(denied)×247
+proc_pid_rusage    :    1/ 545 (  0.2%)  errors: EPERM(denied)×544
+proc_pidpath       :  544/ 545 ( 99.8%)  errors: errno2×1
+```
+
+**No divergence.** Enumeration via `sysctl KERN_PROC_ALL` is permitted under App
+Sandbox on 26, `proc_listpids` is denied there too, `proc_pid_rusage` is self only,
+and **247 other-uid processes produced exactly 247 denials** — the uid rule holds on
+26 with no exceptions in either direction, as it does on both 27 beta and 27 final.
+So the enumeration strategy ships on both OSes, `decision-1` needs no escalation,
+and FR-009 per-process I/O and FR-043 footprint are no more restorable on 26 than
+on 27.
+
+The measurability *percentage* is lower (54.7% against ~69%) and that is not a
+divergence: a CI runner runs proportionally more system daemons than a desktop, and
+the denials still account for every other-uid process exactly. Percentages here are
+a property of what happens to be running, never of the platform.
+
+CPU figures read 14–20% of one core for `mdworker_shared`, which is the sanity check
+on the fourth question: a wrong mach timebase or `proc_taskinfo` layout on 26 would
+be off by about 42×, not plausible.
+
+**What this does not cover.** The runner is 26.**6.2**, not 26.0, and is a
+virtualised 3-core machine — so it answers the sandbox-policy question, which is
+what was at risk, and not anything about physical hardware, P/E core asymmetry, or
+thermals. The signature is ad-hoc rather than a development certificate; that is
+established above as valid for sandbox measurement.
