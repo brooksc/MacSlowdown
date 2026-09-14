@@ -246,3 +246,240 @@ struct QuietMachineScenarioTests {
         #expect(outcome.frames.count > 1000, "the timeline did not actually sample")
     }
 }
+
+// MARK: - S-2, the episode that is over by the time anyone looks
+
+@Suite("S-2 — what happened while nobody was watching, and what we cannot answer for")
+struct EarlierEpisodeScenarioTests {
+    /// The distinction the whole coverage record exists to make. "We watched and
+    /// nothing crossed the line" and "we were not watching" are different answers,
+    /// and a product that cannot tell them apart is offering a green light that
+    /// would look identical if it had crashed an hour ago.
+    @Test("Watched-and-quiet is distinguishable from not-watched")
+    func watchedIsNotTheSameAsSilent() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var log = CoverageLog()
+        let cadence = Duration.seconds(2)
+        let tolerance = CoverageLog.tolerance(cadence: cadence)
+
+        // Watched 08:00–09:00.
+        for step in stride(from: 0.0, through: 3600, by: 2) {
+            _ = log.observe(at: start.addingTimeInterval(step),
+                            tolerance: tolerance, resumingAfter: .appNotRunning)
+        }
+        // Nothing for 45 minutes — the Mac slept.
+        let resumed = start.addingTimeInterval(3600 + 45 * 60)
+        for step in stride(from: 0.0, through: 1800, by: 2) {
+            _ = log.observe(at: resumed.addingTimeInterval(step),
+                            tolerance: tolerance, resumingAfter: .systemAsleep)
+        }
+
+        let spans = log.spans(from: start, to: resumed.addingTimeInterval(1800))
+        let gaps = spans.filter { !$0.state.isWatched }
+
+        #expect(!gaps.isEmpty, "a 45-minute absence left no gap in the record")
+        #expect(gaps.contains { $0.duration.totalSeconds > 2000 },
+                "the gap was recorded but not at its real length")
+        // And the watched stretches are still watched: a gap must not swallow the
+        // hour either side of it.
+        #expect(spans.contains { $0.state.isWatched })
+    }
+
+    /// A gap does not heal. Once we could not answer for a stretch of time, no
+    /// later observation makes that stretch answerable — the record would be
+    /// worthless if it quietly closed over its own holes.
+    @Test("A gap stays a gap however long we watch afterwards")
+    func gapsDoNotHeal() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var log = CoverageLog()
+        let tolerance = CoverageLog.tolerance(cadence: .seconds(2))
+
+        _ = log.observe(at: start, tolerance: tolerance, resumingAfter: .appNotRunning)
+        let after = start.addingTimeInterval(600)
+        for step in stride(from: 0.0, through: 7200, by: 2) {
+            _ = log.observe(at: after.addingTimeInterval(step),
+                            tolerance: tolerance, resumingAfter: .appNotRunning)
+        }
+
+        let gapSeconds = log.spans(from: start, to: after.addingTimeInterval(7200))
+            .filter { !$0.state.isWatched }
+            .reduce(0.0) { $0 + $1.duration.totalSeconds }
+        #expect(gapSeconds > 500, "two hours of watching absorbed the earlier gap")
+    }
+
+    /// The honest figure behind "watched 6 hr 14 min of the 14 hr since midnight".
+    /// It must never exceed the window it describes.
+    @Test("Watched time never exceeds the window it is measured over")
+    func watchedTimeIsBounded() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var log = CoverageLog()
+        for step in stride(from: 0.0, through: 600, by: 2) {
+            _ = log.observe(at: start.addingTimeInterval(step),
+                            tolerance: CoverageLog.tolerance(cadence: .seconds(2)),
+                            resumingAfter: .appNotRunning)
+        }
+        let window = 1800.0
+        let watched = log.watched(from: start, to: start.addingTimeInterval(window))
+        #expect(watched.totalSeconds <= window + 0.001,
+                "claimed \(watched.totalSeconds)s of coverage in a \(window)s window")
+        #expect(watched.totalSeconds > 500, "watched time was lost entirely")
+    }
+}
+
+// MARK: - S-5, the third pointless alert
+
+@Suite("S-5 — correcting us is one gesture, and it corrects one thing")
+struct UnwantedAlertScenarioTests {
+    private func incident(_ condition: IncidentCondition,
+                          severity: IncidentSeverity = .high) -> Incident {
+        let began = Date()
+        return Incident(
+            id: UUID(), beganAt: began, triggeredAt: began, recoveryStartedAt: nil,
+            closedAt: nil, conditions: [condition], severity: severity,
+            peakCPUBusyFraction: 0.9, peakMemoryPressure: .critical)
+    }
+
+    /// The failure this scenario is named for: someone who did not want to hear
+    /// about compiles stops hearing about running out of memory too. That is what
+    /// a global sensitivity dial does, and why FR-016 amendment 1 scopes rules to
+    /// one application *and* one condition.
+    @Test("Silencing one app's CPU leaves every other alert intact")
+    func correctionIsNarrow() {
+        var settings = NotificationSettings(
+            announcesIncidents: true, minimumSeverity: .moderate)
+        settings.announcedConditions = [.cpuSaturation]
+        settings.rules = [SuppressionRule(application: "HandBrake", condition: .cpuSaturation)]
+        let gate = NotificationGate(settings: settings)
+        var state = NotificationGate.State()
+
+        #expect(!gate.decide(incident: incident(.cpuSaturation),
+                             contributors: ["HandBrake"], state: &state).shouldSend)
+        // A different app, same condition — still heard.
+        #expect(gate.decide(incident: incident(.cpuSaturation),
+                            contributors: ["Xcode"], state: &state).shouldSend,
+                "one app's rule silenced another app")
+        // Same app, different condition — still heard.
+        #expect(gate.decide(incident: incident(.memoryPressure),
+                            contributors: ["HandBrake"], state: &state).shouldSend,
+                "a CPU rule silenced a memory finding")
+    }
+
+    /// Suppression is about interrupting, never about watching. If a silenced
+    /// condition stopped being recorded, the overview would go blank and S-2's
+    /// "what happened earlier" would have nothing to answer with.
+    @Test("A silenced condition is still detected and still recorded")
+    func silencedIsStillRecorded() {
+        let outcome = ScenarioTimeline(phases: [
+            ScenarioPhase(name: "quiet", duration: .seconds(60),
+                          processes: idleDesktop(), hostBusyFraction: 0.15),
+            ScenarioPhase(name: "encode", duration: .seconds(600),
+                          processes: idleDesktop() + [app(900, "HandBrake", cpu: 780)],
+                          hostBusyFraction: 0.98),
+        ]).run()
+
+        #expect(outcome.incidentsOpened.count == 1,
+                "the condition was not detected once the alert was silenced")
+    }
+
+    /// Which is the decision the gate actually made, not merely that it stayed
+    /// quiet. A suppression recorded as the wrong cause would show the user a
+    /// reason that is not why.
+    @Test("The suppression states the rule as its reason, not something else")
+    func suppressionNamesItsCause() {
+        var settings = NotificationSettings(
+            announcesIncidents: true, minimumSeverity: .moderate)
+        settings.announcedConditions = [.cpuSaturation]
+        settings.rules = [SuppressionRule(application: "HandBrake", condition: .cpuSaturation)]
+        let gate = NotificationGate(settings: settings)
+        var state = NotificationGate.State()
+
+        let decision = gate.decide(incident: incident(.cpuSaturation),
+                                   contributors: ["HandBrake"], state: &state)
+        guard case .suppress(_, let cause) = decision else {
+            Issue.record("expected a suppression, got \(decision)")
+            return
+        }
+        #expect(cause == .applicationPolicy(application: "HandBrake", condition: .cpuSaturation),
+                "suppressed for the wrong stated reason: \(cause)")
+    }
+}
+
+// MARK: - S-7, the user is right and we saw nothing
+
+@Suite("S-7 — a report with nothing behind it is the most informative kind")
+struct UserReportScenarioTests {
+    private func quietSamples(around moment: Date) -> [HistorySample] {
+        stride(from: -300.0, through: 60.0, by: 2).map { offset in
+            HistorySample(
+                timestamp: moment.addingTimeInterval(offset),
+                totalBusyPercentOfOneCore: 140,
+                attributedPercentOfOneCore: 90,
+                unattributedPercentOfOneCore: 50,
+                topContributors: [])
+        }
+    }
+
+    /// The case the whole instrument exists for. Everything measured looked
+    /// ordinary; the person says it was slow. We keep the report, and we do not
+    /// invent a condition to justify it.
+    @Test("A report during a quiet machine is kept, and no condition is invented")
+    func reportWithNoConditionIsKept() {
+        let moment = Date(timeIntervalSince1970: 1_800_000_000)
+        let report = SlowdownReport.make(
+            timing: .now, reportedAt: moment,
+            retainedSamples: quietSamples(around: moment),
+            incidents: [], conditionsInForce: [])
+
+        #expect(!report.coincidedWithDetection,
+                "a quiet machine produced a coincident detection")
+        #expect(report.evidence.coverage.hasSamples,
+                "the readings around the report were not kept")
+        #expect(report.evidenceClass == .userProvided,
+                "the user's own claim must stay labelled as theirs (FR-038)")
+    }
+
+    /// A report that matches nothing is a result, not an error, and the overlap
+    /// figure is what the field trial will actually read.
+    @Test("Reports that matched nothing are counted as their own outcome")
+    func overlapCountsBothKinds() {
+        let moment = Date(timeIntervalSince1970: 1_800_000_000)
+        let quiet = SlowdownReport.make(
+            timing: .now, reportedAt: moment,
+            retainedSamples: quietSamples(around: moment),
+            incidents: [], conditionsInForce: [])
+
+        let busyMoment = moment.addingTimeInterval(7200)
+        let concurrent = Incident(
+            id: UUID(), beganAt: busyMoment.addingTimeInterval(-180),
+            triggeredAt: busyMoment.addingTimeInterval(-60), recoveryStartedAt: nil,
+            closedAt: nil, conditions: [.cpuSaturation], severity: .high,
+            peakCPUBusyFraction: 0.97, peakMemoryPressure: .normal)
+        let matched = SlowdownReport.make(
+            timing: .now, reportedAt: busyMoment,
+            retainedSamples: quietSamples(around: busyMoment),
+            incidents: [concurrent], conditionsInForce: [.cpuSaturation])
+
+        let overlap = SlowdownDetectionOverlap(reports: [quiet, matched])
+        #expect(overlap.reports == 2)
+        #expect(overlap.withoutDetection == 1,
+                "the report we missed was not counted as a miss")
+        #expect(overlap.coincidingWithDetection == 1)
+    }
+
+    /// A retrospective report belongs to the minutes it is about, not the minute
+    /// it was filed in — otherwise "it was slow half an hour ago" files evidence
+    /// from now, which is the wrong half hour.
+    @Test("A retrospective report is dated from the experience, not the filing")
+    func retrospectiveIsDatedFromTheExperience() {
+        let filed = Date(timeIntervalSince1970: 1_800_000_000)
+        let report = SlowdownReport.make(
+            timing: .recently(secondsAgo: 1800), reportedAt: filed,
+            retainedSamples: [], incidents: [], conditionsInForce: [])
+
+        #expect(report.experiencedAt < report.reportedAt)
+        #expect(abs(report.experiencedAt.timeIntervalSince(filed) + 1800) < 1,
+                "the report was filed against the wrong moment")
+        // No samples is a stated fact, not an empty series pretending to be quiet.
+        #expect(!report.evidence.coverage.hasSamples)
+    }
+}
