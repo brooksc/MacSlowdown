@@ -59,12 +59,27 @@ jobs:
         # does, the job fails in two minutes instead of burning the six-hour
         # limit against an account-wide quota.
         run: |
-          set -o pipefail
           # No output argument: the script cd's to its own directory first, so a
           # relative path here would nest as probe/probe/build. Its default is
           # probe/build, which is what the next line reads.
           IDENTITY="-" probe/build-sandboxed.sh
-          timeout 120 probe/build/Probe.app/Contents/MacOS/Probe | tee probe-macos26.txt
+
+          # The watchdog is hand-rolled because **macOS has no `timeout`** — it is
+          # GNU coreutils, present on a developer machine via Homebrew and absent
+          # on the runner, which is how the first run of this job died.
+          probe/build/Probe.app/Contents/MacOS/Probe > probe-macos26.txt 2>&1 &
+          pid=$!
+          for _ in $(seq 1 120); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+          done
+          if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+            echo "::error::The probe produced no output for 120 s. That is the           poisoned-bundle-id hang described in probe/FINDINGS.md — it blocks in           _libsecinit_appsandbox before main. On a fresh runner it should be           impossible, so treat it as a real finding about this runner image."
+            exit 1
+          fi
+          wait "$pid" || true
+          cat probe-macos26.txt
 
       - name: Check the load-bearing findings
         # Asserted, not eyeballed. A human reading a log will not notice that
