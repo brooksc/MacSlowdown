@@ -1,0 +1,91 @@
+name: Tests
+
+# Manual and on-push to main. Not scheduled: this repo has no release cadence
+# yet, and a nightly run would spend storage on artifacts nobody reads.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # A newer push makes an in-flight run irrelevant. Cancelling keeps minutes and
+  # artifact storage proportional to what is actually being looked at.
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: macOS 26
+    # The point of running here at all. Everything measured in probe/FINDINGS.md
+    # was measured on macOS 27, the project's deployment target is 26.0, and
+    # TASK-45 has been parked for weeks asking whether 26 agrees. This job is
+    # that question, asked automatically on every push.
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        # Recorded rather than assumed: the local build uses an Xcode 27 beta, so
+        # when CI disagrees with a developer machine the first question is always
+        # which compiler saw the code.
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Install Tuist
+        # Manifests are the source of truth for this project; there is no
+        # committed .xcodeproj to fall back on.
+        run: |
+          curl -Ls https://install.tuist.io | bash
+          echo "$HOME/.tuist/bin" >> "$GITHUB_PATH"
+
+      - name: Generate the project
+        run: tuist generate --no-open
+        env:
+          TUIST_SKIP_UPDATE_CHECK: 1
+
+      - name: Test
+        env:
+          TUIST_SKIP_UPDATE_CHECK: 1
+        # Four tests are skipped, and not because they are flaky. They
+        # synthesise CPU load and assert on the separation between a busy
+        # process and a quiet one, so they measure the machine they run on. A
+        # shared CI runner is contended by definition and one of them
+        # (realSlowdownProducesOneIncident) already declines to run when its own
+        # baseline guard sees the machine is too busy. Running them here would
+        # teach us about GitHub's hardware, not about this code.
+        #
+        # They stay part of the suite on a real machine. CLAUDE.md names them.
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme AllTests \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath .build \
+            -resultBundlePath TestResults.xcresult \
+            -skip-testing:MetricsTests/CPUWorkloadTests \
+            -skip-testing:MetricsTests/EndToEndIncidentTests \
+            | xcbeautify || xcodebuild test \
+            -scheme AllTests \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath .build \
+            -resultBundlePath TestResults.xcresult \
+            -skip-testing:MetricsTests/CPUWorkloadTests \
+            -skip-testing:MetricsTests/EndToEndIncidentTests
+
+      - name: Upload results
+        # Failure only, and one day. Actions storage is an account-wide quota
+        # shared with every other repository; a green run's result bundle is
+        # several hundred megabytes that nobody will open.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-${{ github.run_id }}
+          path: TestResults.xcresult
+          retention-days: 1
