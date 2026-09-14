@@ -16,24 +16,73 @@ public struct ProcessSampler: Sendable {
     /// reaches around it. It also lets tests simulate denial without a kernel.
     typealias Enumerator = @Sendable () -> Result<[TableEntry], EnumerationFailure>
 
+    /// Per-process CPU and memory for one pid.
+    ///
+    /// The second seam, and it exists for a reason the first one does not cover.
+    /// `Enumerator` supplies *who* is running — identity, command, uid, ppid — and
+    /// that was enough to simulate denial, a vanished process, or a hostile table.
+    /// It is not enough to simulate **load**, because the numbers that drive every
+    /// threshold in this product came through `Self.metrics(for:)` straight from
+    /// `proc_pidinfo`.
+    ///
+    /// The consequence was that the only test exercising the whole chain
+    /// (`EndToEndIncidentTests`) had to spawn real `yes` processes to make the
+    /// machine genuinely busy — which is why it is machine-sensitive, fails under
+    /// load, and is skipped in CI. The one test covering the most ground was the
+    /// one that could not be trusted to run.
+    ///
+    /// With this, a scripted machine can be replayed deterministically: see
+    /// `ScenarioTimeline`.
+    typealias MetricsReader = @Sendable (pid_t) -> MetricsResult
+
+    /// When a sweep happened.
+    ///
+    /// The third seam, and the least obvious. CPU percentages are derived from
+    /// tick deltas divided by `later.takenAt - earlier.takenAt`, so the clock is
+    /// not incidental — it is the denominator of every figure this product shows.
+    ///
+    /// A replayed timeline therefore cannot use the real clock. `ScenarioTimeline`
+    /// runs a simulated hour in milliseconds, so two consecutive snapshots are
+    /// microseconds apart in wall-clock terms, and dividing a two-second tick
+    /// delta by that produces percentages in the millions. The first scenario run
+    /// did exactly that: the unattributable-share assertion failed, which is how
+    /// this was found.
+    typealias Clock = @Sendable () -> ContinuousClock.Instant
+
     struct EnumerationFailure: Error { let errno: Int32 }
 
     private let enumerate: Enumerator
+    private let readMetrics: MetricsReader
+    private let now: Clock
 
     public init() {
         self.enumerate = { Self.systemProcessTable() }
+        self.readMetrics = { Self.metrics(for: $0) }
+        self.now = { ContinuousClock().now }
     }
 
-    /// Test seam.
-    init(enumerator: @escaping Enumerator) {
+    /// Test seam. Any part can be replaced; the rest keep their real behaviour, so
+    /// a test that only cares about enumeration still reads true metrics on a real
+    /// clock.
+    init(enumerator: @escaping Enumerator,
+         metricsReader: @escaping MetricsReader = { Self.metrics(for: $0) },
+         clock: @escaping Clock = { ContinuousClock().now }) {
         self.enumerate = enumerator
+        self.readMetrics = metricsReader
+        self.now = clock
     }
 
     /// One complete pass. Never throws: a process that vanishes mid-sweep or denies
     /// access is recorded with the reason, not dropped.
     public func snapshot() -> ProcessSnapshot {
         let clock = ContinuousClock()
-        let start = clock.now
+        // Two clocks, deliberately. `takenAt` is *when the sample is of* and is the
+        // denominator of every CPU percentage, so a replayed timeline must control
+        // it. `sweepDuration` is *how long we took* — the FR-030 overhead figure —
+        // and must stay a real measurement or the harness would report a cost
+        // nobody paid.
+        let start = now()
+        let realStart = clock.now
         var records: [ProcessIdentity: ProcessRecord] = [:]
 
         var outcome = EnumerationOutcome.succeeded
@@ -46,7 +95,7 @@ public struct ProcessSampler: Sendable {
                     command: entry.command,
                     uid: entry.uid,
                     ppid: entry.ppid,
-                    metrics: Self.metrics(for: entry.identity.pid)
+                    metrics: readMetrics(entry.identity.pid)
                 )
             }
         case .failure(let failure):
@@ -58,7 +107,7 @@ public struct ProcessSampler: Sendable {
         return ProcessSnapshot(
             records: records,
             takenAt: start,
-            sweepDuration: clock.now - start,
+            sweepDuration: clock.now - realStart,
             enumeration: outcome
         )
     }
