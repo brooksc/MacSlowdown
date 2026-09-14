@@ -1384,6 +1384,25 @@ unexpectedly" alert on screen for a segfaulting application. The sandboxed
 report is written to
 `~/Library/Containers/com.brooksc.MacSlowdown.Probe.exit-status-probe/Data/exit-status-result.txt`.
 
+# A note on the OS these findings were measured against
+
+**Everything above and below was measured on a macOS 27 beta**, builds in the
+`26A5388g` family, on an M2 MacBook Air.
+
+macOS 27 reached general release on 2026-09-14 and this machine is now on build
+`26A428`, which carries no beta flag. The test suite passes on it unchanged
+(1290, no failures), so nothing has visibly broken.
+
+That is worth stating precisely, because a green suite and a re-measured
+platform fact are different claims. The findings here are about what the kernel
+and the sandbox permit — denial codes, which APIs return data for which
+processes, what a signed `.app` can read. None of that is exercised by the test
+suite, and a point release can change any of it quietly. Treat these as measured
+on a beta until something re-runs the probes against final 27.
+
+`TASK-45` asks the same question about macOS 26. It now has two axes: macOS 26,
+which CI partly answers, and final macOS 27, which nothing has yet.
+
 # TASK-103 — run-queue pressure: the proposed threshold is refuted
 
 Measured 2026-09-03 on the M2 Air, 8 logical cores, macOS 27, via

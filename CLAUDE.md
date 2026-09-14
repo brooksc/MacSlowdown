@@ -118,6 +118,20 @@ its **acceptance criteria** literally — they are the definition of done.
 
 Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
 
+> **Every one of these was measured on a macOS 27 *beta*** (builds in the
+> `26A5388g` family). macOS 27 went final on 2026-09-14 and this machine is now
+> on `26A428`, which is not flagged as a beta. The full suite passes on it —
+> 1290, no failures — so nothing has obviously broken, but a passing test suite
+> is not the same claim as a re-measured platform fact. Anything below that
+> matters to a decision should be re-run against final 27 before it is leaned on
+> again. `TASK-45` already asks the same question about macOS 26 and now has two
+> axes rather than one.
+>
+> **The toolchain is also still a beta.** `/Applications/Xcode-beta.app` (27.0,
+> `27A5218g`) is what `xcode-select` points at; `/Applications/Xcode.app` is
+> 26.6 and is the same stable Xcode CI uses. Switching to it locally needs no
+> download — it is already installed — and would make local builds and CI agree.
+
 - **Enumerate with `sysctl KERN_PROC_ALL`, never `proc_listpids`.** The latter is
   denied under App Sandbox (EPERM) and Apple DTS has confirmed no entitlement
   lifts it. sysctl returns the full table (~1058 procs). **Accepted with known
