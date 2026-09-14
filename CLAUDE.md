@@ -78,6 +78,13 @@ where the weak joints are. It is a map, not an authority.
   verified in a signed `.app`; an unsandboxed binary proves nothing about it.
   `probe/Sources/` holds one file per question already answered; read
   `probe/FINDINGS.md` before writing a new one.
+- **A sandboxed probe that prints nothing and never exits is not looping — its
+  bundle id is poisoned.** Reusing an id whose container was created by a
+  different code signature blocks forever in `_libsecinit_appsandbox`, before
+  `main`, so no print can run. Deleting the container does not fix it. Bump
+  `GENERATION` in `probe/build-sandboxed.sh`; every probe needs its own leaf id.
+  Ad-hoc signing (`IDENTITY="-"`) is valid for sandbox measurement — it is how CI
+  runs the probe — but never for an XCTest host app.
 - **A UI criterion is not met by a passing unit test.** Several tasks carry
   criteria left deliberately unchecked because nothing was seen on screen. If you
   cannot look, say "not verified" and why, rather than inferring from tests.
@@ -118,14 +125,14 @@ its **acceptance criteria** literally — they are the definition of done.
 
 Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
 
-> **Every one of these was measured on a macOS 27 *beta*** (builds in the
-> `26A5388g` family). macOS 27 went final on 2026-09-14 and this machine is now
-> on `26A428`, which is not flagged as a beta. The full suite passes on it —
-> 1290, no failures — so nothing has obviously broken, but a passing test suite
-> is not the same claim as a re-measured platform fact. Anything below that
-> matters to a decision should be re-run against final 27 before it is leaned on
-> again. `TASK-45` already asks the same question about macOS 26 and now has two
-> axes rather than one.
+> **Re-measured on final macOS 27 (`26A428`) on 2026-09-14, and they all hold.**
+> Everything here was originally measured on a 27 *beta* (`26A5388g` family), so
+> the probe was re-run sandboxed against final 27: enumeration still returns the
+> full table, `proc_listpids` is still denied, `proc_pid_rusage` is still self
+> only, and 256 other-uid processes produced exactly 256 denials. Output is in
+> `probe/FINDINGS.md`. **macOS 26 is still unmeasured for the sandbox** —
+> `TASK-45` — though `.github/workflows/sandbox-probe.yml` now asks that question
+> on a `macos-26` runner.
 >
 > **The toolchain is also still a beta.** `/Applications/Xcode-beta.app` (27.0,
 > `27A5218g`) is what `xcode-select` points at; `/Applications/Xcode.app` is
@@ -495,7 +502,13 @@ Settled, and not to be re-opened:
   `probe/seam-allowlist.txt` and at `ActionVerifier` in
   `Metrics/Sources/ActionOutcome.swift`.
 - Build system is **Tuist**; manifests are the source of truth. Test framework is
-  **Swift Testing**. No CI yet.
+  **Swift Testing**. **CI runs on GitHub Actions** — `.github/workflows/tests.yml`
+  builds and runs the full suite on a `macos-26` runner on every push to main
+  (unsigned, so it cannot exercise the sandbox; it skips the four
+  machine-sensitive tests). `.github/workflows/sandbox-probe.yml` runs the Tier 0
+  probe sandboxed on macOS 26 and asserts its four load-bearing answers. Both are
+  deliberately unscheduled: Actions storage is an account-wide quota shared with
+  every other repository.
 - Raw temperature is **not** exposed. Public thermal state only.
 
 Resolved by the Tier 0 probe: per-process I/O (FR-009) and wakeups (FR-048) are

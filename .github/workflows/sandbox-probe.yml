@@ -1,0 +1,109 @@
+name: Sandbox probe (macOS 26)
+
+# Answers TASK-45, which has been parked since 2026-08-02 for want of a macOS 26
+# machine. Every platform fact in probe/FINDINGS.md was measured on macOS 27, and
+# A-01 requires the app to ship on 26 as well. The four questions this settles,
+# in the order they matter:
+#
+#   1. Is `sysctl KERN_PROC_ALL` permitted under App Sandbox on 26? The entire
+#      enumeration strategy rests on it. If it is denied there, the app cannot
+#      ship to 26 and A-01 needs a product decision — see decision-1.
+#   2. Is `proc_listpids` denied there too? (Expected; never confirmed.)
+#   3. Is `proc_pid_rusage` denied there too? This decides whether FR-009
+#      per-process I/O and FR-043 footprint could be restored on that OS.
+#   4. Does the mach timebase and proc_taskinfo layout match? The CPU maths
+#      depends on both.
+#
+# Separate from tests.yml deliberately. That job builds the app unsigned and so
+# cannot exercise the sandbox at all; this one signs, and the sandbox is the
+# whole point. Manual dispatch plus a push filter on the probe itself, because
+# the answer only changes when the probe or the runner image changes.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'probe/Sources/main.swift'
+      - 'probe/build-sandboxed.sh'
+      - 'probe/Probe.entitlements'
+      - '.github/workflows/sandbox-probe.yml'
+
+jobs:
+  probe:
+    name: Tier 0 probe, sandboxed, macOS 26
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        # The finding is only meaningful attached to the OS build that produced
+        # it. probe/FINDINGS.md records the build for every measurement.
+        run: |
+          sw_vers
+          swift --version
+          sysctl -n machdep.cpu.brand_string hw.logicalcpu
+
+      - name: Build and run the probe, sandboxed
+        # Needs no Xcode project and no certificate: swiftc plus an ad-hoc
+        # signature. Measured on 2026-09-14 that an ad-hoc signature carries the
+        # app-sandbox entitlement and the sandbox is genuinely applied, so the
+        # answers are as valid as a real-signed run. That is what makes this
+        # possible on a runner at all.
+        #
+        # The 120 s timeout is not arbitrary. A sandboxed binary that reuses a
+        # bundle id whose container was created by a different signature blocks
+        # forever in `_libsecinit_appsandbox`, before `main`, printing nothing —
+        # it looks exactly like a hang in our own code. A fresh runner has no
+        # containers, so it cannot happen here; the timeout is so that if it ever
+        # does, the job fails in two minutes instead of burning the six-hour
+        # limit against an account-wide quota.
+        run: |
+          set -o pipefail
+          # No output argument: the script cd's to its own directory first, so a
+          # relative path here would nest as probe/probe/build. Its default is
+          # probe/build, which is what the next line reads.
+          IDENTITY="-" probe/build-sandboxed.sh
+          timeout 120 probe/build/Probe.app/Contents/MacOS/Probe | tee probe-macos26.txt
+
+      - name: Check the load-bearing findings
+        # Asserted, not eyeballed. A human reading a log will not notice that
+        # enumeration returned nothing, and this job exists to catch exactly that
+        # on an OS nobody here can run interactively.
+        #
+        # Only claims that would change a decision are checked. The percentages
+        # are left to the recorded output, because they legitimately vary with
+        # what happens to be running on a shared runner.
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+
+          grep -q 'sandboxed (heuristic): true' probe-macos26.txt \
+            || fail "the probe did not run sandboxed, so nothing below means anything"
+
+          pids=$(sed -n 's/^sysctl KERN_PROC_ALL: \([0-9]*\) pids returned.*/\1/p' probe-macos26.txt)
+          [ -n "$pids" ] && [ "$pids" -gt 100 ] \
+            || fail "sysctl KERN_PROC_ALL returned ${pids:-no} pids sandboxed on macOS 26 — this is the A-01 shipping question, escalate per decision-1"
+          echo "sysctl KERN_PROC_ALL: $pids pids — permitted, enumeration strategy holds on 26"
+
+          grep -qE '^proc_listpids .*DENIED' probe-macos26.txt \
+            || fail "proc_listpids was NOT denied on macOS 26 — a divergence from 27 worth recording either way"
+
+          # Self only. If this ever reads more than 1, per-process I/O (FR-009)
+          # and footprint (FR-043) could be restored on that OS, which is a spec
+          # change rather than a failure — so it fails loudly to force the read.
+          rusage=$(sed -n 's/^proc_pid_rusage *: *\([0-9]*\)\/.*/\1/p' probe-macos26.txt)
+          [ "$rusage" = "1" ] \
+            || fail "proc_pid_rusage read $rusage processes on macOS 26, not 1 (self) — FR-009 and FR-043 may be restorable there; treat as a spec question"
+
+          echo "All four Tier 0 answers on macOS 26 match macOS 27."
+
+      - name: Upload the probe output
+        # Always, not just on failure, and this is the one artifact worth the
+        # account-wide storage: it is the measurement, and probe/FINDINGS.md
+        # needs it pasted in. Tiny — a few kilobytes of text.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-macos26-${{ github.run_id }}
+          path: probe-macos26.txt
+          retention-days: 7

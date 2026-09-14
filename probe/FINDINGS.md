@@ -1491,3 +1491,86 @@ probe/build/loadavg-probe 180 baseline
 CSV on stdout, summary on stderr. The summary reports, for each candidate
 threshold, how many samples breach and how many of those FR-006's CPU rule would
 have missed — which is the comparison the amendment turns on.
+
+---
+
+## A sandboxed binary can hang forever before `main`, and the cause is its bundle id
+
+**2026-09-14, final macOS 27 (26A428), M2.** The Tier 0 probe stopped working. Run
+it and it produces no output at all, sits at 0% CPU, and never exits. It looks
+exactly like an infinite loop in our own code. It is not: `sample` puts the single
+thread in `_libsecinit_appsandbox`, on a synchronous XPC round-trip to `secinitd`
+that never returns —
+
+```
+libSystem_initializer → _libsecinit_appsandbox → _xpc_pipe_routine
+  → _xpc_pipe_mach_msg → mach_msg → mach_msg2_trap
+```
+
+This is during dyld's initialiser phase, so it is **before `main`**. No print
+statement in the probe can ever run, which is why the symptom carries no
+information.
+
+**The cause is reusing a bundle id whose container was created by a different
+code signature.** Established by elimination, each step a separate run:
+
+| Variant | Result |
+|---|---|
+| Same binary, unsandboxed | completes in seconds |
+| Trivial sandboxed hello-world, same entitlements | completes |
+| Probe with a **fresh, never-used** bundle id | completes (twice, two different ids) |
+| Probe with its original id, after `rm -rf ~/Library/Containers/<id>` | **hangs** |
+| Probe with a fresh id, then the *other* signing mode on that same id | **hangs** |
+
+So: it is not the sandbox, not ad-hoc signing, not the bundle location, and not
+our code. Deleting the container directory does **not** repair it — whatever
+`secinitd` consults survives that, and it is not readable without root. A poisoned
+id can only be abandoned.
+
+The original poisoning is visible in the dead container's metadata: its
+`SandboxProfileDataValidationInfo` named
+`application_bundle = …/.claude/worktrees/agent-a62dd287…/probe/build/VersionNameProbe.app`
+— a *different probe*, in a worktree deleted weeks ago. Several probe binaries all
+claimed the bare `com.brooksc.MacSlowdown.Probe`, so they shared one container and
+one cached profile.
+
+**Rules that follow.**
+
+- **Every sandboxed probe gets its own leaf bundle id.** `build-probe.sh` and
+  `build-with-metrics.sh` already derive `…Probe.$NAME`; `build-sandboxed.sh` was
+  the one that hardcoded the shared parent, and now uses
+  `…Probe.tier0.g<GENERATION>.<signer>`.
+- **The id must encode the signing identity**, because one ad-hoc run poisons a
+  real-signed id and vice versa. A hash of the identity string is enough.
+- **`GENERATION` is the repair.** Bump it when a sandboxed probe hangs with no
+  output; nothing else produces that symptom. Generations 1 and 2 of `.tier0` are
+  burned on the author's machine.
+- **Ad-hoc signing (`IDENTITY="-"`) is valid for sandbox measurement.** The
+  signature carries `com.apple.security.app-sandbox`, the sandbox is genuinely
+  applied, and the probe's answers match a real-signed run exactly. This is what
+  makes the probe runnable on a CI runner, which holds no certificate. (Note it is
+  *not* valid for an XCTest **host app** — that hangs for an unrelated reason, see
+  `.github/workflows/tests.yml`.)
+
+### Every Tier 0 finding re-confirmed on *final* macOS 27
+
+The reason this mattered: every platform fact in this document was measured on a
+macOS 27 **beta**, and the machine went to final 27 on 2026-09-14. Once the probe
+ran again it reproduced all of them, sandboxed, on `26A428`:
+
+```
+sysctl KERN_PROC_ALL: 835 pids returned
+proc_listpids       : 0 pids  [DENIED: EPERM(denied)]
+PROC_PIDTBSDINFO   :  579/ 835 ( 69.3%)  errors: EPERM(denied)×256
+PROC_PIDTASKINFO   :  579/ 835 ( 69.3%)  errors: EPERM(denied)×256
+proc_pid_rusage    :    1/ 835 (  0.1%)  errors: EPERM(denied)×834
+proc_pidpath       :  830/ 835 ( 99.3%)  errors: errno2×6
+```
+
+Enumeration still works, `proc_listpids` is still denied, `proc_pid_rusage` is
+still self-only, and **256 other-uid processes against exactly 256 denials** — the
+"measurability is decided by uid, exactly" rule holds on final 27 with no
+exceptions in either direction.
+
+macOS 26 remains unmeasured *for the sandbox*; `.github/workflows/sandbox-probe.yml`
+runs this same probe on a `macos-26` runner and asserts these four answers.
