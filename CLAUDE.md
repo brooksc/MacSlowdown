@@ -130,9 +130,10 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
 > the probe was re-run sandboxed against final 27: enumeration still returns the
 > full table, `proc_listpids` is still denied, `proc_pid_rusage` is still self
 > only, and 256 other-uid processes produced exactly 256 denials. Output is in
-> `probe/FINDINGS.md`. **macOS 26 is still unmeasured for the sandbox** —
-> `TASK-45` — though `.github/workflows/sandbox-probe.yml` now asks that question
-> on a `macos-26` runner.
+> `probe/FINDINGS.md`. **macOS 26 measures the same** (TASK-45, done): the same
+> probe runs sandboxed on a `macos-26` runner via
+> `.github/workflows/sandbox-probe.yml` and every answer matches, so these facts
+> now hold on 26.6.2, 27 beta and 27 final alike.
 >
 > **The toolchain is also still a beta.** `/Applications/Xcode-beta.app` (27.0,
 > `27A5218g`) is what `xcode-select` points at; `/Applications/Xcode.app` is
@@ -377,8 +378,15 @@ tiles' hold duration, the severe filled badge — is **tested but unseen**.
   profiles should be **dropped**: they put a mode switch in the navigation list,
   so a mis-click silently changes what counts as a slowdown. The build never had
   them. Needs a decision to close or to keep.
-- **TASK-45** (parked, high) — re-validate every Tier 0 finding on macOS 26.
-  Everything measured so far is macOS 27 only, and the spec targets both.
+- **TASK-45 is done** (2026-09-14) — **macOS 26 answers the same as 27, so the
+  enumeration strategy ships on both.** Measured sandboxed on 26.6.2 via
+  `.github/workflows/sandbox-probe.yml`: sysctl permitted (545 pids),
+  `proc_listpids` denied, `proc_pid_rusage` self only, and 247 other-uid
+  processes against exactly 247 denials. `decision-1` needs no escalation and
+  FR-009/FR-043 are no more restorable on 26 than on 27. It answers the
+  sandbox-*policy* question only — the runner is 26.6.2, not 26.0, and is a
+  virtualised 3-core machine, so nothing about physical hardware or P/E
+  asymmetry on 26 is covered.
 - **TASK-50** — the Apple DTS question on `sysctl KERN_PROC_ALL`. The user's
   action, not a work item.
 

@@ -1,10 +1,10 @@
 ---
 id: TASK-45
 title: Re-validate all Tier 0 findings on macOS 26
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-08-02 01:19'
-updated_date: '2026-09-14 19:14'
+updated_date: '2026-09-14 19:41'
 labels:
   - risk
   - spike
@@ -31,9 +31,9 @@ Requires a macOS 26 VM or second machine -- not available on the current host.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 probe/build-sandboxed.sh run on macOS 26 and output captured
-- [ ] #2 Any divergence from macOS 27 recorded in probe/FINDINGS.md
-- [ ] #3 If enumeration differs, escalate as an A-01 scope decision
+- [x] #1 probe/build-sandboxed.sh run on macOS 26 and output captured
+- [x] #2 Any divergence from macOS 27 recorded in probe/FINDINGS.md
+- [x] #3 If enumeration differs, escalate as an A-01 scope decision
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -59,3 +59,24 @@ What that does and does not settle:
 
 The macOS 27 axis noted in CLAUDE.md is a separate question and is not touched by this.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+**No divergence. The enumeration strategy ships on both macOS 26 and 27.**
+
+Answered 2026-09-14 on macOS **26.6.2** (25G83), Swift 6.3.3, ad-hoc signed, on a 3-core GitHub Actions runner — `.github/workflows/sandbox-probe.yml`, now a standing job. Output recorded in `probe/FINDINGS.md`.
+
+The four questions, in the order the notes ranked them:
+
+1. **`sysctl KERN_PROC_ALL` IS permitted under App Sandbox on 26** — 545 pids returned. This was the one that could have stopped the app shipping to 26; `decision-1` needs no escalation and A-01 needs no product decision.
+2. **`proc_listpids` is denied on 26 too** — EPERM, as expected but never confirmed until now.
+3. **`proc_pid_rusage` is self only on 26** — 1/545, EPERM×544. So FR-009 per-process I/O and FR-043 footprint are no more restorable on 26 than on 27; the aggregate-only narrowing stands on both.
+4. **The mach timebase and `proc_taskinfo` layout match.** Checked by plausibility rather than by printing the timebase: CPU read 14–20% of one core for `mdworker_shared`, and a wrong timebase on Apple Silicon is off by about 42×, which would be unmissable.
+
+**And the uid rule holds exactly**: 247 other-uid processes, exactly 247 denials, no exceptions in either direction — the same as 27 beta and 27 final. The measurability *percentage* is lower (54.7% against ~69%) and that is not a divergence: a runner runs proportionally more system daemons than a desktop, and the denials still account for every other-uid process.
+
+**What this deliberately does not claim.** The runner is 26.6.2, not 26.0, and is a virtualised 3-core machine. It answers the sandbox-*policy* question, which is what was at risk. It says nothing about physical hardware, P/E core asymmetry, or thermals on 26. The signature is ad-hoc rather than a development certificate — established in `probe/FINDINGS.md` as valid for sandbox measurement, since the signature carries the entitlement and the sandbox is genuinely applied.
+
+**Getting here required fixing the probe**, which had stopped running at all on final macOS 27: a sandboxed binary that reuses a bundle id whose container was created by a different code signature blocks forever in `_libsecinit_appsandbox` before `main`, printing nothing. That is written up in `probe/FINDINGS.md` and `CLAUDE.md`, and `probe/build-sandboxed.sh` now derives a per-signer, generation-scoped id. The same session also re-confirmed every Tier 0 fact on final macOS 27 (26A428), which closes the separate beta caveat CLAUDE.md was carrying.
+<!-- SECTION:FINAL_SUMMARY:END -->
