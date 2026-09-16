@@ -1,13 +1,15 @@
 ---
 id: TASK-15
 title: Accessibility baseline (FR-034)
-status: Parked
+status: Out of Scope
 assignee: []
 created_date: '2026-08-02 01:06'
-updated_date: '2026-08-02 04:02'
+updated_date: '2026-09-16 02:24'
 labels:
+  - parked
   - ui
-milestone: m-1
+  - risk
+milestone: 'null'
 dependencies: []
 priority: medium
 ---
@@ -38,3 +40,22 @@ FR-034's own criterion is "accessibility audit passes", which needs VoiceOver an
 
 Nothing else depends on this, so it does not block other m-1 work.
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-09-16 02:24
+---
+**Deferred by the product owner, 2026-09-15: "park for now any accessibility related work... we will revisit it later. Let's first focus on getting the fully functional version working."**
+
+Moved to Out of Scope as this Backlog's nearest equivalent of Won't-Do-For-Now. **This is a sequencing decision, not a scope cut**, and the distinction matters on this task specifically:
+
+- **FR-034 is unchanged and still authoritative.** `requirements.md` calls accessibility non-negotiable and lists VoiceOver labels, full keyboard operation, increased contrast and reduced transparency as acceptance criteria. Nothing here amends the spec; only the order of work changed. Closing this task does not satisfy that requirement, and the requirement will still be unmet when the product is otherwise complete.
+- **It is a release gate, so the cost is schedule risk carried later.** Accessibility defects are structural — they surface as missing labels and unreachable controls across every screen already built — so the later this is picked up, the more surfaces it touches at once. That is the trade being accepted, and it is a reasonable one while the product's core value is still unproven.
+- **Severity must still never be conveyed by colour alone.** That one rule is already implemented (the severe filled badge, TASK-65 work) and should not regress while this is parked, because it is also a plain legibility property, not only an accessibility one.
+
+**When this is revisited, Xcode 27 changes the approach.** `XCUIVoiceOverService` (new in Xcode 27) drives VoiceOver from UI tests and validates focus, spoken output and navigation — so the baseline no longer strictly requires a person wearing headphones, which is why this task was parked in the first place. Two prerequisites: this project has **no UI test target at all**, and the API is Xcode 27-only, so CI's macOS 26.6 / Xcode 26.6 runners cannot run it. It also makes the machine speak, so it belongs in CI or a VM rather than at the owner's desk.
+
+Related work also moved out of scope: TASK-83.
+---
+<!-- COMMENTS:END -->

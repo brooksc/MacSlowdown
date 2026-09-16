@@ -1,12 +1,13 @@
 ---
 id: TASK-83
 title: The Incidents sidebar row is spoken as "1" — the badge has replaced its name
-status: To Do
+status: Out of Scope
 assignee: []
 created_date: '2026-08-09 22:54'
+updated_date: '2026-09-16 02:24'
 labels:
   - ui
-milestone: m-1
+milestone: 'null'
 dependencies: []
 priority: high
 ---
@@ -39,3 +40,16 @@ Worth checking while fixing: whether the badge count should be spoken at all, an
 - [ ] #3 A test reads the accessibility label back for both the badged and unbadged states, so this cannot silently return
 - [ ] #4 The other three sidebar rows are confirmed unaffected
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-09-16 02:24
+---
+**Deferred by the product owner, 2026-09-15**, with all accessibility work: park it, revisit later, get a fully functional version first. Moved to Out of Scope as the nearest Won't-Do-For-Now.
+
+Worth recording what is being left behind, because this one is small and unusually cheap. The defect is that the Incidents sidebar row is spoken as "1" — the unread badge has replaced the row's name, so a VoiceOver user hears a number with no noun. The fix is an `accessibilityLabel` on that row naming it and stating the count as a phrase, not a bare integer; it is a handful of lines in one view and touches nothing else.
+
+It is parked rather than done because it belongs to the same class of work as [[TASK-15]] and because verifying it needs VoiceOver — which, being audible, cannot be exercised while the owner is using the machine. If accessibility is picked up again, do this one first: it is the smallest possible proof that the toolchain works end to end.
+---
+<!-- COMMENTS:END -->

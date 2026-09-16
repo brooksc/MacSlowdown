@@ -88,6 +88,40 @@ where the weak joints are. It is a map, not an authority.
 - **A UI criterion is not met by a passing unit test.** Several tasks carry
   criteria left deliberately unchecked because nothing was seen on screen. If you
   cannot look, say "not verified" and why, rather than inferring from tests.
+- **Xcode's own MCP server is wired up** (2026-09-15, Xcode 27). Registered at
+  *local* scope — `claude mcp add xcode -s local -- xcrun mcpbridge` — so it is
+  not in the public repo's shared config and does not prompt anyone who clones
+  this. Headless mode is on (`sudo xcrun mcp-server enable`, owner-run), so it
+  serves tools without an Xcode window; manage it with `xcrun mcp-server
+  status|open|stop|show-logs`. It reports 54 tools over MCP protocol
+  2025-06-18. **MCP servers connect at session start, so a new session is needed
+  before the tools appear.**
+
+  What is actually worth reaching for here, and what is not:
+
+  - **`RenderPreview`** is the one that matters. It builds and snapshots a
+    SwiftUI Preview, so a screen can be *seen* without taking over the owner's
+    display — which is the constraint that has kept the UI unverified for weeks.
+    **Blocked on a prerequisite: this project has zero `#Preview` blocks.** And
+    a preview is not the running app: it can answer layout, truncation and
+    width questions (`TASK-65.22`, `TASK-97`), and it cannot answer first run
+    under `LSUIElement`, the menu bar icon at 16 pt, or the real window frame.
+  - **`XcodeRefreshCodeIssuesInFile`** returns typed diagnostics with file,
+    line and severity instead of scraped `xcodebuild` text.
+  - **`RunProject` / `GetConsoleOutput` / `InvokeDebuggerCommand`** can launch
+    the app and read its console or drive lldb. `RunProject` puts a status item
+    in the menu bar, so it **still needs the owner's permission** — the screen
+    rule applies to an MCP tool exactly as it does to `./run-menubar.sh`.
+  - **Not useful here:** the `DeviceInteraction*` family (simulators and
+    physical devices; a macOS app has neither) and the field-data tools
+    (`GetTopCrashIssues`, `GetTopFieldPerformanceIssues`) which read Apple's
+    crash service for a shipped app.
+
+  Verified: the server connects and enumerates its tools. **Not verified**: any
+  tool actually driving this project, because they were not callable from the
+  session that set them up. `xcrun mcp-server status` reported *no* open
+  workspace and the `mcp-server open` CLI silently did nothing — so expect to
+  call `XcodeOpenWorkspace` on `MacSlowdown.xcworkspace` first.
 - **Ask before using the screen.** Launching the app, driving the UI, taking
   screenshots or triggering a TCC prompt collides with whatever the user is
   doing. Permission lasts about 5 minutes. Terminal work, builds, tests, probes,
@@ -308,9 +342,24 @@ See TASK-55.1, TASK-55.2.
 
 ## Accessibility
 
-Non-negotiable per FR-034: VoiceOver labels, full keyboard operation, increased
-contrast and reduced transparency support. **Severity is never conveyed by
-color alone.**
+**Deferred by the product owner, 2026-09-15 — do not start accessibility work.**
+"Park for now any accessibility related work… we will revisit it later. Let's
+first focus on getting the fully functional version working." `TASK-15`
+(baseline) and `TASK-83` (the Incidents row spoken as "1") are Out of Scope.
+
+**This is sequencing, not a scope cut. FR-034 is unchanged and still
+authoritative**, and it is a release gate: VoiceOver labels, full keyboard
+operation, increased contrast and reduced transparency support. The product will
+not be shippable with this outstanding, and the debt grows with every screen
+added — that is the accepted trade while the core value is still unproven.
+
+Two things still hold while it is parked:
+
+- **Severity is never conveyed by color alone.** Already implemented, and not to
+  regress — it is plain legibility as much as accessibility.
+- Don't *remove* the accessibility labels that already exist. Several surfaces
+  annotate them; leaving them in costs nothing and they are the starting point
+  when this resumes.
 
 ## Where the work stands
 
@@ -358,9 +407,7 @@ The UI work that is blocked on a person at the screen, as of 2026-09-05:
 | `TASK-65.22` | Apps & Processes — truncated names, a seven-line footer where the design has one, the long tail not aggregated. Partly addressed by the four-column change; needs re-checking against it |
 | `TASK-65.23` | Menu bar icon polish — the glyph sits off-centre in its slot, the badge is illegible at 16 pt |
 | `TASK-65.20` | First run never comes forward under `LSUIElement`, so nobody sees it |
-| `TASK-83` | The Incidents sidebar row is spoken as "1" — the badge has replaced its name |
 | `TASK-97` | The Now and Apps tables may not fit the window's minimum width. The four-column change cut the Apps table's minimum from ~644 pt to ~504 pt, so this may already be resolved — **measure, do not assume** |
-| `TASK-15` | Accessibility baseline (parked, high). Needs a person with VoiceOver; several UI criteria elsewhere wait on it |
 
 Everything built in the 2026-09-03 session — the four-column table, the state
 tiles' hold duration, the severe filled badge — is **tested but unseen**.
