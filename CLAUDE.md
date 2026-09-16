@@ -130,6 +130,34 @@ where the weak joints are. It is a map, not an authority.
   session that set them up. `xcrun mcp-server status` reported *no* open
   workspace and the `mcp-server open` CLI silently did nothing — so expect to
   call `XcodeOpenWorkspace` on `MacSlowdown.xcworkspace` first.
+- **There is a working macOS 26 VM, and it runs the whole suite.** `tart` VM
+  `macslowdown-uitest-26` — macOS 26.6.2 (25G83), arm64, Xcode 26.2, 4 vCPU,
+  8 GB. Verified 2026-09-15: **1317 tests pass inside it**, both bundles,
+  *including* the four machine-sensitive tests CI has to skip. It has a virtual
+  display, so unlike CI it can host UI tests and a running app without touching
+  the owner's screen.
+
+  ```
+  nohup nice tart run macslowdown-uitest-26 --no-graphics --no-audio --no-clipboard &
+  tart ip macslowdown-uitest-26            # ~20 s to appear
+  sshpass -p admin ssh admin@<ip>          # user admin, password admin
+  tart stop macslowdown-uitest-26
+  ```
+
+  **Use `--no-graphics`.** Never `--vnc-experimental`: it calls `open` on a
+  vnc:// URL and launches Screen Sharing onto the owner's display — that
+  happened once, for two minutes, and is the reason this line exists.
+
+  The VM has git, swift and xcodebuild but **no tuist and no Homebrew**. Install
+  the matching version from the GitHub release directly (the official installer
+  sits behind Cloudflare and serves a JS challenge to scripts):
+  `curl -L .../tuist/releases/download/<host version>/tuist.zip`, unzip, symlink.
+  Then clone from the public remote and `tuist generate --no-open`. Build with
+  `-jobs 3`: the host is a fanless 8-core MacBook Air and the VM's 4 vCPUs come
+  out of it.
+
+  A previous session concluded these VMs could not boot to SSH and recorded that
+  as environmental. **That was wrong** — it was the launch method, not the VMs.
 - **Ask before using the screen.** Launching the app, driving the UI, taking
   screenshots or triggering a TCC prompt collides with whatever the user is
   doing. Permission lasts about 5 minutes. Terminal work, builds, tests, probes,
