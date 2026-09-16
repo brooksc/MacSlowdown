@@ -135,10 +135,17 @@ Measured on macOS 27 / M2, sandboxed vs unsandboxed. Don't re-derive these:
 > `.github/workflows/sandbox-probe.yml` and every answer matches, so these facts
 > now hold on 26.6.2, 27 beta and 27 final alike.
 >
-> **The toolchain is also still a beta.** `/Applications/Xcode-beta.app` (27.0,
-> `27A5218g`) is what `xcode-select` points at; `/Applications/Xcode.app` is
-> 26.6 and is the same stable Xcode CI uses. Switching to it locally needs no
-> download — it is already installed — and would make local builds and CI agree.
+> **The toolchain is no longer a beta** (2026-09-15). `/Applications/Xcode.app`
+> is **Xcode 27.0 (27A266a)** with **Swift 6.4**, and the beta is gone. The full
+> suite builds with zero errors and **1317 tests pass** on it, and the sandboxed
+> probe re-confirms every Tier 0 fact.
+>
+> **Local and CI now deliberately differ, and that is coverage rather than
+> drift**: local is macOS 27 / Xcode 27 / Swift 6.4, CI is macOS 26.6 / Xcode
+> 26.6 / Swift 6.3.3. A-01 targets both OSes, so every push now exercises both.
+> Expect compiler-diagnostic differences in that direction — Swift 6.4 is the
+> stricter one, and `swiftVersion` in `Tuist.swift` pins the *language mode* to
+> 6.0, not the compiler.
 
 - **Enumerate with `sysctl KERN_PROC_ALL`, never `proc_listpids`.** The latter is
   denied under App Sandbox (EPERM) and Apple DTS has confirmed no entitlement
