@@ -99,13 +99,21 @@ where the weak joints are. It is a map, not an authority.
 
   What is actually worth reaching for here, and what is not:
 
-  - **`RenderPreview`** is the one that matters. It builds and snapshots a
-    SwiftUI Preview, so a screen can be *seen* without taking over the owner's
-    display — which is the constraint that has kept the UI unverified for weeks.
-    **Blocked on a prerequisite: this project has zero `#Preview` blocks.** And
-    a preview is not the running app: it can answer layout, truncation and
-    width questions (`TASK-65.22`, `TASK-97`), and it cannot answer first run
-    under `LSUIElement`, the menu bar icon at 16 pt, or the real window frame.
+  - **`RenderPreview` works, and it has already found a defect.** It builds and
+    snapshots a SwiftUI Preview offscreen, so a screen can be *seen* without
+    taking over the owner's display. First use (2026-09-15) rendered All
+    processes — a surface nobody had ever seen — and found `TASK-117`: the table
+    draws **completely blank** below ~560 pt, at a width the window is allowed
+    to reach. **Pass the path in Xcode's project organisation, not the
+    filesystem path**: `MacSlowdown/Project/MacSlowdown/Sources/Foo.swift`. Find
+    it with `XcodeGlob`; an absolute path is rejected. Previews live in
+    `*Previews.swift` files under `#if DEBUG`, and `tuist generate` is still
+    required after adding one.
+
+    A preview is not the running app. It answers layout, truncation and width;
+    it cannot answer first run under `LSUIElement`, the menu bar icon at 16 pt,
+    or the real restored window frame, and a render must never be offered as
+    evidence for those.
   - **`XcodeRefreshCodeIssuesInFile`** returns typed diagnostics with file,
     line and severity instead of scraped `xcodebuild` text.
   - **`RunProject` / `GetConsoleOutput` / `InvokeDebuggerCommand`** can launch
