@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-09 23:21'
+updated_date: '2026-09-16 03:06'
 labels:
   - ui
 milestone: m-3
@@ -48,3 +49,24 @@ Do not close this task by looking at one surface. Each row above needs its own l
 - [ ] #5 The timeline axis label overlap is fixed or recorded as width-dependent with the width it appears at
 - [ ] #6 A rule exists for rendering command-named subjects so a lowercase command does not read as an English word
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-09-16 03:06
+---
+**Three of the four Settings tabs have now been seen, 2026-09-15** — rendered offscreen via Xcode 27's `RenderPreview` (previews added at the bottom of `SettingsView.swift` under `#if DEBUG`, because the tab views are `private` to that file). No display was taken over.
+
+**Alerts** — renders correctly. Worth noting for [[TASK-108]]: the sensitivity control the owner could not find is prominent and legible, headed "How sensitive should I be?" with a Relaxed / Balanced / Sensitive segmented control, and the explanation states the actual threshold in words ("a condition starts once total CPU stays above 85% of this Mac's capacity for 3 minutes") and is explicit that the dial moves the line itself, not just what is announced. If TASK-108's complaint is discoverability, the defect is not that this control is hard to read — it is that nobody opens this tab. "Quiet during Focus — Held by macOS" states honestly that we cannot read Focus.
+
+**Rules** — renders correctly, including the empty state, which does not imply the feature is broken: "No rules yet. Add an application and the one condition whose alerts you don't want from it." FR-016 amendment 1 is stated in the interface itself ("Every rule names one condition, and no rule silences another… Suppressed slowdowns still appear in Incidents, marked 'not alerted'"). The "Stop telling me…" button is correctly disabled with its reason given rather than left mysteriously grey.
+
+**Privacy** — renders correctly and fits without clipping. Uses the required phrasing exactly: "saved in MacSlowdown's own container, which no other app can read", never "encrypted". "Nothing has left this Mac" leads the tab.
+
+**No defects found in these three.** Recording that explicitly, because "seen and correct" is a result worth having and these criteria have been unchecked for weeks.
+
+**Not yet seen, so still open on this task:** the mute sheet (`MuteAlertsView`, needs a `MonitorStore`), the export sheet (`ExportReportView`, needs an `ExportReportModel` built from an incident), and General. All processes was seen separately and produced [[TASK-117]].
+
+**One caution on method.** Content ran past the bottom of the frame in the Alerts and Rules renders. That is the preview's frame, **not** a defect: every tab is inside a `Form`, which scrolls. Checked before filing rather than after.
+---
+<!-- COMMENTS:END -->

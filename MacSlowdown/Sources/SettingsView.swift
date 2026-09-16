@@ -854,3 +854,46 @@ private struct StoredCategoriesSheet: View {
         .frame(width: 460)
     }
 }
+
+#if DEBUG
+// MARK: - Previews
+//
+// Settings is recorded in TASK-65.24 as never having been seen on screen at all,
+// and it is four tabs deep. These render each tab separately, because a TabView
+// preview only ever shows the first one — and the three that are not General are
+// exactly the ones nobody has looked at.
+//
+// The tab views are `private` to this file, which is why the previews live here
+// rather than in a separate *Previews.swift.
+//
+// A preview settles layout: whether controls fit, whether labels truncate,
+// whether a tab's content overflows its frame. It cannot settle whether the
+// window comes forward, or what the real Settings scene's chrome does to the
+// size — `Settings {}` supplies its own frame that this does not reproduce.
+
+#Preview("Settings — all four tabs") {
+    @Previewable @State var showMenuBarItem = true
+    SettingsView(showMenuBarItem: $showMenuBarItem)
+}
+
+#Preview("Settings — General") {
+    @Previewable @State var showMenuBarItem = true
+    GeneralSettingsTab(showMenuBarItem: $showMenuBarItem)
+}
+
+/// Carries the sensitivity control the owner asked for and could not find
+/// (TASK-108). Worth reading this render for whether it is discoverable.
+#Preview("Settings — Alerts") {
+    AlertsSettingsTab()
+}
+
+/// Condition-scoped suppression (FR-016 amendment 1). Its empty state matters as
+/// much as its populated one.
+#Preview("Settings — Rules") {
+    AppRulesSettingsTab()
+}
+
+#Preview("Settings — Privacy") {
+    PrivacySettingsTab()
+}
+#endif
