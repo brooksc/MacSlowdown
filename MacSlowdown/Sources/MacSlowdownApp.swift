@@ -31,6 +31,9 @@ struct MacSlowdownApp: App {
         store.notifications.onShowDetails = { MainWindowOpener.open() }
         store.notifications.onMute = { minutes in store.mute(forMinutes: minutes) }
         FirstRunWindowOpener.presentOnceAfterLaunch()
+        // Debug-only, and inert in the shipping build: lets a launch ask for a
+        // window so the running app can be looked at in a VM (UIVerificationLaunch).
+        UIVerificationLaunch.presentIfRequested()
         return scenes
     }
 

@@ -11,7 +11,11 @@ struct MainWindowView: View {
     /// rather than a nicer Activity Monitor (S-2), was reachable only by someone who
     /// already suspected there was something to find. Now and Incidents remain, as
     /// the detail behind the summary.
-    @State private var selection: Section = .overview
+    // Starts wherever the launch asked, so a screenshot run can reach a section
+    // without Accessibility permission to drive the sidebar. Always `.overview`
+    // in the shipping build — `UIVerificationLaunch` reads nothing there.
+    @State private var selection: Section =
+        UIVerificationLaunch.requestedSection.flatMap(Section.init(rawValue:)) ?? .overview
 
     enum Section: String, CaseIterable, Identifiable {
         case overview = "Overview"
