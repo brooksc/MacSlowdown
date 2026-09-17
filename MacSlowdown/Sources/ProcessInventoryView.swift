@@ -286,7 +286,12 @@ struct InventoryTable: View {
                     Text("—").foregroundStyle(.secondary)
                 }
             }
-            .width(min: 104, ideal: 116, max: 140)
+            // Sized by the *heading*, not by the figure. At `min: 104` the values
+            // fitted and the header read "CPU, 60 s me…" — which truncates the
+            // one word that says what the number is, leaving a column of
+            // percentages with no stated window (FR-038). Seen on screen
+            // 2026-09-16.
+            .width(min: 126, ideal: 132, max: 150)
             // The trend, for the rows we retain a series for. A row with no series
             // draws nothing and says so — never a flat line, which would read as a
             // quiet application when the truth is that we were not watching it.

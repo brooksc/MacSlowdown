@@ -1,9 +1,10 @@
 ---
 id: TASK-101
 title: 'Six challenges to the specification, raised from two weeks of real use'
-status: To Do
+status: Parked
 assignee: []
 created_date: '2026-08-31 20:17'
+updated_date: '2026-09-17 18:50'
 labels:
   - decision
 dependencies: []
@@ -33,6 +34,24 @@ type: spike
 <!-- AC:BEGIN -->
 - [ ] #1 Each of C-01 to C-06 gets a decision: accept, reject, or amend
 - [ ] #2 Any accepted change is written into requirements.md as a dated amendment, not just agreed in conversation
-- [ ] #3 C-01's decision covers what happens to the code already built, since FR-046 is implemented and shipping in the current build
-- [ ] #4 C-02's spike is either scheduled or explicitly declined, so the default threshold stops being unexamined
+- [x] #3 C-01's decision covers what happens to the code already built, since FR-046 is implemented and shipping in the current build
+- [x] #4 C-02's spike is either scheduled or explicitly declined, so the default threshold stops being unexamined
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Half done, and parked on the half only the product owner can do — 2026-09-17.**
+
+**#3 and #4 are met.** C-01's decision covers the code that was already built and shipping: `IncidentCondition.opensAnIncident` makes repeated relaunch the only `false`, and the case is **kept rather than deleted** because it is in the persisted schema and still records — TASK-102, done. C-02's spike was scheduled *and* run: TASK-103 measured the proposed threshold and **refuted it**, finding an ordinary capped build sits at a median of 2.87 runnable threads per core against a proposed line of 2.0, breaching on 59.2% of samples. So the default threshold is no longer unexamined, which is exactly what #4 asked for.
+
+**#1 and #2 are not met, and cannot be met here.** C-04, C-05 and C-06 each need a decision — accept, reject or amend — and #2 requires any accepted change to be written into `requirements.md` as a dated amendment. **A spec amendment is the product owner's to make**; this repository's own rule is that features not in `requirements.md` need a spec update first and that an infeasible requirement is raised rather than silently substituted. An agent proposing an amendment and then adopting it would be both parties to that conversation.
+
+**What is worth knowing before those three are taken up**, since two weeks of further work have bent the ground under them:
+
+- The governing product decision of 2026-09-06 — a measured resource condition is not a slowdown the user experienced — postdates these challenges and may already answer or dissolve some of them.
+- FR-063, FR-064 and FR-065 landed as a result, so the product now has a user-report channel it did not have when C-04–C-06 were written.
+- TASK-103's refutation is the model for how the remaining three should be handled: measure first, and expect the founding observation to survive while its proposed number does not.
+
+Unpark when the owner takes up C-04, C-05 and C-06.
+<!-- SECTION:NOTES:END -->

@@ -3,10 +3,10 @@ id: TASK-65.22
 title: >-
   Apps &amp; Processes: names truncate, the footer is seven lines where the
   design has one, and the long tail is not aggregated
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 22:53'
-updated_date: '2026-09-17 02:31'
+updated_date: '2026-09-17 18:47'
 labels:
   - ui
 milestone: m-1
@@ -37,13 +37,33 @@ Verified working and not to be re-opened: the segmented control, search field, c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Name column gets the majority of the table width and ordinary application names are not truncated at the default window size
+- [x] #1 The Name column gets the majority of the table width and ordinary application names are not truncated at the default window size
 - [ ] #2 A truncated display name is distinguishable from a name truncated by p_comm's 16-byte limit (FR-002)
-- [ ] #3 The footer carries one explanatory sentence plus a single separated census line; the memory, disk and CPU-convention caveats move beside the figures they qualify rather than being deleted
+- [x] #3 The footer carries one explanatory sentence plus a single separated census line; the memory, disk and CPU-convention caveats move beside the figures they qualify rather than being deleted
 - [ ] #4 Applications below the visible threshold are aggregated into one 'Other applications' row whose figures make the column sum honest
 - [ ] #5 An expanded family collapses its sub-threshold helpers into a single counted row
-- [ ] #6 Verified on screen against design/screens/1d.png, or the criterion is left unchecked with the reason
+- [x] #6 Verified on screen against design/screens/1d.png, or the criterion is left unchecked with the reason
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**#1, #3 and #6 done 2026-09-17; #2 already held; #4 and #5 are deliberately not built — see below.**
+
+**#1 — names are no longer truncated at the default width.** The cause was not the Name column being too narrow but every column being equally wide: not one of the five `TableColumn`s in All processes declared a width, so SwiftUI divided the table evenly and a three-character CPU reading held as much room as a process name. Every column now states min/ideal/max and the name takes the slack. Seen at 480 pt — narrower than the default — with "Brave Browser Helper (Renderer)" and "com.apple.WebKit.WebContent.Development" whole: `design/verified/2026-09-17/previews/all-processes-480.png`. The Apps table's name column carries `min: 220, ideal: 420`.
+
+**#2 was already satisfied** and is now confirmed by looking. A `p_comm`-truncated name is marked by `nameIsShortened` and renders with an ellipsis *in the name itself* ("mediaanalysisd…"), while a name truncated by the column is cut by the table; the two are also distinguished in the spoken label, which says "name shortened by the system". Visible in the 480 pt render.
+
+**#3 — the footer is one sentence plus a separated census line.** It was three paragraphs rendering as five to seven lines under the table, and sixteen lines at the narrow width TASK-97 measured, where it left room for **two rows**. A footer that crowds out the table it explains has stopped explaining anything.
+
+The short form keeps the two facts a reader will otherwise take for defects — "Applications only, and rows hold their places for 10 s while you read" — because an application-only list reads as a list that has lost its daemons, and a damped order under a column headed CPU reads as broken sorting, which is exactly what TASK-63 turned out to be. The criterion's instruction that the caveats move rather than be deleted is met by a disclosure carrying `InventoryCensus.fullExplanations`, composed from the same constants so it cannot drift. The memory and per-app-disk caveats **gain** reach: they were previously only in a `.help` tooltip, unreachable from the keyboard and invisible to anyone not hovering.
+
+The same shape was applied to the All processes footer, which additionally held a **verbatim second copy** of `InventoryCensus.residentMemoryCaveat` — the FR-060 duplication that TASK-80 was created by. It reads the constant now.
+
+**#4 and #5 (aggregating the long tail into "Other applications", and collapsing sub-threshold helpers) are not built, and I recommend they are not built as specified.** The reason is measured, not stylistic. Every row this would fold away is a *named, measured* process, and the product's governing honesty is that it says what it measured and what it could not. An aggregate labelled "Other applications" would be the one row on the screen whose figure is a sum the user cannot decompose — sitting directly beneath a "System processes" row that exists precisely to mark the activity we genuinely *cannot* break down. Two rows that look alike and mean opposite things is a worse defect than a long tail.
+
+It is also not clearly a problem any more. The complaint was recorded when the footer was seven lines and names truncated at twenty characters; both are now fixed, and the tail is sorted by a 60 s mean rather than by an instant (TASK-90, TASK-95), so it no longer churns. **This needs the product owner's call** — it is a design judgement about a screen they have used and I have not.
+<!-- SECTION:NOTES:END -->
 
 ## Comments
 

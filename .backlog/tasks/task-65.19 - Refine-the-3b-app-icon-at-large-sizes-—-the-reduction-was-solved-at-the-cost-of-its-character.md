@@ -3,9 +3,10 @@ id: TASK-65.19
 title: >-
   Refine the 3b app icon at large sizes — the reduction was solved at the cost
   of its character
-status: To Do
+status: Parked
 assignee: []
 created_date: '2026-08-09 18:24'
+updated_date: '2026-09-17 18:50'
 labels:
   - ui
 milestone: m-1
@@ -38,3 +39,15 @@ That matters because 1024 is the App Store listing and Get Info — the sizes wh
 - [ ] #4 Colour handling avoids the khaki cast where the amber band crosses the slate
 - [ ] #5 Verified on screen in the Dock, the Finder sidebar and Get Info -- not only as rendered files
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Parked 2026-09-17, behind TASK-65.18 and for the same reason.** Every criterion is a judgement about drawn artwork made by looking at it, and three of the five are explicitly about true sizes in the Dock, the Finder sidebar and Get Info — which is the owner's screen, not a render.
+
+Criterion #1 is the one that cannot be delegated to a measurement at all: "reads as a measurement rather than as a geometric arch" is a judgement about character. #4's khaki cast where the amber band crosses the slate is the same kind of judgement about colour, and it is precisely the sort of thing a tinted appearance makes worse — see TASK-65.18's note that the tinted variant discards colour entirely, which is a problem for an icon whose whole concept is a colour contrast.
+
+**This is the *refinement* of an icon that already ships**, so nothing is blocked on it: the built app carries a complete `AppIcon.appiconset` whose 16 px artwork was drawn separately and verified through the toolchain. This task is about the cost that reduction charged — the large icon lost its character to make the small one legible — and it is a genuine trade-off to revisit, not a defect.
+
+It is Low priority and correctly so. Unpark alongside the Icon Composer work in TASK-65.18, since both need the same person at the same screen and the layered version will change the answer to #4 anyway.
+<!-- SECTION:NOTES:END -->

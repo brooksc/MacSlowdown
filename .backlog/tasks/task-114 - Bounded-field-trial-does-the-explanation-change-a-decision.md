@@ -1,9 +1,10 @@
 ---
 id: TASK-114
 title: 'Bounded field trial: does the explanation change a decision?'
-status: To Do
+status: Parked
 assignee: []
 created_date: '2026-09-06 16:54'
+updated_date: '2026-09-17 18:48'
 labels:
   - spike
   - decision
@@ -46,3 +47,18 @@ Both reviews independently said: stop expanding features and go and find out. Th
 - [ ] #3 The trial runs on more than the owner's machine
 - [ ] #4 A written recommendation follows: standalone product, simpler monitor, or feature of something else
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Parked 2026-09-17 — needs days of real use on more than one machine, which a session cannot produce.** Named as an expected exception in the session's instructions, and criterion #3 says so outright: the trial runs on more than the owner's machine.
+
+**The instrumentation it needs is now built, which is the part that was in scope.** Criterion #1 asks for detected episodes and user-marked slowdowns both captured with the overlap between them measured, and that exists end to end: `SlowdownReport` records the user's side, `SlowdownReportStore` persists it, and `SlowdownDetectionOverlap` computes reports-with and reports-without a coincident detection. Two things landed today that make the figure trustworthy rather than merely present:
+
+- A retrospective report no longer inherits the conditions breaching at the moment of *filing* (TASK-120). Before that, filing a report about last Tuesday while any unrelated incident happened to be open counted as a coincidence — which would have inflated the exact number this trial turns on.
+- A report can now be filed against a **coverage gap**, so the case where we were not watching at all produces data instead of a dead end (design 5c). Those are by construction reports without a detection, and they are the episodes the product currently has no other way of hearing about.
+
+**Criterion #2 is not built and should not be built before the trial is scheduled.** Asking per-episode whether the explanation changed a decision, saved time, or gave justified reassurance is a questionnaire, and S-7 names asking the user to classify what they are experiencing as the first failure mode — it is why the previous attempt at feedback collected nothing. For a bounded trial the right instrument is probably an out-of-band note from the participant rather than a control in the product. **That is a design decision for the owner**, and building the control first would prejudge it.
+
+Unpark when the trial is scheduled and participants exist.
+<!-- SECTION:NOTES:END -->

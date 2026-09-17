@@ -1,10 +1,10 @@
 ---
 id: TASK-65.20
 title: 'First run never comes forward under LSUIElement, so nobody sees it'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 18:28'
-updated_date: '2026-08-09 18:55'
+updated_date: '2026-09-17 18:53'
 labels:
   - ui
 milestone: m-2
@@ -38,8 +38,8 @@ Note the same question applies to any window this app opens without a user gestu
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On a cold launch with first-run state unset, the first-run window is visible and frontmost without any external intervention, verified on screen
-- [ ] #2 The fix does not leave a permanent Dock icon behind when the menu bar item is shown
+- [x] #1 On a cold launch with first-run state unset, the first-run window is visible and frontmost without any external intervention, verified on screen
+- [x] #2 The fix does not leave a permanent Dock icon behind when the menu bar item is shown
 - [x] #3 TASK-11.1's MainWindowOpener registration and the Dock-icon route continue to work
 - [x] #4 The first-run flag is only set by completing the screen, so an unseen or dismissed first run is presented again
 - [x] #5 Any other window the app opens without a user gesture is checked for the same failure
@@ -134,4 +134,14 @@ The reasoning is also, honestly, one inference deep in one place: that `activate
 6. Then relaunch: the screen must **not** reappear (it was completed). Reset the key and relaunch once more without pressing the button — it must reappear.
 
 Also worth one look while there (criterion #5's second at-risk item, fixed blind): raise a real notification and click **Show details** while another application is frontmost. The main window must come forward, not open behind. That one has never been seen either, before or after this change.
+
+**Verified on the shipping path, 2026-09-17** — `design/verified/2026-09-17/07-first-run-cold.png`.
+
+**#1.** The app was launched in the VM with `open -n -a MacSlowdown.app` and **no launch arguments at all**, with `firstRun.completed` cleared beforehand. Not the `-ui-open first-run` seam, which calls `activate(ignoringOtherApps:)` explicitly and would have assumed the conclusion. The first-run window is visible and frontmost over the Terminal with nothing intervening.
+
+**#2.** No Dock icon is left behind: the VM's Dock in that frame runs Settings → separator → Terminal → Downloads → Trash, with no MacSlowdown tile, while the window is open.
+
+**One residual, and the capture is the only thing that could have shown it.** The menu bar in that frame still reads **Terminal**. The window comes to the *front* without the application becoming *active*, so a first click on it activates rather than acts. `06-first-run.png`, which does go through `activate(ignoringOtherApps:)`, shows exactly the same thing — so the activation call is not doing what it appears to promise under `LSUIElement`, and the seam is not masking a defect in the shipping path either.
+
+I am closing this rather than holding it open: both criteria as written are met, the window is reachable and readable, and the residual is a distinct behaviour (front versus focused) that was never in scope here. It is worth its own task if the owner wants the first click to act rather than activate — the likely lever is `NSApp.setActivationPolicy(.regular)` before the window opens, which `ActivationPolicy.mainWindowOpened()` already does for the *main* window and evidently not for this one.
 <!-- SECTION:NOTES:END -->

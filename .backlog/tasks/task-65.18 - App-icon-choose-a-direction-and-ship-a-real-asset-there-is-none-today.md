@@ -1,10 +1,10 @@
 ---
 id: TASK-65.18
 title: 'App icon: choose a direction and ship a real asset (there is none today)'
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-08-09 03:26'
-updated_date: '2026-08-09 03:42'
+updated_date: '2026-09-17 18:49'
 labels:
   - ui
 milestone: m-1
@@ -124,4 +124,28 @@ Created: `design/icons/{README.md,icon-large.svg,icon-small.svg,build.sh,contact
 ## Recommendation on a refined designer round
 
 Not needed for this stage. The reduction problem is solved and the fix is testable by rendering, so another round would cost a trip to re-derive what the renders already settle. A designer round **is** worth requesting for the layered Icon Composer version: deciding where specular highlight and depth sit across four appearances is judgement about material, which is exactly what headless renders cannot answer.
+
+**Parked 2026-09-17 — this needs finished artwork, and criterion #2 rules out the only thing I can produce.** "Finished artwork exists — *not a rendered design sketch* — in the format the target macOS versions require, with the appearance variants those versions expect" means an `.icon` asset with light, dark and tinted variants, drawn at 1024 and hand-corrected at 16 and 32 px. That is a design deliverable, not a code one, and generating a plausible-looking substitute would be the worst outcome: it would satisfy the file listing and fail the criteria that matter.
+
+**What is genuinely blocked versus merely undone:**
+
+- #2 needs the art. Blocked on a designer or on Claude Design.
+- #3 and #6 need the art to exist before anything can be looked at. Blocked behind #2.
+- #5 (wiring into `Project.swift`) is five minutes' work *once the asset exists*, and doing it against a placeholder would put an untrue icon on the built app — worse than the generic one, because a generic icon reads as "no icon yet" and a bad one reads as a decision.
+
+**A note for whoever picks this up.** The 16 pt legibility constraint in #3 is the binding one and it is where `design/icons/3b.png` already struggles — TASK-65.19 exists because solving the reduction cost the icon its character. Treat 16 px as the design brief rather than as a check applied afterwards.
+
+The menu bar icon is a separate asset and a separate task (TASK-65.23); it is not blocked on this.
+
+**Correction to the park note above, 2026-09-17.** I wrote it before reading the 2026-08-08 implementation notes properly and it understates what exists. Setting the record straight, because the next reader will act on whichever version they believe:
+
+**Finished artwork does exist and is in the built bundle.** A conventional `AppIcon.appiconset` with all ten macOS entries, built from `design/icons/icon-large.svg` and a separately drawn `icon-small.svg` for 16 and 32 px, wired through `Project.swift`, and verified in the compiled `Assets.car` with `xcrun assetutil`. The 16 px image was extracted back out of the built `.icns` and compared against its source to confirm the hand-tuned small artwork survives the toolchain. That is not a sketch and it is not a placeholder, and **criterion #5's wiring half is done** — my "five minutes' work once the asset exists" was simply wrong.
+
+**What is actually outstanding is narrower than I said:**
+
+- **#2** turns on "the appearance variants those versions expect". macOS 26 wants a layered `.icon` with light, dark, tinted and clear appearances, and a `.icon` can only be authored and validated in **Icon Composer, a GUI application** — there is no command-line path. The layer exports it needs are already prepared at `design/icons/layers/`, and the procedure is written down step by step in `design/icons/README.md`. So this is blocked on a person at a Mac, not on artwork.
+- **#3 and #6** need the Dock, the Finder sidebar and Get Info, which a render cannot stand in for. Every size *was* rasterised at true pixel size and inspected, including 8–16× nearest-neighbour magnifications — stronger than eyeballing a scaled preview, and still not the Dock.
+- Two warnings in that README are worth re-reading before touching it: once a `.icon` exists Xcode prefers it and regenerates the small sizes from the layered art, which would discard the hand-tuned 16 px drawing; and the tinted appearance discards colour, which is a problem for an icon whose concept is a colour contrast.
+
+The park stands — all three remaining criteria need the owner at a screen — but the reason is Icon Composer and the Dock, not missing art.
 <!-- SECTION:NOTES:END -->
