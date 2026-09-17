@@ -64,6 +64,37 @@ struct InventoryCensus: Equatable {
         + "Processes owned by another user account are named but never measured: "
         + "macOS reports their CPU and memory to no App Store app."
 
+    /// The one sentence the footer shows without being asked (design 4,
+    /// TASK-65.22).
+    ///
+    /// **Why there is a short form at all.** The footer had grown to five or more
+    /// rendered lines under a table — the census, a paragraph about what is
+    /// listed, and a paragraph about why the order is damped — where the design
+    /// calls for a single sentence and a separated census line. A block of
+    /// explanation that size under every table is not read, which means its
+    /// contents are not conveyed, which is the same outcome as deleting them and
+    /// costs a third of the pane as well.
+    ///
+    /// Both facts it names are the ones a reader will otherwise misread as
+    /// defects: an application-only list looks like a list that has lost the
+    /// daemons, and a damped order under a column header that says CPU looks like
+    /// broken sorting — which is precisely what TASK-63 turned out to be, an hour
+    /// spent on a table that was sorting correctly.
+    ///
+    /// The full text is not deleted; it is one disclosure away, and it is the
+    /// same constants rather than a paraphrase of them.
+    static let shortExplanation =
+        "Applications only, and rows hold their places for "
+        + "\(Int(OrderStability.settleInterval)) s while you read."
+
+    /// Everything the short sentence stands in for, in the order it should be
+    /// read. Composed from the constants rather than restated, so the disclosed
+    /// text cannot drift from the summary or from the inspector (FR-060).
+    static var fullExplanations: [String] {
+        [explanation, OrderStability.explanation, residentMemoryCaveat,
+         perApplicationDiskCaveat].compactMap { $0 }
+    }
+
     /// Why our memory figure and Activity Monitor's disagree.
     ///
     /// One constant because there were two copies with different wording — the

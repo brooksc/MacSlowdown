@@ -355,12 +355,26 @@ functionality and UX; optimisation comes later, against evidence. Do not block a
 feature, fail a task, or redesign for size because a figure is over budget.
 
 What has *not* changed: the tool must not become part of the slowdown. That
-objective still drives adaptive sampling (FR-031: normal cadence ~2–5 s,
-investigation ~1 s) and keeping sampling cadence separate from UI refresh
-(DR-03). Keep measuring, keep reporting, don't gate.
+objective still drives adaptive sampling and keeping sampling cadence separate
+from UI refresh (DR-03). Keep measuring, keep reporting, don't gate.
+
+**Cadence is 1 s normal and 0.5 s investigation** — FR-031's amendment of
+2026-08-25, approved in v1.3. The original 2–5 s / 1 s figures were quoted here
+for weeks after they stopped being true, and a task was filed against the app for
+agreeing with the spec (TASK-119 #2). A per-application trailing mean and a
+per-application curve both need per-second retention, which needs per-second
+sampling; investigation tightened in step so resolution still *rises* during a
+suspected incident. Read FR-031 itself before quoting a cadence anywhere.
 
 Reference figures to revisit before release: idle CPU median ≤1% of one core,
 disk writes ≤10 MB/hour absent incidents.
+
+**Last measured 2026-09-17** on a quiet M2 MacBook Air, `probe/overhead/run.sh
+300`: **2.066% of one core**, 281 sweeps over 300.4 s, sweep median **10.09 ms**,
+20.8 MB resident, 0.00 MB/hour disk. Against 2026-08-25's 1.760% and 6.22 ms, CPU
+is up ~17% and the sweep median ~62%. Over the reference and knowingly accepted;
+the sweep median is the half that scales with what the app does rather than with
+cadence, so that is the number to watch.
 
 Two measurement facts that outlive the deferral:
 

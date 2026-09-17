@@ -333,6 +333,51 @@ struct IncidentTimeline {
         return min(1, max(0, date.timeIntervalSince(start) / span))
     }
 
+    /// Where each marker's label is drawn, and on which of two rows.
+    ///
+    /// **Why this exists.** The labels were positioned from their markers' times
+    /// and nothing checked whether two of them landed on top of each other. Seen
+    /// on 2026-09-17 in a render of a closed incident at 820 pt: "conditions
+    /// cleared" and "closed" are a minute apart on a fourteen-minute axis, so
+    /// they overstruck into "conditions cle**sred**" — an unreadable smear where
+    /// the screen was stating when the machine recovered (TASK-65.24 #5).
+    ///
+    /// Two rows and no more. A third would be further from its notch than from
+    /// its neighbours' and would stop reading as an axis. When even two rows
+    /// cannot hold a label clear of its predecessor it is placed anyway, on the
+    /// row with more room — an overlap is then genuinely unavoidable at that
+    /// width, and dropping the label instead would hide a recorded moment, which
+    /// is worse than crowding one.
+    ///
+    /// Computed here rather than in the view so the arrangement is a value a test
+    /// can assert, at a stated width, rather than something only a screenshot
+    /// could catch. Widths are estimated from the character count because SwiftUI
+    /// will not measure text outside a layout pass; `caption2` runs about 5.5 pt
+    /// per character, and the estimate errs wide.
+    func labelPlacements(width: CGFloat) -> [MarkerPlacement] {
+        var lastEnd: [CGFloat] = [-.infinity, -.infinity]
+        return markers.map { marker in
+            let estimated = CGFloat(marker.label.count) * 5.5
+            // The same clamp the notch's label used, kept so a placement matches
+            // where the view would otherwise have drawn it.
+            let x = min(max(0, fraction(of: marker.at) * width - 18),
+                        max(0, width - estimated))
+            let row = lastEnd[0] <= x ? 0 : (lastEnd[1] <= x ? 1 : (lastEnd[0] <= lastEnd[1] ? 0 : 1))
+            // Four points of air, so two labels that merely touch still read as two.
+            lastEnd[row] = x + estimated + 4
+            return MarkerPlacement(marker: marker, x: x, row: row)
+        }
+    }
+
+    struct MarkerPlacement: Identifiable {
+        let marker: Marker
+        let x: CGFloat
+        /// 0 is the row against the axis, 1 the row below it.
+        let row: Int
+
+        var id: Marker.ID { marker.id }
+    }
+
     var hasSeries: Bool { !samples.isEmpty }
 
     /// The one series we do retain: total busy CPU, as a percentage of one core.

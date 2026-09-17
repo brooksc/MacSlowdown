@@ -227,6 +227,11 @@ struct InventoryTable: View {
     @Binding var expanded: Set<InventoryRow.ID>
     @Binding var sortOrder: [KeyPathComparator<InventoryRow>]
 
+    /// The footer's long form. Collapsed by default: the design's footer is one
+    /// sentence, and the detail is for the reader who has a question, not for
+    /// every reader on every visit (TASK-65.22).
+    @State private var showsFooterDetail = false
+
     private var census: InventoryCensus { InventoryCensus.of(store.families) }
 
     var body: some View {
@@ -456,15 +461,33 @@ struct InventoryTable: View {
                 Text(InventoryCensus.freshness(lastUpdate: store.lastUpdate))
             }
             .accessibilityElement(children: .combine)
-            Text(InventoryCensus.explanation)
-            // This one stays visible rather than moving behind help. Observed on
-            // screen after the columns were widened: the list is plainly not in CPU
-            // order under a header that says CPU, because TASK-74 holds the order
-            // for 10 s. A user who sees that and has not been told will conclude the
-            // sort is broken — which is exactly what TASK-63 turned out to be, an
-            // hour spent on a table that was sorting correctly. An unexplained
-            // deliberate behaviour is indistinguishable from a bug.
-            Text(OrderStability.explanation)
+            // **One sentence, and the rest one disclosure away** (design 4,
+            // TASK-65.22). This was three paragraphs rendering as five to seven
+            // lines under the table. Both facts the short form keeps are the ones
+            // a reader will otherwise take for defects: an application-only list
+            // reads as a list that has lost its daemons, and a damped order under
+            // a header that says CPU reads as broken sorting.
+            //
+            // Nothing is deleted. `fullExplanations` is the same constants the
+            // long footer used, plus the two caveats that were previously only in
+            // a tooltip — which made them unreachable from the keyboard and
+            // invisible to anyone not hovering.
+            DisclosureGroup(isExpanded: $showsFooterDetail) {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(InventoryCensus.fullExplanations, id: \.self) { line in
+                        Text(line).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(CPUPresentation.convention())
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let topology = CPUPresentation.topologyNote() {
+                        Text(topology).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } label: {
+                Text(InventoryCensus.shortExplanation)
+            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -473,11 +496,5 @@ struct InventoryTable: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(.bar)
-        // Still reachable, and still one source of truth — the strings are the same
-        // constants, not copies (TASK-65.22).
-        .help(([CPUPresentation.convention(), CPUPresentation.topologyNote(),
-                InventoryCensus.residentMemoryCaveat,
-                InventoryCensus.perApplicationDiskCaveat]
-                .compactMap { $0 }).joined(separator: "\n\n"))
     }
 }

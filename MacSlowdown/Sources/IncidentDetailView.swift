@@ -1051,7 +1051,10 @@ struct IncidentTimelineBand: View {
             let width = geometry.size.width
             let height = geometry.size.height
             let bandHeight: CGFloat = 14
-            let seriesHeight = max(0, height - bandHeight - 18)
+            // 30, not 18: labels may take a second row when two would overstrike,
+            // and the series must give up the space rather than the label being
+            // drawn below the view and clipped away.
+            let seriesHeight = max(0, height - bandHeight - 30)
 
             ZStack(alignment: .topLeading) {
                 if timeline.hasSeries {
@@ -1069,18 +1072,23 @@ struct IncidentTimelineBand: View {
                     .frame(width: max(2, end - start), height: bandHeight)
                     .offset(x: start, y: seriesHeight)
 
+                // Notches come from the marker's own time; labels come from
+                // `labelPlacements`, which keeps two that would overstrike on
+                // separate rows (TASK-65.24 #5).
                 ForEach(timeline.markers) { marker in
-                    let x = timeline.fraction(of: marker.at) * width
                     Rectangle()
                         .fill(.primary)
                         .frame(width: 1.5, height: bandHeight + 4)
-                        .offset(x: x, y: seriesHeight - 2)
-                    Text(marker.label)
+                        .offset(x: timeline.fraction(of: marker.at) * width,
+                                y: seriesHeight - 2)
+                }
+                ForEach(timeline.labelPlacements(width: width)) { placement in
+                    Text(placement.marker.label)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize()
-                        .offset(x: min(max(0, x - 18), max(0, width - 70)),
-                                y: seriesHeight + bandHeight + 3)
+                        .offset(x: placement.x,
+                                y: seriesHeight + bandHeight + 3 + CGFloat(placement.row) * 12)
                 }
             }
         }

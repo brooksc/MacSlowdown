@@ -977,3 +977,65 @@ public struct IncidentDetector: Sendable {
         return .moderate
     }
 }
+
+#if DEBUG
+// MARK: - Fixtures for previews
+
+/// Constructors the app target can use to build a `#Preview` fixture.
+///
+/// **Why these exist and why they are `#if DEBUG`.** `Incident` and
+/// `CPUAttribution` carry public properties but internal memberwise
+/// initialisers, so the tests reach them through `@testable import` and the app
+/// target cannot reach them at all. That was fine while the only consumers were
+/// tests — and it is what stopped incident detail and the export sheet from ever
+/// having a preview, which is why neither had been looked at.
+///
+/// Making the real initialisers public would widen the shipping framework's
+/// surface for a reason that has nothing to do with the product, and
+/// `probe/seam-reachability.sh` would rightly flag them as built and unwired.
+/// Compiled out of Release instead, exactly as `UIVerificationLaunch` is: there
+/// is nothing left to reach in the build that ships.
+///
+/// They fabricate an *Incident*, never a measurement. Every figure is supplied by
+/// the caller and labelled as a placeholder where it is shown.
+extension Incident {
+    public static func preview(
+        id: UUID = UUID(),
+        beganAt: Date,
+        triggeredAt: Date,
+        recoveryStartedAt: Date? = nil,
+        closedAt: Date? = nil,
+        conditions: Set<IncidentCondition>,
+        severity: IncidentSeverity,
+        peakCPUBusyFraction: Double,
+        peakMemoryPressure: MemoryPressureLevel,
+        attribution: IncidentAttribution? = nil
+    ) -> Incident {
+        var subject = Incident(
+            id: id, beganAt: beganAt, triggeredAt: triggeredAt,
+            recoveryStartedAt: recoveryStartedAt, closedAt: closedAt,
+            conditions: conditions, severity: severity,
+            peakCPUBusyFraction: peakCPUBusyFraction,
+            peakMemoryPressure: peakMemoryPressure)
+        subject.attribution = attribution
+        return subject
+    }
+}
+
+extension CPUAttribution {
+    public static func preview(
+        totalBusyPercentOfOneCore: Double,
+        attributedPercentOfOneCore: Double,
+        unattributedPercentOfOneCore: Double,
+        contributors: [ProcessCPUUsage],
+        logicalCoreCount: Int
+    ) -> CPUAttribution {
+        CPUAttribution(
+            totalBusyPercentOfOneCore: totalBusyPercentOfOneCore,
+            attributedPercentOfOneCore: attributedPercentOfOneCore,
+            unattributedPercentOfOneCore: unattributedPercentOfOneCore,
+            contributors: contributors, protectedProcesses: [],
+            logicalCoreCount: logicalCoreCount)
+    }
+}
+#endif
