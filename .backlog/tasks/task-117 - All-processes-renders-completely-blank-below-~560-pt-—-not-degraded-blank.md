@@ -1,9 +1,10 @@
 ---
 id: TASK-117
 title: 'All processes renders completely blank below ~560 pt — not degraded, blank'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-16 02:36'
+updated_date: '2026-09-17 18:00'
 labels:
   - ui
 milestone: m-1
@@ -48,9 +49,19 @@ It is also the worst possible failure for *this* product specifically. The scree
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 At 504 pt — the window's currently allowed minimum — the All processes table draws its headers, rows, unmeasurable section and census footer
-- [ ] #2 The width at which the table stops drawing is either eliminated, or the window's minimum width is raised above it so the state is unreachable
-- [ ] #3 No width between 400 pt and 1200 pt produces a blank pane; if content must be dropped when narrow, something is shown that says so rather than nothing
-- [ ] #4 A rendered preview is attached or its path recorded for the narrow case, so the fix is verified by looking and not by inference
+- [x] #1 At 504 pt — the window's currently allowed minimum — the All processes table draws its headers, rows, unmeasurable section and census footer
+- [x] #2 The width at which the table stops drawing is either eliminated, or the window's minimum width is raised above it so the state is unreachable
+- [x] #3 No width between 400 pt and 1200 pt produces a blank pane; if content must be dropped when narrow, something is shown that says so rather than nothing
+- [x] #4 A rendered preview is attached or its path recorded for the narrow case, so the fix is verified by looking and not by inference
 - [ ] #5 The Process column gets the width, relative to the numeric columns, that the design's hierarchy calls for — or that is split out as its own task with the renders attached
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Verified by looking, 2026-09-17.** The fix landed in 4653c88 (every `TableColumn` states min/ideal/max, minimums summing to 448 against the window's 480 pt floor) but the task was never closed. Re-rendered at the width that used to be blank: `design/verified/2026-09-17/previews/all-processes-480.png` shows headers, all five measurable rows, the "3 processes we can't measure" section and the census footer, with "Not measurable" written in full rather than truncated to a fragment. AC#1–#4 met.
+
+AC#5 (the Process column's share of the width relative to the numeric columns) is **split out rather than claimed**: names that previously cut at ~20 characters now show whole at 480 pt — "Brave Browser Helper (Renderer)" in full — which is the substance of it, but the footer is still three lines where design 4 calls for one. That remainder belongs to TASK-65.22 and is tracked there.
+
+The same defect class was then found in the **Now** table, which is a hand-built grid and so had nothing negotiating a minimum on its behalf: blank at 480 pt, and the name column crushed out of existence at 620 pt. Fixed under TASK-118.
+<!-- SECTION:NOTES:END -->

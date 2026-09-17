@@ -252,9 +252,11 @@ extension SlowdownReport {
     ///     the window is ignored; nothing is interpolated to fill a gap.
     ///   - incidents: incidents to look for a coincidence in — the open one and the
     ///     recently closed ones. Order does not matter.
-    ///   - conditionsInForce: conditions the detector holds to be breaching now.
+    ///   - conditionsInForce: conditions the detector holds to be breaching **now**.
     ///     Pass the empty set when none are, which is the ordinary case and the one
-    ///     the feature exists to capture.
+    ///     the feature exists to capture. For a retrospective report these are
+    ///     discarded unless a coincident incident actually covers the reported
+    ///     moment — see `conditions(inForce:)`.
     ///   - liveAttribution: attribution rolled up at the moment of the report, used
     ///     only when no coincident incident carries one of its own.
     public static func make(
@@ -314,8 +316,40 @@ extension SlowdownReport {
                 observedSampleCount: inWindow.count,
                 attribution: attribution,
                 attributionOrigin: origin,
-                conditionsInForce: conditionsInForce,
+                conditionsInForce: conditions(
+                    inForce: conditionsInForce, timing: timing,
+                    coincident: coincident, experiencedAt: experiencedAt),
                 incidentID: coincident?.id))
+    }
+
+    /// Which conditions were in force **at the moment being reported**.
+    ///
+    /// `conditionsInForce` describes now. For a report about now that is the same
+    /// moment and the set passes through. For a retrospective report it is not,
+    /// and passing it through unchanged made an incident open at the moment of
+    /// *filing* look like a detection of the afternoon the user is describing —
+    /// so a report filed against a coverage gap during an unrelated incident came
+    /// back `coincidedWithDetection`, inflating the one figure FR-064 exists to
+    /// produce (TASK-120).
+    ///
+    /// A retrospective report keeps conditions only from an incident that
+    /// genuinely covers the moment, which is a recorded fact about then rather
+    /// than a live reading about now. A gap therefore always yields the empty set:
+    /// we were not running, so no incident can cover it, by construction.
+    ///
+    /// The rule lives here rather than in each caller because there is no correct
+    /// per-surface variation of it, and the previous arrangement asked every
+    /// caller to remember a subtlety that is invisible until an incident happens
+    /// to be open while somebody reports last Tuesday (FR-060, FR-065).
+    static func conditions(
+        inForce: Set<IncidentCondition>,
+        timing: SlowdownReportTiming,
+        coincident: Incident?,
+        experiencedAt: Date
+    ) -> Set<IncidentCondition> {
+        guard timing.isRetrospective else { return inForce }
+        guard let coincident, coincident.covers(experiencedAt) else { return [] }
+        return coincident.conditions
     }
 
     /// Whether an incident's span meets the window at all. An open incident is

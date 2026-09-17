@@ -730,10 +730,18 @@ final class MonitorStore {
             reportedAt: date,
             retainedSamples: retainedSamples,
             incidents: recentIncidents,
+            // What is breaching *now*. `make` discards it for a retrospective
+            // report unless a coincident incident covers the reported moment —
+            // the rule lives there so no surface has to remember it.
             conditionsInForce: openIncident?.conditions ?? [],
-            liveAttribution: attribution.map {
+            // Attribution rolled up now describes the machine now, so it belongs
+            // only to a report about now. `make` already prefers a coincident
+            // incident's recorded attribution, which is the retrospective case's
+            // correct source and is dated from the episode rather than from this
+            // instant (FR-065).
+            liveAttribution: timing == .now ? attribution.map {
                 AttributionSample.from(attribution: $0, families: families)
-            })
+            } : nil)
         // What the store returns is what it actually kept, after both bounds — the
         // same rule the incident history follows, so the screen and the disk cannot
         // disagree.

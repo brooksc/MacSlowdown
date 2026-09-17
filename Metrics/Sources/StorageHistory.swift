@@ -182,7 +182,12 @@ public enum StorageTrend: Sendable, Equatable {
                 return "No capacity history yet. A trend needs readings over at least "
                     + StorageTrendAnalysis.describe(StorageTrendAnalysis.minimumSpan) + "."
             }
-            return "Not enough history for a trend — \(readings) readings over "
+            // Agreed in number. On a freshly launched app this is the very first
+            // sentence the Storage screen shows, and it read "1 readings over 1
+            // minute" (TASK-119) — conspicuous next to copy that is otherwise
+            // careful. `describe(_:)` already agrees its own nouns.
+            let counted = readings == 1 ? "1 reading" : "\(readings) readings"
+            return "Not enough history for a trend — \(counted) over "
                 + StorageTrendAnalysis.describe(covered) + "."
         case .steady(let over):
             return "Roughly unchanged over the last " + StorageTrendAnalysis.describe(over) + "."

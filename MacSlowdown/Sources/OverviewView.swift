@@ -247,10 +247,62 @@ struct OverviewView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                gapReportAction
             }
             .padding(12)
         }
         .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Design 5c's "Something happened then" (TASK-120).
+    ///
+    /// **Present only when there is a gap**, for the same reason `gapNote` is nil
+    /// without one: an always-visible control here would invite a report against a
+    /// stretch we did in fact watch, where the readings we kept are the better
+    /// evidence and "It feels slow right now" is the gesture that keeps them.
+    ///
+    /// The report it files carries no samples — `SlowdownReport.make` resolves the
+    /// window to `.noSamplesInWindow` on its own, because there genuinely are
+    /// none — so nothing here has to fabricate an absence, and nothing has to
+    /// suppress an evidence section that was never going to have rows.
+    @ViewBuilder
+    private var gapReportAction: some View {
+        if let gap = OverviewPresentation.reportableGap(
+            log: log, scale: scale, now: now, calendar: calendar) {
+            let range = OverviewPresentation.clockRange(gap, calendar: calendar)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Button(SlowdownReportPresentation.gapReportTitle) {
+                    reportGap(gap)
+                }
+                .help(SlowdownReportPresentation.gapReportHelp(range: range))
+                // The button's own name does not say which stretch it means, and
+                // the caption beside it is a separate element, so the spoken label
+                // carries the range (FR-034).
+                .accessibilityLabel(
+                    "\(SlowdownReportPresentation.gapReportTitle), \(range)")
+                Text(SlowdownReportPresentation.gapReportCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Files the report, dated from the gap rather than from this moment.
+    private func reportGap(_ gap: CoverageSpan) {
+        let filedAt = Date()
+        let report = store.reportSlowdown(
+            timing: .recently(
+                secondsAgo: OverviewPresentation.secondsAgo(ofMiddleOf: gap, now: filedAt)),
+            at: filedAt)
+        // What was kept is read back **off the report the store returned**, never
+        // asserted from the gap we aimed at — the same rule `markExpected`
+        // follows (FR-017, FR-050). A gap resolves to `.noSamplesInWindow` and
+        // `keptReadings` puts that in words; writing "no readings" here instead
+        // would be a sentence that stayed true only by luck.
+        outcome = SlowdownReportPresentation.gapReportOutcome(
+            range: OverviewPresentation.clockRange(gap, calendar: calendar),
+            kept: SlowdownReportPresentation.keptReadings(report))
     }
 
     private var dayCells: [OverviewPresentation.DayCell] {
@@ -514,6 +566,10 @@ struct OverviewView: View {
                 .foregroundStyle(.secondary)
                 .padding(10)
         }
+        // The same table means the same narrow-window behaviour: scroll sideways
+        // rather than compress. Applied here too because this is a second call
+        // site of one view, and the rule belongs to the table, not to the screen.
+        .horizontallyScrollableBelowTableMinimum()
         .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
     }
 

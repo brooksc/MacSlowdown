@@ -128,6 +128,33 @@ enum OverviewPresentation {
             + "\(reason.sentence.lowercasedFirst) We can't answer for any of them."
     }
 
+    /// The gap design 5c's button files a report against, or nil when the window
+    /// has none (TASK-120).
+    ///
+    /// The largest, which is the same gap `gapNote` names — "the hatched stretch"
+    /// when there is one, "the longest" when there are several. A button that
+    /// filed against a different gap from the sentence above it would be the class
+    /// of defect FR-060 exists to prevent, so both read the same first element and
+    /// neither picks its own.
+    static func reportableGap(
+        log: CoverageLog, scale: Scale, now: Date, calendar: Calendar = .current
+    ) -> CoverageSpan? {
+        log.gaps(from: scale.start(now: now, calendar: calendar), to: now).first
+    }
+
+    /// How far back the middle of a gap is from `now`, which is what
+    /// `SlowdownReportTiming.recently(secondsAgo:)` takes.
+    ///
+    /// The **midpoint**, not the start or the end: a report is a point in time and
+    /// the evidence policy builds a window around it, so aiming at either edge
+    /// would centre that window half outside the stretch the user is pointing at.
+    /// Never negative — a gap that somehow ends in the future is clamped to now
+    /// rather than filed as a report about the future.
+    static func secondsAgo(ofMiddleOf gap: CoverageSpan, now: Date) -> Double {
+        let middle = gap.from.addingTimeInterval(gap.duration.totalSeconds / 2)
+        return max(0, now.timeIntervalSince(middle))
+    }
+
     /// Where our record itself begins, when the window reaches back past it.
     ///
     /// Nil when the record covers the whole window, because then there is nothing to

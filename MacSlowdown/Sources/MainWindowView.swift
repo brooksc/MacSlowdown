@@ -456,6 +456,10 @@ struct NowView: View {
                     .padding(10)
             }
         }
+        // Scrolls sideways below the table's declared minimum rather than
+        // compressing past it. Header and rows are inside the same scroll view so
+        // a heading can never come to sit over the wrong column.
+        .horizontallyScrollableBelowTableMinimum()
         .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
     }
 
@@ -888,17 +892,52 @@ struct MetricCard: View {
     }
 }
 
+/// The width below which the contributor table cannot state its columns.
+///
+/// **Declared, because the alternative was measured and it was silence.** This
+/// table is a hand-built grid rather than a `Table`, so nothing negotiated a
+/// minimum on its behalf: at 620 pt the name column was crushed out of existence
+/// and at 480 pt — the window's own minimum — the whole table rendered *blank*,
+/// exactly the TASK-117 failure that the All processes table had. The sum below
+/// is the row's rigid parts (the four numeric columns, the disclosure chevron and
+/// icon, the spacings and the padding) plus the 96 pt floor the name keeps.
+///
+/// Below this the table scrolls horizontally rather than compressing, which is
+/// what `Table` does natively and what TASK-117 settled for All processes: a
+/// column reached by scrolling is worse than one you can see, and far better than
+/// one that silently is not drawn.
+let contributorTableMinimumWidth: CGFloat = 610
+
+extension View {
+    /// Lets the contributor table scroll sideways once the window is narrower
+    /// than it can state its columns in.
+    ///
+    /// `.scrollBounceBehavior(.basedOnSize)` so a window wide enough to show
+    /// everything does not rubber-band on a horizontal scroll it has no use for.
+    func horizontallyScrollableBelowTableMinimum() -> some View {
+        ScrollView(.horizontal) { self }
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+}
+
 struct ContributorHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             Text("App").frame(maxWidth: .infinity, alignment: .leading)
-            // Two figures, labelled apart, because they answer different questions
-            // and only one of them is stable enough to read (TASK-95). "Now" is the
-            // newest sample; "Last minute" is the mean of the readings we retained
-            // over the trailing minute. The instant is kept because a spike is real
-            // information — it is just not the thing to rank a list by.
-            Text("Now").frame(width: 70, alignment: .trailing)
-            Text("Last minute").frame(width: 90, alignment: .trailing)
+            // **One CPU column, and it is the mean.** This table used to carry two
+            // — "Now" for the newest sample and "Last minute" for the trailing mean
+            // it is actually ranked by. Both were honest and each was labelled, but
+            // they sat adjacent, were sampled differently, and read at 9.0% beside
+            // 9.0%: an invitation to subtract one from the other, which means
+            // nothing. That is exactly the arrangement the 2026-09-03 decision
+            // ruled out for Apps & Processes, and this table was simply not brought
+            // with it (TASK-119). The reasoning does not change with the screen.
+            //
+            // The instant is not lost. It is the live end of the sparkline in
+            // "Retained history", and it is spoken in the row's accessibility
+            // label with "now" attached — where a reader needs it and cannot
+            // mistake it for a second figure to do arithmetic with.
+            Text("CPU, 60 s mean").frame(width: 106, alignment: .trailing)
             Text("Resident memory").frame(width: 130, alignment: .trailing)
             // Named for what is retained rather than "Last 5 min": the span is
             // whatever we have kept, and the cell states it.
@@ -915,6 +954,7 @@ struct ContributorHeader: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .frame(minWidth: contributorTableMinimumWidth, alignment: .leading)
         .accessibilityHidden(true)
     }
 }
@@ -956,26 +996,61 @@ struct ContributorRow: View {
                     .accessibilityHidden(true)
             }
 
-            Text(row.name).lineLimit(1)
+            // **The name, its count and its badges are one group, and none of them
+            // may wrap.** Laid out as loose siblings of the trailing `Spacer`,
+            // every one of them was a flexible view competing for the same
+            // remaining width, and the Spacer won: the "System processes" row
+            // rendered "Sy…" beside "286 / pro- / cess- / es" and a badge stacked
+            // one or two characters per line, several times an ordinary row's
+            // height, on the app's primary screen (TASK-118).
+            //
+            // That is the TASK-75 failure mode again — text offered almost no
+            // width, and allowed to grow vertically, taking the offer. The count
+            // and the badges are short and fixed, so they state their own size and
+            // stop negotiating; the name keeps the flexibility and truncates with
+            // an ellipsis, which is a legible way to run out of room. The group
+            // outranks the Spacer so the slack is taken from the gap and not from
+            // the words.
+            HStack(spacing: 8) {
+                // **The name outranks everything beside it, and has a floor.**
+                // Layout priority alone was not enough: a `fixedSize` sibling is
+                // rigid at any priority, so the count and the badges took their
+                // ideal widths first and at 620 pt the name was compressed to
+                // nothing at all — the "System processes" row rendered as a lock,
+                // "286 processes" and an empty pill, with no name on it.
+                //
+                // So nothing here is `fixedSize`. Everything is `lineLimit(1)`,
+                // which is what actually forbids the vertical text of TASK-118,
+                // and the ranking is done with priority and a minimum width: the
+                // name keeps at least 96 pt, and the qualifiers truncate before
+                // it does. A truncated badge is still legible; a row with no name
+                // is not a row.
+                Text(row.name)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(minWidth: 96, alignment: .leading)
+                    .layoutPriority(2)
 
-            if row.kind != .member, row.processCount > 1 {
-                Text("\(row.processCount) processes")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+                if row.kind != .member, row.processCount > 1 {
+                    Text("\(row.processCount) processes")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
 
-            ForEach(NowPresentation.chips(for: row), id: \.self) { chip in
-                Text(chip)
-                    .font(.caption)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(.quaternary, in: Capsule())
+                ForEach(NowPresentation.chips(for: row), id: \.self) { chip in
+                    Text(chip)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
+                }
             }
+            .layoutPriority(1)
 
             Spacer(minLength: 8)
 
-            measurement { CPUPresentation.percentOfOneCore(row.percentOfOneCore) }
-                .frame(width: 70, alignment: .trailing)
-
-            trailingMean.frame(width: 90, alignment: .trailing)
+            trailingMean.frame(width: 106, alignment: .trailing)
 
             measurement {
                 row.residentBytes == 0
@@ -997,6 +1072,7 @@ struct ContributorRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .padding(.leading, isChild ? 22 : 0)
+        .frame(minWidth: contributorTableMinimumWidth, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }

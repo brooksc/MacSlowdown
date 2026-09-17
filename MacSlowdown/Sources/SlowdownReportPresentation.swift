@@ -49,6 +49,47 @@ enum SlowdownReportPresentation {
         "Files a report with the readings from the last few minutes attached. "
         + "Nothing leaves this Mac."
 
+    // MARK: - The gesture against a gap (design 5c)
+
+    /// Design 5c's button, under the coverage strip (TASK-120).
+    ///
+    /// **The one case where the user's report is not the better evidence — it is
+    /// the only evidence.** A gap is a stretch we did not watch, so S-2's question
+    /// ("what happened at 11:22?") has no answer we can ever supply, and the
+    /// coverage record's honesty about that is a dead end unless something turns
+    /// it into data. This is that something.
+    ///
+    /// Kept apart from `reportNowTitle` rather than reusing it, because the two
+    /// gestures make different claims: "It feels slow right now" is about the
+    /// present and arrives with readings; this one is about a named stretch of the
+    /// past and arrives with none, by construction.
+    static let gapReportTitle = "Something happened then"
+
+    /// 5c's caption, verbatim — "so at least the time is recorded" is the whole
+    /// promise, and it deliberately does not imply evidence we do not have.
+    static let gapReportCaption =
+        "Files a report against the gap, so at least the time is recorded."
+
+    static func gapReportHelp(
+        range: String
+    ) -> String {
+        "Records that something happened during \(range), the stretch we weren't "
+            + "watching. There are no readings to attach — that is what a gap means "
+            + "— so the time and your word are what gets kept."
+    }
+
+    /// What the screen says back once a gap report is filed.
+    ///
+    /// The second half is `keptReadings` for the report that was actually stored,
+    /// passed in rather than written here. For a gap that is "We weren't recording
+    /// during those minutes, so this is kept as the time you gave us and nothing
+    /// else. It still counts." — which is AC#3's requirement met by the copy that
+    /// already existed, rather than by a second sentence saying the same thing in
+    /// a place it could drift from (FR-060).
+    static func gapReportOutcome(range: String, kept: String) -> String {
+        "Recorded against \(range). \(kept)"
+    }
+
     // MARK: - The reply (design 5d, right)
 
     static func recordedHeadline(
