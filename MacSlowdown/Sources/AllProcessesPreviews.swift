@@ -132,10 +132,16 @@ private struct AllProcessesPreviewHost: View {
         .frame(width: 504, height: 480)
 }
 
-/// Bracketing the width at which the table stops drawing. Rendered 2026-09-15:
-/// 720 pt draws, 504 pt comes back **completely blank** — no header, no rows, no
-/// footer. These three find the edge, because "it breaks when narrow" is not
-/// actionable and "it breaks below N pt" is.
+/// The window's real minimum (`MainWindowView` sets `minWidth: 480`), and the
+/// width TASK-117 was fixed against. Before the fix this and every width below
+/// ~560 pt came back **completely blank** — no header, no rows, no footer. The
+/// widths below it bracket where that edge used to be; they are kept so the
+/// regression cannot return unnoticed.
+#Preview("All processes — 480 pt, the window minimum") {
+    AllProcessesPreviewHost()
+        .frame(width: 480, height: 480)
+}
+
 #Preview("All processes — 640 pt") {
     AllProcessesPreviewHost()
         .frame(width: 640, height: 480)

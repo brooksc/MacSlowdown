@@ -45,21 +45,41 @@ struct AllProcessesView: View {
 
     var body: some View {
         Table(of: AllProcessesRow.self, selection: $selection, sortOrder: $sortOrder) {
+            // **Every column states its width, and that is load-bearing.** With no
+            // widths declared, SwiftUI divided the table evenly: a three-character
+            // CPU reading got as much room as the process name, names truncated at
+            // about twenty characters (TASK-65.22), and below roughly 560 pt the
+            // table stopped drawing altogether — no headers, no rows, no footer,
+            // no error (TASK-117). Measured, not guessed: 720, 640 and 580 pt drew;
+            // 540 and 504 pt came back blank, at a window whose minimum is 480 pt.
+            //
+            // The minimums below sum to less than that 480 pt minimum so the blank
+            // state is unreachable, and the name column takes all the slack because
+            // it is the column carrying the content.
             TableColumn("Process", value: \.name) { row in
                 nameCell(row)
             }
+            .width(min: 140, ideal: 220)
+            // The numeric columns are sized by "Not measurable", not by their
+            // numbers: an other-uid process has no CPU or memory reading and says
+            // so in words rather than showing a zero that would be a fabricated
+            // measurement (FR-002, FR-038). That phrase is what sets these floors.
             TableColumn("CPU", value: \.cpuSortKey) { row in
                 measurement(row.cpuText, isMeasurable: row.isMeasurable)
             }
+            .width(min: 100, ideal: 104, max: 120)
             TableColumn("Resident memory", value: \.memorySortKey) { row in
                 measurement(row.memoryText, isMeasurable: row.isMeasurable)
             }
+            .width(min: 100, ideal: 112, max: 150)
             TableColumn("PID", value: \.pidSortKey) { row in
                 Text("\(row.pid)").monospacedDigit()
             }
+            .width(min: 50, ideal: 58, max: 80)
             TableColumn("Started", value: \.startedSortKey) { row in
                 Text(row.startedAt, format: .dateTime.hour().minute()).monospacedDigit()
             }
+            .width(min: 58, ideal: 64, max: 90)
         } rows: {
             ForEach(listing.measurable) { TableRow($0) }
 
