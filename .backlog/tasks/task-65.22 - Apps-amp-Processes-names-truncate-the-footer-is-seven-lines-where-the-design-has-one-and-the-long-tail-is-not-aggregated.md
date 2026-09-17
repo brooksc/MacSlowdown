@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-09 22:53'
+updated_date: '2026-09-17 02:31'
 labels:
   - ui
 milestone: m-1
@@ -43,3 +44,22 @@ Verified working and not to be re-opened: the segmented control, search field, c
 - [ ] #5 An expanded family collapses its sub-threshold helpers into a single counted row
 - [ ] #6 Verified on screen against design/screens/1d.png, or the criterion is left unchecked with the reason
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-09-17 02:31
+---
+**Seen on screen 2026-09-16** in the running app (macOS 26.6.2, VM). Two of this task's three complaints are confirmed still open; the third has moved.
+
+- **The long tail is still not aggregated.** Design 1d calls for an "Other applications — 16 apps, each below 12%" row. The build lists every daemon individually: trustd, BiomeAgent, WindowManager, iconservicesagen…, loginwindow, linkd, System Events, secd, deleted, bash, cfprefsd, tccd, duetexpertd, Control Center, CursorUIViewService, proactived… — sixteen visible rows, most under 1%. Confirmed open.
+- **The footer is three lines**, where the design has one. Better than the seven recorded here originally, still not one. Confirmed open.
+- **Truncated names**: largely fixed, but not by this task. [[TASK-117]] gave every column in the *All processes* table a declared width, and names that used to cut at about twenty characters now show whole. The Apps table's own column header still truncates — it reads "CPU, 60 s me…" rather than "CPU, 60 s mean".
+
+**What is right, so a fix does not regress it.** The Apps · 58 / All processes · 635 segmented control matches 1d exactly, and the census footer matches its sentence structure word for word — design "20 apps · 63 of 412 processes belong to an app · 234 not measurable  Updated 1 s ago", build "58 apps · 74 of 635 processes belong to an app · 289 not measurable  Updated 1 s ago". The System processes aggregate carries a lock and a disclosure triangle, as 1d's family rows do.
+
+**Not checked:** 1d's right-hand inspector (identity, 15-minute chart, safe actions, grouping controls). It presumably needs a selected row and the capture had none, so this says nothing about whether it is right — only that it was not looked at.
+
+Screenshot `03-apps.png` from the 2026-09-16 VM run.
+---
+<!-- COMMENTS:END -->
