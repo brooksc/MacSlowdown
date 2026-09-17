@@ -350,13 +350,21 @@ struct NotificationBannerTests {
             .contains { $0.text.contains("Not a memory problem") })
     }
 
-    @Test("The banner carries a details action and a mute action")
-    func bothActionsAreOffered() {
+    /// Three since TASK-108: "Alert me less" joined them, because the dial that
+    /// reduces notifications was already built and unfindable, and the moment
+    /// somebody wants fewer of these is the moment they are reading one.
+    ///
+    /// The order is deliberate and asserted: the constructive action first, then
+    /// the two ways of hearing less, quietest-lasting last.
+    @Test("The banner carries a details action, a mute action and a quieten action")
+    func allActionsAreOffered() {
         let category = NotificationDelivery.incidentCategory
         let identifiers = category.actions.map(\.identifier)
         #expect(identifiers.contains(NotificationDelivery.Action.showDetails.rawValue))
         #expect(identifiers.contains(NotificationDelivery.Action.muteOneHour.rawValue))
-        #expect(category.actions.map(\.title) == ["Show details", "Mute 1 hour"])
+        #expect(identifiers.contains(NotificationDelivery.Action.alertMeLess.rawValue))
+        #expect(category.actions.map(\.title)
+                == ["Show details", "Mute 1 hour", "Alert me less"])
     }
 
     /// Actions registered with the system, or the buttons never appear no matter

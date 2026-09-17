@@ -115,6 +115,17 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     enum Action: String {
         case showDetails = "com.brooksc.MacSlowdown.showDetails"
         case muteOneHour = "com.brooksc.MacSlowdown.muteOneHour"
+        /// Steps `AlertSensitivity` one notch quieter (TASK-108).
+        ///
+        /// **Not a new setting — a second door to the existing one.** The dial the
+        /// product owner asked for was already built and already shipped as
+        /// `relaxed`; what failed was finding it, after two weeks of use and four
+        /// banners in a day. A control is only as real as the moment it can be
+        /// reached in, and the moment somebody wants fewer notifications is the
+        /// one they are reading a notification. Settings is the wrong place to be
+        /// standing then, and a second dial would be the FR-060 defect in
+        /// preference form.
+        case alertMeLess = "com.brooksc.MacSlowdown.alertMeLess"
 
         static let categoryIdentifier = "com.brooksc.MacSlowdown.incident"
         /// The banner offers one duration; the full set lives in the mute sheet.
@@ -124,6 +135,10 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
             switch self {
             case .showDetails: "Show details"
             case .muteOneHour: "Mute 1 hour"
+            // Says what it does to the product, not what it does to a setting.
+            // "Lower sensitivity" would be accurate and would mean nothing to
+            // somebody who has never opened the Alerts tab.
+            case .alertMeLess: "Alert me less"
             }
         }
     }
@@ -142,6 +157,10 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     /// a reason for this type to know what a monitor is.
     var onShowDetails: (() -> Void)?
     var onMute: ((Int) -> Void)?
+    /// Steps the sensitivity one notch quieter and reports what it became, so the
+    /// app can tell the user what changed. Nil return means it was already at the
+    /// quietest setting.
+    var onAlertMeLess: (() -> AlertSensitivity?)?
 
     private let centre: any NotificationCentre
 
@@ -161,12 +180,12 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         centre.setCategories([Self.incidentCategory])
     }
 
-    /// The two actions the design puts on the banner. Both are safe: one opens our
-    /// own window, the other quietens us. Neither touches another process (FR-037).
+    /// The actions the banner carries. All three are safe: one opens our own
+    /// window and two quieten us. None touches another process (FR-037).
     static var incidentCategory: UNNotificationCategory {
         UNNotificationCategory(
             identifier: Action.categoryIdentifier,
-            actions: [Action.showDetails, Action.muteOneHour].map {
+            actions: [Action.showDetails, Action.muteOneHour, Action.alertMeLess].map {
                 UNNotificationAction(identifier: $0.rawValue, title: $0.title, options: [])
             },
             intentIdentifiers: [],
@@ -183,6 +202,8 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
             onShowDetails?()
         case .muteOneHour:
             onMute?(Action.muteMinutes)
+        case .alertMeLess:
+            _ = onAlertMeLess?()
         case nil:
             // `UNNotificationDefaultActionIdentifier` — the body itself was
             // clicked — and anything unrecognised both mean "show me".

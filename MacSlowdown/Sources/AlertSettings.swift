@@ -16,6 +16,22 @@ enum AlertSensitivity: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// The next step towards fewer interruptions, or nil at the quiet end.
+    ///
+    /// **One dial, reached from more places.** TASK-108's finding was that the
+    /// control the product owner asked for already existed and nobody could find
+    /// it — two weeks of use, the exact problem it solves, and a request to build
+    /// it. Adding a second control would have made that worse, so this is how the
+    /// banner's "Alert me less" moves the existing setting rather than introducing
+    /// a rival one (FR-060).
+    var quieter: AlertSensitivity? {
+        switch self {
+        case .sensitive: .balanced
+        case .balanced: .relaxed
+        case .relaxed: nil
+        }
+    }
+
     var label: String {
         switch self {
         case .relaxed: "Relaxed"

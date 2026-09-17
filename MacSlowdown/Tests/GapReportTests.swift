@@ -200,3 +200,61 @@ struct GapReportTests {
             topContributors: [])
     }
 }
+
+/// The gap sentence's grammar (found on screen, 2026-09-17).
+@MainActor
+@Suite("The gap sentence keeps a proper noun capitalised")
+struct GapSentenceTests {
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }
+
+    private var noon: Date {
+        calendar.date(from: DateComponents(year: 2026, month: 3, day: 5, hour: 12)) ?? .now
+    }
+
+    /// Seen in the running app: "The longest is 2:30 AM to 6:18 PM this evening —
+    /// **macSlowdown** wasn't running." The clause-joining helper lowercased the
+    /// first letter of every reason sentence, and the commonest reason there is
+    /// begins with the product's own name.
+    @Test("A gap explained by the app not running names the app correctly")
+    func appNameKeepsItsCapital() {
+        let start = calendar.startOfDay(for: noon)
+        var log = CoverageLog()
+        log.observe(at: start, tolerance: .seconds(20), resumingAfter: .appNotRunning)
+        log.observe(at: start.addingTimeInterval(3600), tolerance: .seconds(7200),
+                    resumingAfter: .appNotRunning)
+        log.observe(at: start.addingTimeInterval(3600 * 3), tolerance: .seconds(20),
+                    resumingAfter: .appNotRunning)
+        log.observe(at: noon, tolerance: .seconds(86_400), resumingAfter: .appNotRunning)
+
+        let note = try! #require(OverviewPresentation.gapNote(
+            log: log, scale: .today, now: noon, calendar: calendar))
+        #expect(note.contains("MacSlowdown"))
+        #expect(!note.contains("macSlowdown"))
+    }
+
+    /// The other side: an ordinary sentence still joins the clause in lower case,
+    /// or the fix would have traded one grammatical fault for another.
+    @Test("An ordinary reason sentence still joins in lower case")
+    func ordinarySentenceStillLowercases() {
+        // The same shape as the gap above — a two-hour jump closed by an observe
+        // with a small tolerance — but attributed to sleep, whose sentence opens
+        // with an ordinary word.
+        let start = calendar.startOfDay(for: noon)
+        var log = CoverageLog()
+        log.observe(at: start, tolerance: .seconds(20), resumingAfter: .systemAsleep)
+        log.observe(at: start.addingTimeInterval(3600), tolerance: .seconds(7200),
+                    resumingAfter: .systemAsleep)
+        log.observe(at: start.addingTimeInterval(3600 * 3), tolerance: .seconds(20),
+                    resumingAfter: .systemAsleep)
+        log.observe(at: noon, tolerance: .seconds(86_400), resumingAfter: .systemAsleep)
+
+        let note = try! #require(OverviewPresentation.gapNote(
+            log: log, scale: .today, now: noon, calendar: calendar))
+        // "— the Mac was asleep.", not "— The Mac was asleep."
+        #expect(note.contains("the Mac was asleep"))
+    }
+}

@@ -3,10 +3,10 @@ id: TASK-79
 title: >-
   Two privacy controls change a stored value and no behaviour: retention and
   'Record file paths'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 18:52'
-updated_date: '2026-08-09 20:22'
+updated_date: '2026-09-17 18:17'
 labels:
   - core
   - ui
@@ -85,4 +85,15 @@ Full suite on the rebased branch: **963 passing, 0 failing**. Main at fded4a3 wa
 Nothing here was seen on screen. The Privacy tab's new copy is longer than the row it replaces and may wrap differently; the check that would settle it is opening Settings → Privacy and confirming the row reads cleanly and the toggle is reachable by keyboard.
 
 Commit: `2a0eb18` on `worktree-agent-a09f64177e86529db`.
+
+**The on-screen gap is closed, 2026-09-17.** The task's five criteria were all met in code and tests, and the only thing left was the note recording that nothing had been looked at. Settings › Privacy is now rendered: `design/verified/2026-09-17/previews/settings-privacy.png`.
+
+What the render confirms, rather than infers:
+
+- **"Keep incident history for — 30 days"** is a real control with the stored size beneath it ("Currently using 49 KB").
+- **Criterion #2 holds on screen.** "Keep history across restarts — Always" reads "Incidents are saved in MacSlowdown's own container, which no other app can read, and kept for the period above **or the 200 most recent, whichever comes first**." Both bounds are stated, so the count cap is not being explained as a time window. It also uses the required container phrasing exactly and never says "encrypted".
+- **"Record file paths with incidents"** is off, and its copy makes the distinction the criterion is about: locations are always read while monitoring — that is how grouping and icons work — so the setting changes only what is written to disk.
+- The header states the standing claim: "Nothing has left this Mac — there is no account, no server and no analytics."
+
+The row reads cleanly and does not wrap awkwardly, which was the specific worry recorded. **Still not verified**: keyboard reachability of the toggle, which a render cannot answer.
 <!-- SECTION:NOTES:END -->

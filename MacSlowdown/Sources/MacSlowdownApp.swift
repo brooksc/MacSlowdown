@@ -30,6 +30,15 @@ struct MacSlowdownApp: App {
         // or a window is.
         store.notifications.onShowDetails = { MainWindowOpener.open() }
         store.notifications.onMute = { minutes in store.mute(forMinutes: minutes) }
+        // "Alert me less" moves the one sensitivity setting a notch quieter, and
+        // **reads it back** rather than trusting the write — the same rule the
+        // rest of the app follows (FR-017, FR-050). A setting that did not take
+        // would otherwise be indistinguishable from one that did.
+        store.notifications.onAlertMeLess = {
+            guard let quieter = AlertSettings.shared.sensitivity.quieter else { return nil }
+            AlertSettings.shared.sensitivity = quieter
+            return AlertSettings.shared.sensitivity == quieter ? quieter : nil
+        }
         FirstRunWindowOpener.presentOnceAfterLaunch()
         // Debug-only, and inert in the shipping build: lets a launch ask for a
         // window so the running app can be looked at in a VM (UIVerificationLaunch).

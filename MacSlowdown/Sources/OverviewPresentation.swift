@@ -522,8 +522,21 @@ enum OverviewPresentation {
 
 private extension String {
     /// For a reason sentence that has to continue a clause it did not start.
+    ///
+    /// **A proper noun keeps its capital.** Seen in the running app on
+    /// 2026-09-17: "The longest is 2:30 AM to 6:18 PM this evening — *macSlowdown*
+    /// wasn't running." `CoverageGapReason.sentence` begins with the product's
+    /// own name for the commonest gap there is, so lowercasing the first letter
+    /// unconditionally misspelled it every time a gap was explained.
+    ///
+    /// Detected by the shape of the first word rather than by a list of names: a
+    /// word carrying a capital anywhere but its first letter is a name, not a
+    /// sentence opening. That covers "MacSlowdown" and would cover "iCloud" or
+    /// "WindowServer", without a list here to fall out of date as the copy grows.
     var lowercasedFirst: String {
         guard let first else { return self }
+        let firstWord = prefix { !$0.isWhitespace }
+        guard !firstWord.dropFirst().contains(where: \.isUppercase) else { return self }
         return first.lowercased() + dropFirst()
     }
 }

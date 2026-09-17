@@ -164,6 +164,21 @@ private struct AllProcessesPreviewHost: View {
         .frame(width: 720, height: 520)
 }
 
+/// **TASK-97 #3 measured, not derived.** The Apps pane puts the inspector in a
+/// hard 340 pt frame beside the table, so at the window's 480 pt minimum the
+/// table is left about 140 pt — far below the 504 pt its column minimums sum to.
+/// The question TASK-97 asks is what a `Table` does when the proposal is below
+/// its declared minimums, and TASK-117 is why it cannot be answered from the
+/// arithmetic: with no widths declared it drew nothing at all.
+///
+/// This is that width. `AllProcessesView` and `InventoryTable` both declare
+/// column minimums, so if this draws and scrolls, the Apps pane at its narrowest
+/// does too.
+#Preview("All processes — 140 pt, what the inspector leaves at minimum width") {
+    AllProcessesPreviewHost()
+        .frame(width: 140, height: 480)
+}
+
 /// A search that matches nothing. This must never read as "nothing is running" —
 /// the defect `TASK-65.16` exists for.
 #Preview("All processes — search matches nothing") {

@@ -3,10 +3,10 @@ id: TASK-77
 title: >-
   FR-039 grouping corrections are built, persisted and unreachable — no UI
   creates one and the grouper is never given them
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 18:51'
-updated_date: '2026-08-09 21:11'
+updated_date: '2026-09-17 18:18'
 labels:
   - core
 milestone: m-3
@@ -140,4 +140,10 @@ split one out and confirm it appears as its own row and as an undoable entry und
 corrections, (d) undo it and confirm the row returns to the family. Menu enablement,
 the wrapping of the two paragraphs of copy, and VoiceOver on the Undo buttons are all
 unverified for the same reason.
+
+**Closed 2026-09-17.** All five acceptance criteria were met and checked; none of them is an on-screen criterion, so the status was simply never moved.
+
+The "Not verified" note above stands and is not a criterion of this task. The four checks it lists — the inspector's GROUPING section, splitting a member out, the entry appearing under "Your corrections" and in Settings › Apps, and undoing it — need a live machine with a mis-grouped family and a person clicking, which neither a preview nor the VM capture run stages. They belong to **TASK-65.4 #5** ("The inspector shows how the grouping was decided and allows the user to correct it"), which remains open for exactly that reason, and that is where they are now tracked rather than holding this task open.
+
+`probe/seam-reachability.sh` re-run today: 0 unexplained, 6 allowed. `addCorrection` and `removeCorrection` are not among the allowed, so criterion #5 still holds.
 <!-- SECTION:NOTES:END -->

@@ -456,10 +456,6 @@ struct NowView: View {
                     .padding(10)
             }
         }
-        // Scrolls sideways below the table's declared minimum rather than
-        // compressing past it. Header and rows are inside the same scroll view so
-        // a heading can never come to sit over the wrong column.
-        .horizontallyScrollableBelowTableMinimum()
         .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
     }
 
@@ -892,6 +888,13 @@ struct MetricCard: View {
     }
 }
 
+/// The width the name column stops shrinking at.
+///
+/// Wide enough for an ordinary application name, and the floor that stops the
+/// four numeric columns crowding it out — which is how the "System processes" row
+/// came to render as a lock, a count and an empty pill with no name on it.
+let contributorNameMinimumWidth: CGFloat = 200
+
 /// The width below which the contributor table cannot state its columns.
 ///
 /// **Declared, because the alternative was measured and it was silence.** This
@@ -908,22 +911,24 @@ struct MetricCard: View {
 /// one that silently is not drawn.
 let contributorTableMinimumWidth: CGFloat = 610
 
-extension View {
-    /// Lets the contributor table scroll sideways once the window is narrower
-    /// than it can state its columns in.
-    ///
-    /// `.scrollBounceBehavior(.basedOnSize)` so a window wide enough to show
-    /// everything does not rubber-band on a horizontal scroll it has no use for.
-    func horizontallyScrollableBelowTableMinimum() -> some View {
-        ScrollView(.horizontal) { self }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-    }
-}
 
 struct ContributorHeader: View {
     var body: some View {
         HStack(spacing: 8) {
-            Text("App").frame(maxWidth: .infinity, alignment: .leading)
+            // **A floor as well as a ceiling.** `maxWidth: .infinity` alone let
+            // this cell take whatever width it was proposed, which is right in a
+            // bounded pane and catastrophic in an unbounded one — the reason
+            // three different scroll wrappers each broke one end while fixing
+            // the other (a plain `ScrollView` carried the numeric columns off a
+            // 1400 pt window; `containerRelativeFrame` measures the content
+            // rather than the viewport; `ViewThatFits` never chose its fallback
+            // because flexible content reports that it fits at any width).
+            //
+            // With a minimum as well, the column absorbs the slack of a wide
+            // window and stops shrinking at a width a name can live in, and no
+            // wrapper is needed at either end (TASK-118, TASK-97).
+            Text("App").frame(minWidth: contributorNameMinimumWidth,
+                              maxWidth: .infinity, alignment: .leading)
             // **One CPU column, and it is the mean.** This table used to carry two
             // — "Now" for the newest sample and "Last minute" for the trailing mean
             // it is actually ranked by. Both were honest and each was labelled, but
@@ -1046,9 +1051,13 @@ struct ContributorRow: View {
                         .background(.quaternary, in: Capsule())
                 }
             }
+            // The same frame the header's `App` cell takes, so the two cannot
+            // drift, and in place of the `Spacer` that used to sit here: a
+            // Spacer is flexible with no floor, which is exactly what let the
+            // numeric columns crowd the name out of existence.
+            .frame(minWidth: contributorNameMinimumWidth,
+                   maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
-
-            Spacer(minLength: 8)
 
             trailingMean.frame(width: 106, alignment: .trailing)
 

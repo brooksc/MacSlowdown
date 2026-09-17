@@ -1,9 +1,10 @@
 ---
 id: TASK-108
 title: Make notification volume discoverable — the dial exists and nobody finds it
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-01 01:23'
+updated_date: '2026-09-17 18:26'
 labels:
   - ui
 milestone: m-3
@@ -36,8 +37,28 @@ So this is **not a missing feature**. The product owner has been running the app
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A user who is being notified more than they want can find the setting that reduces it without opening Settings and reading
-- [ ] #2 No second sensitivity control is added; the existing AlertSensitivity stays the single source of notification volume
+- [x] #1 A user who is being notified more than they want can find the setting that reduces it without opening Settings and reading
+- [x] #2 No second sensitivity control is added; the existing AlertSensitivity stays the single source of notification volume
 - [ ] #3 Whether `balanced` remains the default is decided on recorded observation, and the decision is written down either way
 - [ ] #4 The noise level is re-assessed after TASK-102 removes the repeated-quit incident, before any further change is made
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**#1 and #2 done 2026-09-17. #3 and #4 are parked on the field trial and cannot be answered here — see below.**
+
+**#1 — the banner now carries "Alert me less".** Of the three candidates the task lists, this is the one that costs nothing and needs no design turn: the banner already had two actions and a category, so a third is an entry in the same array. It is also the right *moment*. A control is only as real as the moment it can be reached in, and the moment somebody wants fewer notifications is the moment they are reading a notification — Settings is the wrong place to be standing then.
+
+The other two candidates were **not** built and should stay unbuilt for now. "Surface it after N announcements in a period" needs a number nobody has evidence for, and naming it in first run puts a volume control in front of a person who has not yet been interrupted once.
+
+**#2 — no second control, and the test says so.** `AlertSensitivity.quieter` steps the existing dial one notch and stops at `relaxed` rather than wrapping — a control meant to reduce interruptions must never be able to increase them. The app reads the setting **back** after writing it, so a write that did not take is distinguishable from one that did (FR-017, FR-050). `AlertVolumeReachTests` asserts the banner has exactly three actions with exactly one about volume, so a rival control would fail it, and asserts that each step is *measurably* quieter — threshold up, sustained duration up — rather than merely named so.
+
+**Copy note.** "Alert me less" rather than "Lower sensitivity": the latter is accurate and means nothing to somebody who has never opened the Alerts tab.
+
+**#3 and #4 are parked, with the reason.** Both ask for a decision *on recorded observation*: whether `balanced` stays the default, and what the noise level is now that TASK-102 has removed the repeated-quit incident. The only evidence that exists is one day's four banners, and the task itself says changing the default "should be made on more than one day's observation". That evidence is what **TASK-114**, the bounded field trial, is for, and it needs days of real use on the owner's machine — it cannot be produced in a session.
+
+What is now in place for when it can: repeated quits no longer open an incident at all (TASK-102), sustained CPU records without announcing (TASK-111), and the banner can be quietened in one press. Those three between them are most of the volume reduction #3 was weighing a default change against, so re-measure before changing the default rather than instead of it.
+
+**Not verified on screen.** A notification banner was not seen with the third action on it. `UNNotificationCategory` registration is asserted by test, and CLAUDE.md's own rule applies: a notification macOS accepts is not a notification the user saw. What would settle it: trigger an incident on a machine with alerts on and read the banner's buttons.
+<!-- SECTION:NOTES:END -->

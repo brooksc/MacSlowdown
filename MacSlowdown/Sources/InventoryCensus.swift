@@ -87,6 +87,13 @@ struct InventoryCensus: Equatable {
         "Applications only, and rows hold their places for "
         + "\(Int(OrderStability.settleInterval)) s while you read."
 
+    /// The same sentence for the All processes scope, which lists everything and
+    /// so cannot say "applications only". The order rule is the half that carries
+    /// over, and it is the half a reader is most likely to mistake for a defect.
+    static let shortExplanationForAllProcesses =
+        "Every process on this Mac, and rows hold their places for "
+        + "\(Int(OrderStability.settleInterval)) s while you read."
+
     /// Everything the short sentence stands in for, in the order it should be
     /// read. Composed from the constants rather than restated, so the disclosed
     /// text cannot drift from the summary or from the inspector (FR-060).

@@ -30,7 +30,7 @@ private func usage(mean: Double, peak: Double, samples: Int = 58) -> TrailingUsa
 /// `isMeasurable: true` and `residentBytes: 0`, because FR-055's total is a
 /// measured difference between host busy and everything we could read, while no
 /// memory figure exists for it at all.
-private let systemProcesses = InventoryRow(
+@MainActor private let systemProcesses = InventoryRow(
     id: "system",
     trailing: usage(mean: 5.6, peak: 11.2),
     name: "System processes",
@@ -49,7 +49,7 @@ private let systemProcesses = InventoryRow(
 /// reachable only if FR-055's total ever became unavailable, so this is a
 /// stress case rather than the ordinary one — kept because it is where the name
 /// cell runs out of room first.
-private let systemProcessesUnreadable = InventoryRow(
+@MainActor private let systemProcessesUnreadable = InventoryRow(
     id: "system-unreadable",
     trailing: nil,
     name: "System processes",
@@ -62,7 +62,7 @@ private let systemProcessesUnreadable = InventoryRow(
     qualification: nil,
     children: [])
 
-private let ours = InventoryRow(
+@MainActor private let ours = InventoryRow(
     id: "macslowdown",
     trailing: usage(mean: 9.0, peak: 14.1),
     name: "MacSlowdown",
@@ -77,7 +77,7 @@ private let ours = InventoryRow(
 
 /// A family with children and a long name — the two things that squeeze the name
 /// cell at once.
-private let browser = InventoryRow(
+@MainActor private let browser = InventoryRow(
     id: "brave",
     trailing: usage(mean: 62.4, peak: 140.8),
     name: "Brave Browser",
@@ -104,7 +104,7 @@ private let browser = InventoryRow(
     ])
 
 /// Nothing retained for it yet — an em dash, never a zero (FR-002).
-private let fresh = InventoryRow(
+@MainActor private let fresh = InventoryRow(
     id: "just-launched",
     trailing: nil,
     name: "com.apple.WebKit.WebContent.Development",
@@ -119,7 +119,12 @@ private let fresh = InventoryRow(
 
 /// The table as Now and Overview draw it, header included, so the columns can be
 /// checked against their headings.
-private struct ContributorTablePreview: View {
+///
+/// Every preview below pins the frame's alignment to `.leading`, because the app
+/// does: the table sits in a `VStack` inside a scroll view, pinned leading. A
+/// centred preview frame clips an oversized row on *both* sides and reads as a
+/// defect in the table when it is an artefact of the preview.
+@MainActor private struct ContributorTablePreview: View {
     var rows: [InventoryRow] = [browser, ours, systemProcesses, fresh]
     var age: String?
     @State private var expanded: Set<String> = []
@@ -156,7 +161,6 @@ private struct ContributorTablePreview: View {
                 Divider()
             }
         }
-        .horizontallyScrollableBelowTableMinimum()
     }
 }
 
@@ -165,32 +169,32 @@ private struct ContributorTablePreview: View {
 /// each sit on one line, and the row must be the height of an ordinary row.
 #Preview("Now table — default width") {
     ContributorTablePreview()
-        .frame(width: 900, height: 320)
+        .frame(width: 900, height: 320, alignment: .leading)
 }
 
 /// `TASK-118` AC#4. The window's minimum is 480 pt and the sidebar takes some of
 /// it, so this is narrower than the table can ever actually be asked to be.
 #Preview("Now table — 480 pt, the window minimum") {
     ContributorTablePreview()
-        .frame(width: 480, height: 320)
+        .frame(width: 480, height: 320, alignment: .leading)
 }
 
 #Preview("Now table — 620 pt") {
     ContributorTablePreview()
-        .frame(width: 620, height: 320)
+        .frame(width: 620, height: 320, alignment: .leading)
 }
 
 /// Expanded, so a child row's indent and its "Not retained" cell can be read.
 #Preview("Now table — a family expanded") {
     ContributorTablePreview(rows: [browser, systemProcesses])
-        .frame(width: 900, height: 260)
+        .frame(width: 900, height: 260, alignment: .leading)
 }
 
 /// While readings are late. The age column is reserved unconditionally, so this
 /// must not shift any other column relative to its heading (TASK-96 finding 14).
 #Preview("Now table — readings are late") {
     ContributorTablePreview(age: "12 s ago")
-        .frame(width: 900, height: 320)
+        .frame(width: 900, height: 320, alignment: .leading)
 }
 
 /// The name cell at its worst: a count and two badges on one row. Nothing may
@@ -198,6 +202,6 @@ private struct ContributorTablePreview: View {
 /// text is not.
 #Preview("Now table — a row with count and two badges") {
     ContributorTablePreview(rows: [systemProcessesUnreadable, ours])
-        .frame(width: 900, height: 200)
+        .frame(width: 900, height: 200, alignment: .leading)
 }
 #endif

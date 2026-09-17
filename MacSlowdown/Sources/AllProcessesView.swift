@@ -25,6 +25,8 @@ struct AllProcessesView: View {
     @State private var measurableOrder = StableOrder<AllProcessesRow>()
     @State private var unmeasurableOrder = StableOrder<AllProcessesRow>()
     @State private var listing = AllProcessesListing(measurable: [], unmeasurable: [])
+    /// The footer's long form, collapsed by default (TASK-65.22).
+    @State private var showsFooterDetail = false
 
     /// The ranking, from the newest rows. `listing` is this, settled.
     private var ranked: AllProcessesListing {
@@ -203,9 +205,33 @@ struct AllProcessesView: View {
                 Text(freshness)
             }
             .accessibilityElement(children: .combine)
-            Text("Resident memory. Activity Monitor's Memory column shows a different "
-                 + "measure (footprint), so the numbers will not match exactly.")
-            Text(OrderStability.explanation)
+            // One sentence, the rest one disclosure away — the same shape the
+            // Apps footer takes, because it is the same footer under the same
+            // kind of table (TASK-65.22).
+            //
+            // Measured at 140 pt, which is what the Apps pane's inspector leaves
+            // the table at the window's minimum width: the old three-paragraph
+            // footer wrapped to sixteen lines and left room for **two rows**. A
+            // footer that crowds out the table it is explaining has stopped being
+            // an explanation.
+            //
+            // The memory caveat used to be written out here, word for word from
+            // `InventoryCensus.residentMemoryCaveat`. Two copies of one caveat is
+            // how TASK-80 found two differently-worded paraphrases of the per-app
+            // disk limitation, with a test asserting one of them verbatim; this
+            // one now reads the constant.
+            DisclosureGroup(isExpanded: $showsFooterDetail) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(InventoryCensus.residentMemoryCaveat)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(OrderStability.explanation)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } label: {
+                Text(InventoryCensus.shortExplanationForAllProcesses)
+            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)

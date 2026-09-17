@@ -1,10 +1,10 @@
 ---
 id: TASK-111
 title: Sustained CPU load stops interrupting by default (FR-014 amendment 1)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-06 16:53'
-updated_date: '2026-09-09 17:40'
+updated_date: '2026-09-17 18:18'
 labels:
   - core
 milestone: m-2
@@ -78,4 +78,12 @@ Depends on TASK-109 for the wording it announces with.
 Design 5g's other half is built with it: an Alerts-tab section, **Which of these should interrupt you?**, with a switch per resource condition, ordered defaults-first, each carrying `IncidentCondition.interruptionRationale` — including CPU's "usually it's work you started on purpose, and there's nothing for us to suggest. Still recorded, and in the overview." The rationale lives beside `announcesByDefault` in `NotificationPolicy.swift` so copy and behaviour cannot separate.
 
 **Not seen on screen.** The strings are asserted by test; the Alerts tab itself is still on TASK-65.24's never-looked-at list.
+
+**Seen on screen, 2026-09-17** — `design/verified/2026-09-17/previews/settings-alerts.png`. The task's five criteria were already met; what stood open was the note that the strings were asserted by test and the Alerts tab itself had never been looked at.
+
+Criterion #4 confirmed by reading it rather than by trusting the test: the restatement under "How sensitive should I be?" renders as **"Balanced: a condition starts once total CPU stays above 85% of this Mac's capacity for 3 minutes, and you hear about the ones rated high or worse. This moves the line itself, not just what gets said about it — a lower line records more conditions and shows more of them in the overview."** Both halves are there: the threshold quoted with its duration, and the caveat that the option moves the detection line and not only the announcement rule.
+
+Also visible and correct on the same tab: "Quiet during Focus — Held by macOS", which states the limitation rather than offering a control we cannot honour, and "Don't interrupt during calls or playback" with "The slowdown is still recorded" — the distinction between suppressing an interruption and suppressing monitoring, which is what this whole task is about.
+
+**Not verified**: the "Which of these should interrupt you?" section sits below the fold of the render and was not read. It is covered by TASK-65.24 #1.
 <!-- SECTION:NOTES:END -->

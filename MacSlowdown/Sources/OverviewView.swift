@@ -566,10 +566,6 @@ struct OverviewView: View {
                 .foregroundStyle(.secondary)
                 .padding(10)
         }
-        // The same table means the same narrow-window behaviour: scroll sideways
-        // rather than compress. Applied here too because this is a second call
-        // site of one view, and the rule belongs to the table, not to the screen.
-        .horizontallyScrollableBelowTableMinimum()
         .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
     }
 
