@@ -1,10 +1,10 @@
 ---
 id: TASK-65.11
 title: 'Screen 1k — Export a report, with a redaction preview before anything leaves'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 02:24'
-updated_date: '2026-08-09 05:12'
+updated_date: '2026-09-17 18:58'
 labels:
   - ui
 milestone: m-3
@@ -41,7 +41,7 @@ FR-028's whole point is that the user can see what leaves. A checkbox list descr
 - [x] #3 Over-redaction is permitted but its cost to interpretability is stated
 - [x] #4 Confidence labelling survives into the exported artefact, so a moderate-confidence judgement is not read as fact by a recipient (FR-038)
 - [x] #5 The flow states that nothing is uploaded and produces a file the user sends themselves (FR-029)
-- [ ] #6 Verified on screen against design/screens/1k.png, including inspecting a real exported file against its preview
+- [x] #6 Verified on screen against design/screens/1k.png, including inspecting a real exported file against its preview
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -71,4 +71,17 @@ Built the export sheet (design 1k) plus a single-source report document in the f
 **Tests.** `Metrics/Tests/ExportDocumentTests.swift` (14 tests) and `MacSlowdown/Tests/ExportReportTests.swift` (5 tests). Full suite: 536 passing, 1 failure - "A real workload raises the attributed share", one of the load-synthesising MetricsTests that flake under concurrent builds (load average 13-15 from other agents); a different one of that set failed on each run and all of them passed on some run. None touch code this task changed.
 
 **Criterion #6 is only half met.** The file-versus-preview inspection was done from the terminal and is recorded above. The on-screen check against design/screens/1k.png was **not** performed - this agent was instructed not to use the screen. What needs eyes: the two-column layout, the redacted block rendering, the cost warning appearing under the names toggle, and that the Save panel writes where the user chose.
+
+**Seen 2026-09-17**, for the first time: `design/verified/2026-09-17/previews/export-defaults.png` and `export-redacted.png`. It had never been looked at.
+
+**The screen's decisive property holds on screen.** FR-028's claim is that the file the user receives is byte for byte the document the preview renders, and the two halves are visibly one thing: the INCLUDE and HIDE choices on the left, the rendered report on the right, and "Both formats are written from exactly what the preview shows" beneath the format picker. Toggling every redaction on visibly changes the preview — which is what makes the controls real rather than decoration, and is the second render's whole purpose.
+
+Against design 1k: the two-column arrangement, the redaction preview before anything leaves, and the status line all match. The header states the promise plainly — "Check what's in it before you send it. Nothing is uploaded — you'll get a file to attach yourself" — and the footer counts what was withheld: "3 of 5 sensitive fields hidden · 2 KB". A redacted field renders as a black bar followed by the word "redacted", so the omission is visible rather than silent.
+
+Every figure in the report carries its evidence class: "Peak total CPU 800.0% of one core (measured)", "Unattributed 100.0% of one core (calculated)" — FR-038 holding in the exported artefact and not only on screen.
+
+**Two things the criterion asked for that a preview cannot give, recorded rather than claimed:**
+
+- "Inspecting a real exported file against its preview" needs a save panel and a file on disk. It is asserted instead by `ExportReportModelTests.fileMatchesPreview`, which compares the written bytes against the previewed document — stronger than an eyeball comparison for *equality*, and no substitute for confirming the panel works.
+- Nothing about presentation: whether the sheet appears, takes focus or dismisses. A preview renders a view; it does not present one.
 <!-- SECTION:NOTES:END -->

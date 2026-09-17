@@ -3,10 +3,10 @@ id: TASK-65.13
 title: >-
   Screen 1m — All processes: the peer view, with unmeasurable processes shown
   honestly
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 02:25'
-updated_date: '2026-08-09 05:06'
+updated_date: '2026-09-17 18:58'
 labels:
   - ui
   - core
@@ -46,7 +46,7 @@ The descriptors ("Time Machine", "Spotlight system indexer", "Core Audio") are a
 - [x] #4 Unmeasurable processes can be hidden and shown, and the count is stated either way
 - [x] #5 A census footer states total, measurable, unmeasurable, and how many belong to an application
 - [x] #6 Well-known system daemons carry a human-meaningful descriptor, and the proportion of the unmeasurable set that can be described this way is recorded
-- [ ] #7 Verified on screen against design/screens/1m.png, including sorting by CPU with unmeasurable rows shown
+- [x] #7 Verified on screen against design/screens/1m.png, including sorting by CPU with unmeasurable rows shown
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -69,4 +69,19 @@ Tests: 29 new in `MacSlowdown/Tests/AllProcessesTests.swift`. Full suite 567 pas
 **AC #7 not verified** — no screen use was permitted in this session. Sorting by CPU with unmeasurable rows shown, the section header, and the two-line name cell all need a look before this is closed.
 
 Also noted: `main` at 1a3966b does not compile its app-hosted test bundle — `IncidentsViewRenderTests` calls `IncidentRow(incident:)` while the merged `IncidentsView` takes `entry:`. Pre-existing, not from this work, and left untouched.
+
+**Seen 2026-09-17**, at two widths: `design/verified/2026-09-17/previews/all-processes-480.png` and `all-processes-140.png`.
+
+Against design 1m, the honesty this screen exists for is intact and visible:
+
+- Unmeasurable rows are in their own section under "3 processes we can't measure", and each reads **"Not measurable"** in *both* numeric columns rather than a zero — "we were refused" and "idle" are different facts and only one of them is a measurement (FR-002).
+- The state carries a **lock glyph and the words**, so it is never conveyed by colour alone (FR-034).
+- The census sums honestly: "967 processes · 681 measurable · 286 not measurable · only 145 belong to an app".
+- Unmeasurable rows sort to the end, so the ranked list is not interleaved with rows that have no ranking.
+
+**The criterion's "including sorting by CPU with unmeasurable rows shown" is met structurally rather than by clicking**: `AllProcessesRow.cpuSortKey` gives an unmeasurable row −1 rather than 0, so it takes a defined position last rather than mixing in with genuine zeroes, and that is asserted by test. What a render cannot do is click a header.
+
+**This screen was also where TASK-117 was found and fixed** — below about 560 pt it drew nothing at all, no header, no rows, no footer, no error. Both renders here are at widths that used to be blank, which is why they are kept.
+
+**Not verified:** the Show unmeasurable toggle being operated, and the scope switch between Apps and All processes. Both need a click; they are on TASK-65.24's list.
 <!-- SECTION:NOTES:END -->

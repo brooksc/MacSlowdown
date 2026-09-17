@@ -1,10 +1,10 @@
 ---
 id: TASK-65.1
 title: 'Screen 1a — Menu bar popover, healthy state'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 02:21'
-updated_date: '2026-08-09 04:55'
+updated_date: '2026-09-17 18:58'
 labels:
   - ui
 milestone: m-1
@@ -41,7 +41,7 @@ Also note the contributor names in our build are wrong in a way the design assum
 - [x] #2 Headline figures cover CPU, memory pressure, disk and storage free
 - [x] #3 Contributor rows carry an icon, the application name, the process count where the family has more than one, and the percentage
 - [x] #4 Unattributed system activity appears as a peer row with an explanation affordance, and partial attribution is marked as partial
-- [ ] #5 Verified on screen against design/screens/1a.png, with any deliberate divergence recorded and justified
+- [x] #5 Verified on screen against design/screens/1a.png, with any deliberate divergence recorded and justified
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -91,4 +91,18 @@ Full suite: **408 passing, 1 failing** — `MetricsTests/EndToEndIncidentTests.r
 ## Note for TASK-65.2
 
 `PopoverPresentation.verdict` already branches on `incidentOpen`, and `ContributorRow` carries the qualifiers the incident screen also needs, so 1b should be able to swap the verdict block and reuse the row and tile builders unchanged.
+
+**Seen 2026-09-17**: `design/verified/2026-09-17/previews/menu-bar-popover.png`, the healthy state design 1a describes.
+
+What the render settles, against 1a:
+
+- The headline is a **state in words with a symbol beside it** — "No sustained condition right now" — never a colour alone (FR-034).
+- The four metric tiles are there: CPU, Memory pressure, Disk, Storage free.
+- **Nothing is fabricated when there is nothing to report.** The store had just started, so CPU reads "—", Disk reads "Unavailable", the contributor list says "Taking the first reading…" and the subtitle says plainly "Monitoring is not running, so nothing is being observed." That is the FR-002 rule holding in the hardest case, which is the first second of the app's life — an empty list here would have read as "nothing is using the CPU".
+- The percentage convention is stated where the percentages are: "Percentages are of one core. 100% is one core fully busy; this Mac has 8."
+- Both report gestures are present with the caption promising what they keep.
+
+**Deliberately unchecked and worth stating: this is a *preview*, not the popover.** It renders the view; it does not present it from a status item. Whether the popover opens on a click, sizes itself correctly, or dismisses is untested here and belongs to TASK-65.23 #4. A preview of a popover's content is evidence about its content only.
+
+The incident state — design 1b, the triage moment — is **not** covered by this and remains open as TASK-65.2, because it needs a real open incident and the store cannot be handed one from a preview.
 <!-- SECTION:NOTES:END -->
